@@ -73,17 +73,8 @@ static CPUAccelerationFeatures_t detectAVX2Feature(const int32_t cpuInfo[4])
     static const int32_t kAVX2Flag = 1 << 5;
     static const int32_t kXSaveFlag = 1 << 27;
 
-    bool hasXSaveSupport = false;
-
-    /* Check for XSAVE support on the OS. */
-    if ((cpuInfo[2] & kXSaveFlag) == kXSaveFlag) {
-        static const uint32_t kOSXSaveMask = 6;
-        static const uint32_t kControlRegister = 0; /* _XCR_XFEATURE_ENABLED_MASK */
-        hasXSaveSupport = ((_xgetbv(kControlRegister) & kOSXSaveMask) == kOSXSaveMask);
-    }
-
-    /* Must have xsave feature and OS must support it. */
-    if (!hasXSaveSupport) {
+    /* Check for XSAVE support on the CPU. */
+    if ((cpuInfo[2] & kXSaveFlag) != kXSaveFlag) {
         return CAFNone;
     }
 
@@ -91,7 +82,12 @@ static CPUAccelerationFeatures_t detectAVX2Feature(const int32_t cpuInfo[4])
     int32_t info[4];
     loadCPUInfo(info, 7);
 
-    return ((info[1] & kAVX2Flag) == kAVX2Flag) ? CAFAVX2 : CAFNone;
+    /* Check if CPU supports AVX2. */
+    if ((info[1] & kAVX2Flag) != kAVX2Flag) {
+        return CAFNone;
+    }
+
+    return CAFAVX2;
 #else
     /* vndk does not define _xgetbv */
     return CAFNone;

@@ -13,7 +13,7 @@
 # THE EXCLUSION OF PATENT LICENSES PROVISION OF THE BSD-3-CLAUSE-CLEAR LICENSE.
 
 if (VN_SDK_SIMD AND TARGET_ARCH MATCHES "^x86")
-    target_compile_options(lcevc_dec::compiler INTERFACE -mavx)
+    target_compile_options(lcevc_dec::compiler INTERFACE -msse4.1)
 endif ()
 
 if (TARGET_ARCH STREQUAL "wasm")
