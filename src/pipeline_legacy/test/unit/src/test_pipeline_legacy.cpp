@@ -61,6 +61,6 @@ TEST_F(PipelineLegacyFixture, AllocatePicturesManaged)
 {
     const LdpPictureDesc pictureDesc{1920, 1080, LdpColorFormatI420_8};
 
-    auto picture = mPipeline->allocPictureManaged(pictureDesc);
+    auto picture = mPipeline->allocPicture(pictureDesc);
     ASSERT_TRUE(picture);
 }

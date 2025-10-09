@@ -17,45 +17,14 @@
 
 // #define DEBUG_LOGGING
 
-#include <vulkan/vulkan.h>
+#include "backend_vulkan.h"
 
-#if defined(ANDROID)
-// #define ANDROID_BUFFERS
-#include <android/log.h>
-#include <vulkan/vulkan_android.h>
-
-#if defined(ANDROID_BUFFERS)
-#include <android/hardware_buffer.h>
-#include <android/hardware_buffer_jni.h>
-#endif
-
-#if defined(DEBUG_LOGGING)
-#define COUT_STR(x) __android_log_print(ANDROID_LOG_DEBUG, "vulkan_upscale", "%s", (x).c_str());
-#else
-#define COUT_STR(x)
-#endif
-
-#else
-
-#if defined(DEBUG_LOGGING)
-#define COUT_STR(x) std::cout << (x) << std::endl;
-#else
-#define COUT_STR(x)
-#endif
-
-#endif
-
-#include "buffer_vulkan.h"
-// #include "picture_vulkan.h"
-#include "pipeline_builder_vulkan.h"
-
-#include <LCEVC/common/constants.h>
-#include <LCEVC/common/threads.h>
-//
 #include <LCEVC/common/class_utils.hpp>
+#include <LCEVC/common/constants.h>
 #include <LCEVC/common/ring_buffer.hpp>
 #include <LCEVC/common/rolling_arena.h>
 #include <LCEVC/common/task_pool.h>
+#include <LCEVC/common/threads.h>
 #include <LCEVC/common/threads.hpp>
 #include <LCEVC/common/vector.hpp>
 #include <LCEVC/enhancement/config_pool.h>
@@ -63,6 +32,8 @@
 #include <LCEVC/pipeline/frame.h>
 #include <LCEVC/pipeline/pipeline.h>
 #include <LCEVC/pixel_processing/dither.h>
+#include <picture_vulkan.h>
+#include <pipeline_builder_vulkan.h>
 //
 #include <cstdio>
 #include <cstring>
@@ -81,6 +52,10 @@ namespace lcevc_dec::pipeline_vulkan {
 class BufferVulkan;
 class FrameVulkan;
 class PictureVulkan;
+struct VulkanApplyArgs;
+struct VulkanBlitArgs;
+struct VulkanConversionArgs;
+struct VulkanUpscaleArgs;
 
 // Description of a temporal buffer
 struct TemporalBufferDesc
@@ -110,42 +85,6 @@ struct TemporalBuffer
     LdcMemoryAllocation allocation;
 };
 
-struct VulkanConversionArgs
-{
-    PictureVulkan* src;
-    PictureVulkan* dst;
-    bool toInternal; /**< Indicates whether we are converting to or from internal */
-};
-
-struct VulkanBlitArgs
-{
-    PictureVulkan* src;
-    PictureVulkan* dst;
-};
-
-struct VulkanUpscaleArgs
-{
-    PictureVulkan* src;
-    PictureVulkan* dst;
-    PictureVulkan* base;     /**< base picture only used for PA */
-    uint8_t applyPA;         /**< Indicates that predicted-average should be off, 1D, or 2D */
-    LdppDitherFrame* dither; /**< Indicates that dithering should be applied  */
-    LdeScalingMode mode;     /**< The type of scaling to perform (1D or 2D). */
-    bool vertical; /**< Not part of the standard but if the scaling mode is 1D we can optionally do vertical instead of horizontal. Required for unit tests */
-    bool loq1;     /**< Allows separate intermediate states for LOQ1/0 */
-};
-
-struct VulkanApplyArgs
-{
-    PictureVulkan* plane;
-    uint32_t planeWidth;
-    uint32_t planeHeight;
-    LdeCmdBufferGpu bufferGpu;
-    bool highlightResiduals;
-    bool temporalRefresh;
-    bool tuRasterOrder;
-};
-
 // A base picture reference and other arguments from sendBase()
 //
 // Used for pending base pictures, before association with frames.
@@ -164,47 +103,26 @@ public:
     PipelineVulkan(const PipelineBuilderVulkan& builder, pipeline::EventSink* eventSink);
     ~PipelineVulkan() override;
 
-    // Vulkan control
-    bool init();
-    bool blit(VulkanBlitArgs* params);
-    bool conversion(VulkanConversionArgs* params);
-    bool upscaleFrame(const LdeKernel* kernel, VulkanUpscaleArgs* params);
-    bool upscaleVertical(const LdeKernel* kernel, VulkanUpscaleArgs* params);
-    bool upscaleHorizontal(const LdeKernel* kernel, VulkanUpscaleArgs* params);
-    void reset()
-    {
-        for (int i = 0; i < LOQEnhancedCount; ++i) {
-            m_firstFrame[i] = true;
-        }
-        m_firstApply = true;
-    }
-    bool apply(VulkanApplyArgs* params);
-    bool isInitialised() const { return m_initialized; }
-    bool isRealGpu() const { return m_realGpu; }
-    void destroy();
-
-    // Vulkan getters/helpers
-    uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
-    VkDevice& getDevice() { return m_device; }
-    uint32_t getQueueFamilyIndex() const { return m_queueFamilyIndex; }
-
     // Send/receive
-    LdcReturnCode sendBasePicture(uint64_t timestamp, LdpPicture* basePicture, uint32_t timeoutUs,
+    LdcReturnCode sendDecoderBase(uint64_t timestamp, LdpPicture* basePicture, uint32_t timeoutUs,
                                   void* userData) override;
-    LdcReturnCode sendEnhancementData(uint64_t timestamp, const uint8_t* data, uint32_t byteSize) override;
-    LdcReturnCode sendOutputPicture(LdpPicture* outputPicture) override;
+    LdcReturnCode sendDecoderEnhancementData(uint64_t timestamp, const uint8_t* data,
+                                             uint32_t byteSize) override;
+    LdcReturnCode sendDecoderPicture(LdpPicture* outputPicture) override;
 
-    LdpPicture* receiveOutputPicture(LdpDecodeInformation& decodeInfoOut) override;
-    LdpPicture* receiveFinishedBasePicture() override;
+    LdpPicture* receiveDecoderPicture(LdpDecodeInformation& decodeInfoOut) override;
+    LdpPicture* receiveDecoderBase() override;
+
+    void getCapacity(LdpPipelineCapacity* capacity) override;
 
     // "Trick-play"
     LdcReturnCode flush(uint64_t timestamp) override;
-    LdcReturnCode peek(uint64_t timestamp, uint32_t& widthOut, uint32_t& heightOut) override;
+    LdcReturnCode peekDecoder(uint64_t timestamp, uint32_t& widthOut, uint32_t& heightOut) override;
     LdcReturnCode skip(uint64_t timestamp) override;
-    LdcReturnCode synchronize(bool dropPending) override;
+    LdcReturnCode synchronizeDecoder(uint64_t timestamp, bool dropPending) override;
 
     // Picture-handling
-    LdpPicture* allocPictureManaged(const LdpPictureDesc& desc) override;
+    LdpPicture* allocPicture(const LdpPictureDesc& desc) override;
     LdpPicture* allocPictureExternal(const LdpPictureDesc& desc, const LdpPicturePlaneDesc* planeDescArr,
                                      const LdpPictureBufferDesc* buffer) override;
 
@@ -239,117 +157,23 @@ public:
 
     void updateTemporalBufferDesc(TemporalBuffer* buffer, const TemporalBufferDesc& desc) const;
 
-    PictureVulkan* getTemporalPicture() { return m_temporalPicture; }
-
 #ifdef VN_SDK_LOG_ENABLE_DEBUG
     // Write Debug log of current frame state
     void logFrames() const;
 #endif
 
+    // Vulkan core management
+    BackendVulkan& getCore() { return m_core; }
+    bool isInitialised() const { return m_initialised; }
+    void prepareApplyArgs(VulkanApplyArgs& args, PictureVulkan* picture,
+                          LdpEnhancementTile* enhancementTile, FrameVulkan* frame, bool applyDirect);
+
+    void getSubsamplingShifts(LdeChroma chroma, int& widthShift, int& heightShift);
+    LdpColorFormat chromaToColorFormat(LdeChroma chroma);
+
     VNNoCopyNoMove(PipelineVulkan);
 
 private:
-    // Vulkan core
-    bool checkValidationLayerSupport();
-    std::vector<const char*> getRequiredExtensions();
-    void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo);
-    bool createInstance();
-    VkResult CreateDebugUtilsMessengerEXT(VkInstance instance,
-                                          const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo,
-                                          const VkAllocationCallbacks* pAllocator,
-                                          VkDebugUtilsMessengerEXT* pDebugMessenger);
-    void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT debugMessenger,
-                                       const VkAllocationCallbacks* pAllocator);
-    bool setupDebugMessenger();
-    bool isDeviceSuitable(VkPhysicalDevice device);
-    static VkPhysicalDevice pickBestDevice(const std::vector<VkPhysicalDevice>& devices);
-    bool pickPhysicalDevice();
-    bool createLogicalDeviceAndQueue();
-    bool createBindingsAndPipelineLayout(uint32_t numBuffers, uint32_t pushConstantsSize,
-                                         VkDescriptorSetLayout& setLayout,
-                                         VkPipelineLayout& pipelineLayout);
-    std::vector<char> readFile(const std::string& filename);
-    bool createComputePipeline(const unsigned char* shaderName, size_t shaderSize,
-                               VkPipelineLayout& layout, VkPipeline& pipe, int wgSize);
-
-    bool allocateDescriptorSets();
-    void updateComputeDescriptorSets(VkBuffer src, VkBuffer dst, VkDescriptorSet descriptorSet);
-    void updateComputeDescriptorSets(VkBuffer src, VkBuffer dst1, VkBuffer dst2,
-                                     VkDescriptorSet descriptorSet);
-    bool createCommandPoolAndBuffer();
-    static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-                                                        VkDebugUtilsMessageTypeFlagsEXT messageType,
-                                                        const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
-                                                        void* pUserData);
-
-    void dispatchCompute(int width, int height, VkCommandBuffer& cmdBuf, int wgSize, int packDensity = 2);
-
-    bool mapMemory(VkDeviceMemory& memory, uint8_t* mappedPtr);
-    bool unmapMemory(VkDeviceMemory& memory, uint8_t* mappedPtr);
-
-    const std::vector<const char*> validationLayers = {"VK_LAYER_KHRONOS_validation"};
-
-    const std::vector<const char*> deviceExtensions = {
-#if defined(ANDROID)
-    //"VK_ANDROID_external_memory_android_hardware_buffer",
-    //"VK_EXT_queue_family_foreign"
-#endif
-    };
-    static const int NUM_PLANES = 3;
-    const int workGroupSize = 1;
-    const int workGroupSizeDebug = 1;
-
-    bool m_firstFrame[LOQEnhancedCount] = {true, true};
-    bool m_firstApply = true;
-    bool m_initialized = false;
-    bool m_realGpu = false;
-    uint8_t m_shift = 5;
-    LdeChroma m_chroma = LdeChroma::CT420;
-
-    VkInstance m_instance;
-    VkDebugUtilsMessengerEXT m_debugMessenger;
-    VkPhysicalDevice m_physicalDevice;
-    uint32_t m_queueFamilyIndex;
-    VkDevice m_device;
-    VkQueue m_queue;
-    VkQueue m_queueIntermediate;
-    VkDescriptorSetLayout m_setLayoutVertical;
-    VkDescriptorSetLayout m_setLayoutHorizontal;
-    VkDescriptorSetLayout m_setLayoutApply;
-    VkDescriptorSetLayout m_setLayoutConversion;
-    VkDescriptorSetLayout m_setLayoutBlit;
-    VkPipelineLayout m_pipelineLayoutVertical;
-    VkPipelineLayout m_pipelineLayoutHorizontal;
-    VkPipelineLayout m_pipelineLayoutApply;
-    VkPipelineLayout m_pipelineLayoutConversion;
-    VkPipelineLayout m_pipelineLayoutBlit;
-    VkPipeline m_pipelineVertical;
-    VkPipeline m_pipelineHorizontal;
-    VkPipeline m_pipelineApply;
-    VkPipeline m_pipelineConversion;
-    VkPipeline m_pipelineBlit;
-    VkDescriptorPool m_descriptorPool;
-    VkDescriptorSet m_descriptorSetSrcMid; // 2 buffers: 1.base -> VERTICAL -> 2.output
-    VkDescriptorSet m_descriptorSetMidDst; // 3 buffers: 1.vertical + 2.base -> HORIZONTAL -> 3.output
-    VkDescriptorSet m_descriptorSetApply;      // 2 buffers: 1.commands -> APPLY -> 2.output plane
-    VkDescriptorSet m_descriptorSetConversion; // 2 buffers: 1.input -> CONVERSION -> 2.output plane
-    VkDescriptorSet m_descriptorSetBlit;       // 2 buffers: 1.input -> BLIT -> 2.output plane
-    VkCommandPool m_commandPool;
-    VkCommandBuffer m_commandBuffer;
-    VkCommandBuffer m_commandBufferIntermediate;
-
-#if defined(ANDROID_BUFFERS)
-    AHardwareBuffer* srcHardwareBuffer[NUM_PLANES];
-    AHardwareBuffer* midHardwareBuffer[NUM_PLANES];
-    AHardwareBuffer* dstHardwareBuffer[NUM_PLANES];
-#endif
-
-    // Plane for intermediate vertical upscale
-    PictureVulkan* m_intermediateUpscalePicture[LOQEnhancedCount] = {};
-
-    // Planes for apply
-    PictureVulkan* m_temporalPicture = nullptr;
-
     friend PipelineBuilderVulkan;
 
     // Given a timestamp, either find existing frame, or create a new one
@@ -420,8 +244,6 @@ private:
     static void* taskPassthrough(LdcTask* task, const LdcTaskPart* part);
     static void* taskTemporalRelease(LdcTask* task, const LdcTaskPart* part);
 
-    static uint32_t chromaToNumPlanes(LdeChroma chroma);
-
     // Configuration from builder
     const PipelineConfigVulkan m_configuration;
 
@@ -490,6 +312,18 @@ private:
 
     // Signalled when frames are done, whilst holding m_interTaskMutex
     common::CondVar m_interTaskFrameDone;
+
+    BackendVulkan m_core;
+
+    bool m_initialised = false;
+
+    LdeChroma m_chroma = LdeChroma::CT420;
+
+    // Plane for intermediate vertical upscale
+    std::unique_ptr<PictureVulkan> m_intermediateUpscalePicture[LOQEnhancedCount] = {};
+
+    // Planes for apply
+    std::unique_ptr<PictureVulkan> m_temporalPicture = nullptr;
 };
 
 } // namespace lcevc_dec::pipeline_vulkan

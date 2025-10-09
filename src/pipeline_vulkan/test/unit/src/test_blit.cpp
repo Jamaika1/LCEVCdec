@@ -24,6 +24,7 @@
 #include <LCEVC/pipeline/pipeline.h>
 #include <LCEVC/pipeline/types.h>
 #include <LCEVC/pipeline_vulkan/create_pipeline.h>
+#include <LCEVC/pipeline_vulkan/types_vulkan.h>
 #include <picture_vulkan.h>
 #include <pipeline_vulkan.h>
 
@@ -73,13 +74,13 @@ TEST_F(PipelineVulkanBlitFixture, AddTemporalToOutputPicture)
     constexpr auto height = 1080;
 
     const LdpPictureDesc srcDesc{width, height, LdpColorFormatI420_16_LE};
-    auto* src = static_cast<PictureVulkan*>(pipeline->allocPictureManaged(srcDesc));
+    auto* src = static_cast<PictureVulkan*>(pipeline->allocPicture(srcDesc));
     auto* srcBuffer = static_cast<BufferVulkan*>(src->buffer);
     auto srcData = vulkan_test_util::generateYUV420FromFixedSeed<uint16_t>(width, height);
     std::memcpy(srcBuffer->ptr(), srcData.data(), srcData.size() * sizeof(srcData[0]));
 
     const LdpPictureDesc dstDesc{width, height, LdpColorFormatI420_16_LE};
-    auto* dst = static_cast<PictureVulkan*>(pipeline->allocPictureManaged(dstDesc));
+    auto* dst = static_cast<PictureVulkan*>(pipeline->allocPicture(dstDesc));
     auto* dstBuffer = static_cast<BufferVulkan*>(dst->buffer);
     auto dstData = vulkan_test_util::generateYUV420FromFixedSeed<uint16_t>(width, height);
     std::memcpy(dstBuffer->ptr(), dstData.data(), dstData.size() * sizeof(dstData[0]));
@@ -88,8 +89,8 @@ TEST_F(PipelineVulkanBlitFixture, AddTemporalToOutputPicture)
     args.src = src;
     args.dst = dst;
 
-    EXPECT_TRUE(pipeline->blit(&args));
+    EXPECT_TRUE(pipeline->getCore().blit(&args));
 
     const std::string hash = vulkan_test_util::hashMd5(dstBuffer->ptr(), dstBuffer->size());
-    EXPECT_EQ(hash, "6ab4deece6fa070dd0bced3535c67ff4");
+    EXPECT_EQ(hash, "6f002454fc4278f810c8e7195980e6d8");
 }

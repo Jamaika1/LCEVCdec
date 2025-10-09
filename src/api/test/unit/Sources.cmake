@@ -13,14 +13,16 @@
 # THE EXCLUSION OF PATENT LICENSES PROVISION OF THE BSD-3-CLAUSE-CLEAR LICENSE.
 
 set(SOURCES
-    "src/test_pool.cpp"
-    "src/event_tester.cpp"
     "src/decoder_asynchronous.cpp"
     "src/decoder_synchronous.cpp"
+    "src/event_tester.cpp"
+    "src/test_api_avplayer.cpp"
+    "src/test_api_bad_streams.cpp"
     "src/test_api_bad_streams.cpp"
     "src/test_api_events_threaded.cpp"
     "src/test_event_dispatcher.cpp"
     "src/test_pipeline_types.cpp"
+    "src/test_pool.cpp"
     "src/utils.cpp")
 
 set(HEADERS "src/event_tester.h" "src/decoder_asynchronous.h" "src/decoder_synchronous.h"

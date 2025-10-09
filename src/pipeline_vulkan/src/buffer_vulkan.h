@@ -15,7 +15,7 @@
 #ifndef VN_LCEVC_PIPELINE_VULKAN_BUFFER_VULKAN_H
 #define VN_LCEVC_PIPELINE_VULKAN_BUFFER_VULKAN_H
 
-#include "pipeline_vulkan.h"
+#include "backend_vulkan.h"
 
 #include <LCEVC/common/class_utils.hpp>
 #include <LCEVC/common/memory.h>
@@ -24,15 +24,15 @@
 namespace lcevc_dec::pipeline_vulkan {
 
 // Default minimum row alignment for internal allocations
-static const auto kVulkanBufferRowAlignment = 4 - 1;
+static const auto kVulkanBufferRowAlignment = 4;
 
 class PictureVulkan;
-class PipelineVulkan;
+class BackendVulkan;
 
 class BufferVulkan : public LdpBuffer
 {
 public:
-    BufferVulkan(PipelineVulkan& pipeline, uint32_t size);
+    BufferVulkan(BackendVulkan& pipeline, uint32_t size);
     ~BufferVulkan();
 
     bool map(LdpBufferMapping* mapping, int32_t offset, uint32_t size, LdpAccess access);
@@ -57,7 +57,7 @@ private:
     VkBuffer m_buffer;
     VkDeviceMemory m_memory;
 
-    PipelineVulkan& m_pipeline;
+    BackendVulkan& m_pipeline;
     LdcMemoryAllocation m_allocation = {0};
 
     bool m_mapped = false;

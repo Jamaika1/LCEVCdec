@@ -204,11 +204,13 @@ LdcMemoryAllocator* ldcMemoryAllocatorMalloc(void);
 #define VNReallocateArray(allocator, allocation, type, count) static_cast<type*>(ldcMemoryReallocate(allocator, allocation, sizeof(type) * (count)))
 #endif
 
+//NOLINTBEGIN(cppcoreguidelines-avoid-do-while)
 /** Helper for freeing an allocation performed with one of the above macros. */
 #define VNFree(allocator, allocation) do { ldcMemoryFree(allocator, allocation); } while(false)
 
 /** Helper for clearing a structure */
 #define VNClear(ptr) do { memset((ptr), 0, sizeof(*(ptr))); } while(false)
+//NOLINTEND(cppcoreguidelines-avoid-do-while)
 
 /** Helper for clearing an array  structure */
 #define VNClearArray(ptr, count) do { memset(ptr, 0, sizeof(*(ptr)) * (count)); } while(false)

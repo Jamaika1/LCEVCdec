@@ -13,6 +13,7 @@
 # THE EXCLUSION OF PATENT LICENSES PROVISION OF THE BSD-3-CLAUSE-CLEAR LICENSE.
 
 import os
+import re
 import time
 import shutil
 import multiprocessing as mp
@@ -112,20 +113,25 @@ class BaseTest:
             results['performance_group'] = self.test_definition["performance_group"]
         return results
 
-    def get_device_temperature(self):
+    @staticmethod
+    def get_device_temperature():
         proc_temp = run_adb(['shell', 'dumpsys battery | grep temperature'], assert_rc=True)
         output = proc_temp.stdout.decode('utf-8')
-        temperature = float(output.split()[-1]) / 10
-        logger.debug(f"Extracted device temperature:{temperature}C")
+        regex_match = re.search(r"temperature: (\d+)", output)
+        assert regex_match and regex_match.groups(), \
+            f"Could not find device temperature from ADB output: {output}"
+        temperature = float(regex_match.groups()[-1]) / 10
+        logger.debug(f"Extracted device temperature: {temperature}C")
         return temperature
 
-    def get_current_frequency(self):
+    @staticmethod
+    def get_current_frequency():
         proc_freq = run_adb(
             ['shell', "cat /sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq"], assert_rc=True)
         output = proc_freq.stdout.decode('utf-8')
-        cpu_freq = [int(val) for val in output.split()]
-        logger.debug(f"Extracted current clock speed:{cpu_freq}kHz")
-        return cpu_freq
+        cpu_freqs = [int(val) for val in output.split()]
+        logger.debug(f"Extracted current clock speeds (kHz): {cpu_freqs}")
+        return cpu_freqs
 
 
 class IgnoreFailure(Exception):

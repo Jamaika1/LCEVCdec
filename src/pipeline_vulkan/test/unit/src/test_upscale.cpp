@@ -24,6 +24,7 @@
 #include <LCEVC/pipeline/pipeline.h>
 #include <LCEVC/pipeline/types.h>
 #include <LCEVC/pipeline_vulkan/create_pipeline.h>
+#include <LCEVC/pipeline_vulkan/types_vulkan.h>
 #include <picture_vulkan.h>
 #include <pipeline_vulkan.h>
 
@@ -44,6 +45,8 @@ public:
     PipelineVulkanUpscaleFixture() noexcept {};
 
     std::unique_ptr<Pipeline> mPipeline;
+    std::unique_ptr<PictureVulkan> intermediateUpscalePicture0;
+    std::unique_ptr<PictureVulkan> intermediateUpscalePicture1;
 
     void SetUp() override
     {
@@ -53,6 +56,9 @@ public:
         if (!pipeline) {
             GTEST_SKIP() << "Skipping test due to lack of Vulkan support";
         }
+
+        intermediateUpscalePicture0 = std::make_unique<PictureVulkan>(*pipeline);
+        intermediateUpscalePicture1 = std::make_unique<PictureVulkan>(*pipeline);
     }
 
     void TearDown() override {}
@@ -84,20 +90,20 @@ public:
         auto* pipeline = static_cast<PipelineVulkan*>(mPipeline.get());
 
         const LdpPictureDesc srcDesc{width, height, LdpColorFormatI420_16_LE};
-        auto* src = static_cast<PictureVulkan*>(pipeline->allocPictureManaged(srcDesc));
+        auto* src = static_cast<PictureVulkan*>(pipeline->allocPicture(srcDesc));
         auto* srcBuffer = static_cast<BufferVulkan*>(src->buffer);
         std::memcpy(srcBuffer->ptr(), data.data(), data.size() * sizeof(data[0]));
 
         PictureVulkan* base = nullptr;
         if (mode == Scale1D && !vertical) { // make a base picture for PA in horizontal shader
             const LdpPictureDesc baseDesc{width, height / 2, LdpColorFormatI420_16_LE};
-            base = static_cast<PictureVulkan*>(pipeline->allocPictureManaged(baseDesc));
+            base = static_cast<PictureVulkan*>(pipeline->allocPicture(baseDesc));
             auto* baseBuffer = static_cast<BufferVulkan*>(base->buffer);
             std::memcpy(baseBuffer->ptr(), data.data(), data.size() * sizeof(data[0]) / 2);
         }
 
         const LdpPictureDesc dstDesc{2, 2, LdpColorFormatI420_8};
-        auto* dst = static_cast<PictureVulkan*>(pipeline->allocPictureManaged(dstDesc));
+        auto* dst = static_cast<PictureVulkan*>(pipeline->allocPicture(dstDesc));
 
         VulkanUpscaleArgs upscaleArgs{};
         upscaleArgs.src = src;
@@ -107,13 +113,16 @@ public:
         upscaleArgs.dither = nullptr;
         upscaleArgs.mode = mode;
         upscaleArgs.vertical = vertical;
+        upscaleArgs.intermediateUpscalePicture[0] = intermediateUpscalePicture0.get();
+        upscaleArgs.intermediateUpscalePicture[1] = intermediateUpscalePicture1.get();
+        upscaleArgs.chroma = LdeChroma::CT420;
 
         LdeKernel kernel{};
         for (int i = 0; i < 4; ++i) {
             kernel.coeffs[0][i] = upscaleKernel[i];
         }
 
-        EXPECT_TRUE(pipeline->upscaleFrame(&kernel, &upscaleArgs));
+        EXPECT_TRUE(pipeline->getCore().upscaleFrame(&kernel, &upscaleArgs));
 
         auto* dstBuffer = static_cast<BufferVulkan*>(dst->buffer);
 
@@ -128,13 +137,13 @@ TEST_F(PipelineVulkanUpscaleFixture, Upscale1D)
     testUpscaleFromGenerated(960, 540, Scale1D, true, false, kernelLinear,
                              "169d5585a19a9d29ad17a85db2f8d7ea");
 
-    // TODO - horizontal without PA
-    // testUpscaleFromGenerated(960, 540, Scale1D, false, false, kernelLinear,
-    //                         "e4edebf68fbd014c860ee8537e8f492d");
+    // horizontal without PA
+    testUpscaleFromGenerated(960, 540, Scale1D, false, false, kernelCubic,
+                             "b5f223b54a3c2b1bff057f18890e700d");
 
-    // TODO - horizontal with PA
-    // testUpscaleFromGenerated(960, 540, Scale1D, false, true, kernelLinear,
-    //                         "69d8c4c57aa66b652b16325072b92adf");
+    // horizontal with PA
+    testUpscaleFromGenerated(960, 540, Scale1D, false, true, kernelModifiedCubic,
+                             "27d0297a6aff699711cad0321319e067");
 }
 
 TEST_F(PipelineVulkanUpscaleFixture, Upscale2D)
@@ -142,6 +151,7 @@ TEST_F(PipelineVulkanUpscaleFixture, Upscale2D)
     // without PA
     testUpscaleFromGenerated(960, 540, Scale2D, false, false, kernelNearest,
                              "3f2cef016be867f62eb680d98945cd5c");
+
     testUpscaleFromGenerated(960, 540, Scale2D, false, false, kernelLinear,
                              "bf6c98b5df4f5a5ada4b84838bd3d6be");
     testUpscaleFromGenerated(960, 540, Scale2D, false, false, kernelCubic,

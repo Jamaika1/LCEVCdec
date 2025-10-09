@@ -53,7 +53,7 @@ typedef struct LdpEnhancementTile
 //
 // THe general description of a frame shared by all pipelines.
 //
-// Each pipeline will declare with implementation specific extension of this.
+// Each pipeline will declare an implementation specific extension of this.
 //
 typedef struct LdpFrame
 {
@@ -71,11 +71,17 @@ typedef struct LdpFrame
     // Output enhanced picture
     LdpPicture* outputPicture;
 
+    // Deadline for this frame in microseconds relative to threadTimeMicroseconds()
+    uint64_t deadline;
+
     // Base description
     uint32_t baseWidth;
     uint32_t baseHeight;
     uint8_t baseBitdepth;
     LdpColorFormat baseFormat;
+
+    // Final info about decoded frame
+    LdpDecodeInformation decodeInformation;
 
     // Userdata from SendBase
     void* userData;

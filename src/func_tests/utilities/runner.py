@@ -21,7 +21,8 @@ from pathlib import Path, PurePosixPath
 
 from utilities.config import config, logger
 
-ADB_PLATFORMS = ("Qualcomm_devkit", "VIM4", "VIM4_1", "VIM3L_0", "PIXEL5_0", "PIXEL5_1")
+ADB_PLATFORMS = ("Qualcomm_devkit", "VIM4", "VIM4_1", "VIM3L_0",
+                 "PIXEL5_0", "PIXEL5_1", "SamsungS24", "OppoX5", "PIXEL9")
 
 
 def get_runner(*args, force_local=False, **kwargs):

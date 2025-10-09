@@ -71,6 +71,7 @@
         {LdpColorFormatGRAY_14_LE,     LdpColorSpaceGreyscale, 1, 0, 0, {0},       {0},       {0},       {1},          {0},          BITS(14), LdpFP##prefix##14, "_14bit.y"},        \
         {LdpColorFormatGRAY_16_LE,     LdpColorSpaceGreyscale, 1, 0, 0, {0},       {0},       {0},       {1},          {0},          BITS(16), LdpFP##prefix##14, "_16bit.y"},        \
     };                                                                                                                                                                                \
+// clang-format on
 
 //Make a layout table for unsigned formats
 #define BITS(bits) bits
@@ -82,10 +83,8 @@ VN_PICTURE_LAYOUTS(, U)
 VN_PICTURE_LAYOUTS(Internal, S)
 #undef BITS
 
-
-#define kInternalFormat 1
-#define kExternalFormat 0
-// clang-format on
+static const bool kInternalFormat = true;
+static const bool kExternalFormat = false;
 
 // LayoutInfo for unknown formats
 static const LdpPictureLayoutInfo kPictureLayoutInfoUnknown = {LdpColorFormatUnknown};
@@ -157,11 +156,16 @@ uint8_t ldpPictureLayoutComponentForPlane(const LdpPictureLayout* layout, uint8_
 uint32_t ldpPictureLayoutDefaultRowStride(const LdpPictureLayout* layout, uint32_t plane, uint32_t minAlignment)
 {
     assert(plane < ldpPictureLayoutPlanes(layout));
-    uint32_t align = layout->layoutInfo->alignment[plane];
-    if (minAlignment > align) {
-        align = minAlignment;
+    uint32_t align = 0;
+    if (minAlignment == 0) {
+        minAlignment = 1;
     }
-
+    if (minAlignment > layout->layoutInfo->alignment[plane]) {
+        align = minAlignment - 1;
+    } else {
+        align = layout->layoutInfo->alignment[plane] - 1;
+    }
+    assert(((align + 1) & align) == 0);
     const uint32_t defaultStride = (ldpPictureLayoutRowSize(layout, plane) + align) & ~align;
 
     // Default stride
@@ -189,14 +193,6 @@ bool ldpPictureLayoutIsCompatible(const LdpPictureLayout* layout, const LdpPictu
     // Number of color components must match
     if (layout->layoutInfo->colorComponents != other->layoutInfo->colorComponents) {
         return false;
-    }
-
-    // Shifts must match
-    for (uint32_t plane = 0; plane < ldpPictureLayoutPlanes(layout); ++plane) {
-        if (layout->layoutInfo->planeWidthShift[plane] != other->layoutInfo->planeWidthShift[plane] ||
-            layout->layoutInfo->planeHeightShift[plane] != other->layoutInfo->planeHeightShift[plane]) {
-            return false;
-        }
     }
 
     // Other differences (e.g. order of color components) don't affect the memory footprint of the

@@ -264,10 +264,18 @@
 #define VN_ARCH_PRIVATE_DEF_ARM64() 0
 #endif
 
-#if defined(__ARM_ARCH_7A__)
+// 64bit CPU's can operate in 32bit mode, when compiling for 32bit arm
+// not all the 64bit intrinsics may be available so switch to ARMv7A mode
+// which can't be 64bit.
+#if defined(__ARM_ARCH_7A__) || defined(__ARM_FEATURE_SIMD32)
 #define VN_ARCH_PRIVATE_DEF_ARM7A() 1
 #else
 #define VN_ARCH_PRIVATE_DEF_ARM7A() 0
+#endif
+
+// Trap invalid configuration
+#if VN_ARCH(ARM64) && VN_ARCH(ARM7A)
+#error "Invalid configuration ARM64 and ARM7A can't both be true"
 #endif
 
 #define VN_ARCH_PRIVATE_DEF_ARM() VN_ARCH(ARM64) || VN_ARCH(ARM7A)

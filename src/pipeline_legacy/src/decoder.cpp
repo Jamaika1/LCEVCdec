@@ -120,7 +120,7 @@ void Decoder::releaseCoreDecoder()
 
 void Decoder::releaseLcevcProcessor() { m_lcevcProcessor.release(); }
 
-LdcReturnCode Decoder::sendBasePicture(uint64_t timestamp, LdpPicture* baseLdpPicture,
+LdcReturnCode Decoder::sendDecoderBase(uint64_t timestamp, LdpPicture* baseLdpPicture,
                                        uint32_t timeoutUs, void* userData)
 {
     Picture* basePicture = fromLdpPicturePtr(baseLdpPicture);
@@ -147,7 +147,7 @@ LdcReturnCode Decoder::sendBasePicture(uint64_t timestamp, LdpPicture* baseLdpPi
     return LdcReturnCodeSuccess;
 }
 
-LdcReturnCode Decoder::sendEnhancementData(uint64_t timestamp, const uint8_t* data, uint32_t byteSize)
+LdcReturnCode Decoder::sendDecoderEnhancementData(uint64_t timestamp, const uint8_t* data, uint32_t byteSize)
 {
     if (isUnprocessedEnhancementQueueFull()) {
         VNLogInfo("Unprocessed enhancement container is full. Unprocessed container "
@@ -168,7 +168,7 @@ LdcReturnCode Decoder::sendEnhancementData(uint64_t timestamp, const uint8_t* da
     return LdcReturnCodeSuccess;
 }
 
-LdcReturnCode Decoder::sendOutputPicture(LdpPicture* outputLdpPicture)
+LdcReturnCode Decoder::sendDecoderPicture(LdpPicture* outputLdpPicture)
 {
     Picture* outputPicture = fromLdpPicturePtr(outputLdpPicture);
 
@@ -189,7 +189,7 @@ LdcReturnCode Decoder::sendOutputPicture(LdpPicture* outputLdpPicture)
     return LdcReturnCodeSuccess;
 }
 
-LdpPicture* Decoder::receiveOutputPicture(LdpDecodeInformation& decodeInfoOut)
+LdpPicture* Decoder::receiveDecoderPicture(LdpDecodeInformation& decodeInfoOut)
 {
     if (m_resultsQueue.empty()) {
         return nullptr;
@@ -209,6 +209,13 @@ LdpPicture* Decoder::receiveOutputPicture(LdpDecodeInformation& decodeInfoOut)
         return nullptr;
     }
     return outputPicture;
+}
+
+void Decoder::getCapacity(LdpPipelineCapacity* capacity)
+{
+    // Pipeline interface has gained getCapacity() to support future API work.
+    // legacy pipeline will be removed by then.
+    assert(0);
 }
 
 LdcReturnCode Decoder::flush(uint64_t timestamp)
@@ -262,7 +269,7 @@ void Decoder::flushOutputs()
     }
 }
 
-LdcReturnCode Decoder::peek(uint64_t timestamp, uint32_t& widthOut, uint32_t& heightOut)
+LdcReturnCode Decoder::peekDecoder(uint64_t timestamp, uint32_t& widthOut, uint32_t& heightOut)
 {
     // Rarely, we get the easy case, where the client has already sent base, enhancement, and
     // destination pictures, so we have a finished decode ready to go.
@@ -362,17 +369,16 @@ LdcReturnCode Decoder::skip(uint64_t timestamp)
 }
 
 // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-LdcReturnCode Decoder::synchronize(bool dropPending)
+LdcReturnCode Decoder::synchronizeDecoder(uint64_t timestamp, bool dropPending)
 {
     // For now, this is (rightly) empty, i.e. we're already always synchronized. Once we implement
     // AccelContext, this function will do something like:
     //
-    // AccelContext* context = m_accelContextPool.lookup(m_accelContextHandle);
-    // context->synchronize(dropPending);
     VN_UNUSED(dropPending);
     return LdcReturnCodeSuccess;
 }
-LdpPicture* Decoder::receiveFinishedBasePicture()
+
+LdpPicture* Decoder::receiveDecoderBase()
 {
     if (m_finishedBaseContainer.empty()) {
         return nullptr;
@@ -732,7 +738,7 @@ LdcReturnCode Decoder::decodeEnhanceCore(uint64_t timestamp, const perseus_image
 }
 
 //
-LdpPicture* Decoder::allocPictureManaged(const LdpPictureDesc& desc)
+LdpPicture* Decoder::allocPicture(const LdpPictureDesc& desc)
 {
     PictureManaged* ptr = new PictureManaged(m_bufferManager);
     if (!ptr->setDesc(desc)) {

@@ -22,17 +22,17 @@
  * This function loads in values from the entropy buffer and scales the random value by the
  * desired amount then moves the buffer pointer forward for the next invocation of this function.
  *
- * \param values   The values to apply dithering to.
- * \param buffer   A double pointer to the dither buffer
- * \param shift    The left shift to apply to the dither to account for the fixed point format of
- *                 the incoming pixel values (see ldppDitherGetShiftS16)
- * \param strength Dither strength to scale the random value by
+ * \param value         The value to apply dithering to.
+ * \param ditherBuffer  A double pointer to the dither buffer
+ * \param shift         The left shift to apply to the dither to account for the fixed point format
+ *                      of the incoming pixel values
+ * \param strength      Dither strength to scale the random value by
  */
 static inline void ldppDitherApply(int32_t* value, const uint16_t** ditherBuffer,
                                    const uint8_t shift, const uint8_t strength)
 {
     *value += (strength - ((**ditherBuffer * (strength * 2 + 1)) >> 16)) << shift;
-    *ditherBuffer += 1;
+    (*ditherBuffer)++;
 }
 
 #endif // VN_LCEVC_PIXEL_PROCESSING_DETAIL_APPLY_DITHER_SCALAR_H

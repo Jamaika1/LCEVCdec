@@ -49,9 +49,7 @@ typedef struct LdcTaskPart
     uint32_t count; // Number of iterations in this part
 } LdcTaskPart;
 
-/*! Identifies one of the dependencies in a group
- *
- * This avoids those names because it pulls in a lot of conceptual complexity.
+/*! Identifies one of the dependencies between tasks in a group
  */
 typedef uint32_t LdcTaskDependency;
 
@@ -320,9 +318,9 @@ bool ldcTaskCollectInputs(const LdcTask* task, size_t numInputs, void** inputs);
  */
 LdcTaskDependency ldcTaskRemoveOutput(LdcTask* task);
 
-/*! A number of slices - all given same base argument, with per-slide offset and count
+/*! A number of slices - all given same base argument, with per-slice offset and count
  *
- *  Creates the task with the given group and output dependency, and returns immediately.
+ * The task pool will choose an appropriate number of slices to match available threads.
  *
  *  @param[in]     pool         The task pool to be added to.
  *  @param[in]     parent       If not NULL, task whose dependencies will be inherited.
@@ -359,7 +357,7 @@ void ldcTaskGroupUnblock(LdcTaskGroup* taskGroup);
 /*! Utility function to dump state of task pool to log
  *
  *  @param[in]      taskPool    The task pool to dump
- *  @param[in]      taskGroup   If not NULL, restict to tasks within group
+ *  @param[in]      taskGroup   If not NULL, restrict to tasks within group
  */
 void ldcTaskPoolDump(LdcTaskPool* taskPool, const LdcTaskGroup* taskGroup);
 #endif

@@ -141,7 +141,7 @@ TEST(PictureLayout, NV12_720x576)
     EXPECT_EQ(pl.colorComponents(), 3);
     EXPECT_EQ(pl.planes(), 2);
     EXPECT_EQ(pl.planeWidth(0), 720);
-    EXPECT_EQ(pl.planeWidth(1), 720);
+    EXPECT_EQ(pl.planeWidth(1), 360);
     EXPECT_EQ(pl.planeHeight(0), 576);
     EXPECT_EQ(pl.planeHeight(1), 288);
 

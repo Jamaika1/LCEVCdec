@@ -13,6 +13,7 @@
 # THE EXCLUSION OF PATENT LICENSES PROVISION OF THE BSD-3-CLAUSE-CLEAR LICENSE.
 
 set(SOURCES
+    "src/test_approximate_pa.cpp"
     "src/test_bitstream.cpp"
     "src/test_bytestream.cpp"
     "src/test_cmdbuffer_gpu.cpp"

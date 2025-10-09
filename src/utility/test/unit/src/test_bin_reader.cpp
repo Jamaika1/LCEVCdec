@@ -22,10 +22,9 @@
 #include <filesystem>
 #include <memory>
 
-namespace filesystem = std::filesystem;
 using namespace lcevc_dec::utility;
 
-const static filesystem::path kTestAssets{findAssetsDir("src/utility/test/assets")};
+const static std::filesystem::path kTestAssets{findAssetsDir("src/utility/test/assets")};
 
 TEST(BinReader, NoFile)
 {

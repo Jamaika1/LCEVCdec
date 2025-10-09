@@ -19,22 +19,21 @@
 
 /*------------------------------------------------------------------------------*/
 
-/* Retrieve a function pointer to a horizontal upscaling function using NEON that
- * supports upscaling with the supplied interleaving, source, destination and base
- * fixedpoint types.
+/*! Retrieve a function pointer to a horizontal upscaling function using NEON that
+ *  supports upscaling with the supplied interleaving, source, destination and base
+ *  fixedpoint types.
  *
- * \param ilv      The interleaving type to upscale for.
- * \param srcFP    The source data fixedpoint type to upscale from.
- * \param dstFP    The destination data fixedpoint type to upscale to.
- * \param baseFP   The base data fixedpoint type to read from for PA.
+ * \param interleaving  The interleaving type to upscale for.
+ * \param srcFP         The source data fixedpoint type to upscale from.
+ * \param dstFP         The destination data fixedpoint type to upscale to.
  *
  * \return A valid function pointer on success otherwise NULL.
  */
-UpscaleHorizontalFunction upscaleGetHorizontalFunctionNEON(Interleaving ilv, LdpFixedPoint srcFP,
-                                                           LdpFixedPoint dstFP, LdpFixedPoint baseFP);
+UpscaleHorizontalFunction upscaleGetHorizontalFunctionNEON(Interleaving interleaving,
+                                                           LdpFixedPoint srcFP, LdpFixedPoint dstFP);
 
-/* Retrieve a function pointer to a vertical upscaling function using NEON that
- * supports upscaling with the supplied source and destination fixedpoint types.
+/*! Retrieve a function pointer to a vertical upscaling function using NEON that
+ *  supports upscaling with the supplied source and destination fixedpoint types.
  *
  * \param srcFP    The source data fixedpoint type to upscale from.
  * \param dstFP    The destination data fixedpoint type to upscale to.

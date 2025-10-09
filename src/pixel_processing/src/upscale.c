@@ -24,22 +24,20 @@
 #include "upscale_sse.h"
 
 #include <assert.h>
-#include <LCEVC/pipeline/buffer.h>
 
 /*------------------------------------------------------------------------------*/
 
 /*! \brief  Helper function used to query the horizontal function look-up tables.
  *
- * It has a fall back mechanism when SIMD is desired to provide the non-SIMD
- * function if a SIMD function does not yet exists.
+ * It has a fallback mechanism when SIMD is desired to provide the non-SIMD
+ * function if a SIMD function does not yet exist.
  *
  * \return A valid function pointer on success, otherwise NULL. */
 UpscaleHorizontalFunction getHorizontalFunction(LdpFixedPoint srcFP, LdpFixedPoint dstFP,
-                                                LdpFixedPoint baseFP, Interleaving interleaving,
-                                                bool forceScalar)
+                                                Interleaving interleaving, bool forceScalar)
 {
     if (!fixedPointIsValid(srcFP) || !fixedPointIsValid(dstFP)) {
-        VNLogError("Invalid horizontal function request - src_fp, dst_fp is invalid\n");
+        VNLogError("Invalid horizontal function request - src_fp, dst_fp is invalid");
         return NULL;
     }
 
@@ -49,17 +47,17 @@ UpscaleHorizontalFunction getHorizontalFunction(LdpFixedPoint srcFP, LdpFixedPoi
     /* Find a SIMD functions */
 
     if (!forceScalar && acceleration->SSE) {
-        res = upscaleGetHorizontalFunctionSSE(interleaving, srcFP, dstFP, baseFP);
+        res = upscaleGetHorizontalFunctionSSE(interleaving, srcFP, dstFP);
     }
 
     if (!forceScalar && acceleration->NEON) {
         assert(res == NULL);
-        res = upscaleGetHorizontalFunctionNEON(interleaving, srcFP, dstFP, baseFP);
+        res = upscaleGetHorizontalFunctionNEON(interleaving, srcFP, dstFP);
     }
 
     /* Find a non-SIMD function */
     if (!res) {
-        res = upscaleGetHorizontalFunction(interleaving, srcFP, dstFP, baseFP);
+        res = upscaleGetHorizontalFunctionScalar(srcFP, dstFP);
     }
 
     return res;
@@ -67,15 +65,15 @@ UpscaleHorizontalFunction getHorizontalFunction(LdpFixedPoint srcFP, LdpFixedPoi
 
 /*!
  * Helper function used to query the vertical function look-up tables. It has a
- * fall back mechanism when SIMD is desired to provide the non-SIMD function if a
- * SIMD function does not yet exists.
+ * fallback mechanism when SIMD is desired to provide the non-SIMD function if a
+ * SIMD function does not yet exist.
  *
  * \return A valid function pointer on success, otherwise NULL. */
 UpscaleVerticalFunction getVerticalFunction(LdpFixedPoint srcFP, LdpFixedPoint dstFP,
                                             bool forceScalar, uint32_t* xStep)
 {
     if (!fixedPointIsValid(srcFP) || !fixedPointIsValid(dstFP)) {
-        VNLogError("Invalid vertical function request - src_fp or dst_fp is invalid\n");
+        VNLogError("Invalid vertical function request - src_fp or dst_fp is invalid");
         return NULL;
     }
 
@@ -96,27 +94,11 @@ UpscaleVerticalFunction getVerticalFunction(LdpFixedPoint srcFP, LdpFixedPoint d
 
     /* Find a non-SIMD function */
     if (!res) {
-        res = upscaleGetVerticalFunction(srcFP, dstFP);
-
-        /* @todo: This is no longer required to be 2 as PA doesn't exist any more for
-         *        vertical functions. Although it may be slower so double check. */
+        res = upscaleGetVerticalFunctionScalar(srcFP, dstFP);
         *xStep = 2;
     }
 
     return res;
-}
-
-/*! \brief Determines the stride requirements for the intermediate upscale surface.
- *
- * Currently this is fixed between SIMD and non-SIMD where SIMD requires a stride
- * of 16 since it works on 16-pixels at a time.
- *
- * \param accel The acceleration mode.
- *
- * \return The required stride alignment. */
-static int32_t getRequiredStrideAlignment(bool forceScalar)
-{
-    return forceScalar ? 2 : kBufferRowAlignment;
 }
 
 static bool interleavingEqual(const LdpPictureLayoutInfo* layoutLeft, const LdpPictureLayoutInfo* layoutRight)
@@ -129,54 +111,9 @@ static Interleaving getInterleaving(const LdpPictureLayoutInfo* layout, const ui
     switch (layout->interleave[planeIndex]) {
         case 1: return ILNone;
         case 2: return ILNV12;
-        case 3: return ILRGB;
-        case 4: return ILRGBA;
     }
 
     return ILCount;
-}
-
-/*! \brief Initialises intermediate plane for 2D upscaling.
- *
- * This is performed per invocation of the `upscale` entry point to allow for
- * dynamically changing upscaling conditions.
- *
- * The allocated surface is guaranteed to have memory backing that is large enough for
- * the desired upscale operation - it will not shrink based upon this request.
- *
- * \param params   The parameters used when upscaling.
- */
-static void internalInitialise(LdcMemoryAllocator* allocator, const LdppUpscaleArgs* params,
-                               LdcMemoryAllocation* allocation, LdpPicturePlaneDesc* planeDesc)
-{
-    /* No need to initialize intermediate surface for 1D. */
-    if (params->mode == Scale1D) {
-        return;
-    }
-
-    const LdpPictureLayoutInfo* dstLayoutInfo = params->dstLayout->layoutInfo;
-    const LdpFixedPoint fp = dstLayoutInfo->fixedPoint;
-    const int32_t channelCount = dstLayoutInfo->interleave[params->planeIndex];
-    const uint16_t strideAlignment =
-        (uint16_t)(getRequiredStrideAlignment(params->forceScalar) * channelCount);
-    const uint32_t upscaleWidth =
-        params->dstLayout->width >> (1 + dstLayoutInfo->planeWidthShift[params->planeIndex]);
-    const uint32_t upscaleStrideBytes =
-        alignU16((uint16_t)(upscaleWidth * channelCount), strideAlignment) * fixedPointByteSize(fp);
-    const uint32_t upscaleHeight =
-        params->dstLayout->height >> dstLayoutInfo->planeHeightShift[params->planeIndex];
-    const uint32_t upscaleSize = upscaleHeight * upscaleStrideBytes;
-
-    if (allocation->size < upscaleSize) {
-        if (allocation->ptr != NULL) {
-            VNFree(allocator, allocation);
-        }
-
-        VNAllocateAlignedArray(allocator, allocation, uint8_t, kBufferRowAlignment, upscaleSize);
-
-        planeDesc->firstSample = allocation->ptr;
-        planeDesc->rowByteStride = upscaleStrideBytes;
-    }
 }
 
 /*------------------------------------------------------------------------------*/
@@ -214,8 +151,9 @@ static inline uint8_t* surfaceGetLine(const LdpPicturePlaneDesc* desc, const uin
 typedef struct UpscaleSlicedJobContext
 {
     uint32_t planeIndex;
-    LdpPictureLayout* srcLayout;
-    LdpPictureLayout* dstLayout;
+    const LdpPictureLayout* srcLayout;
+    const LdpPictureLayout* dstLayout;
+    const LdpPictureLayout* intermediateLayout;
     LdpPicturePlaneDesc srcPlane;
     LdpPicturePlaneDesc dstPlane;
     LdpPicturePlaneDesc intermediatePlane;
@@ -223,14 +161,83 @@ typedef struct UpscaleSlicedJobContext
     UpscaleVerticalFunction colFunction;
     LdeKernel kernel;
     bool applyPA;
-    LdppDitherFrame* frameDither;
+    const LdppDitherFrame* frameDither;
     uint32_t colStepping;
-
-    LdcMemoryAllocator* intermediateAllocator;
-    LdcMemoryAllocation intermediateAllocation;
 } UpscaleSlicedJobContext;
 
 /*------------------------------------------------------------------------------*/
+
+/*! \brief Populates LdppHorizontalUpscaleParams with constants required for horizontal upscaling
+ *         and inline conversion to and from dst picture format and internal signed 16-bit format.
+ *         See `LdppHorizontalUpscaleParams` docs for details on each param.
+ */
+static LdppHorizontalUpscaleParams generateParams(const LdeKernel* kernel, LdpFixedPoint dstFp,
+                                                  bool is2D, Interleaving interleaving)
+{
+    LdppHorizontalUpscaleParams params = {0};
+    params.kernel = kernel;
+    params.is2D = is2D;
+    params.channelCount = 1;
+
+    switch (dstFp) {
+        // Unsigned planes (direct upscale)
+        case LdpFPU8: {
+            params.shift = 7;
+            params.offset = 64;
+            params.midpoint = 128;
+            params.maxValue = 255;
+            switch (interleaving) {
+                case ILNone: params.channelSkip[0] = 1; break;
+                case ILNV12:
+                    params.channelCount = 2;
+                    params.channelSkip[0] = 2;
+                    params.channelSkip[1] = 2;
+                    params.channelMap[1] = 1;
+                    break;
+                default: break;
+            }
+            break;
+        }
+        case LdpFPU10:
+            params.shift = 5;
+            params.offset = 16;
+            params.midpoint = 512;
+            params.maxValue = 1023;
+            break;
+        case LdpFPU12:
+            params.shift = 3;
+            params.offset = 4;
+            params.midpoint = 2048;
+            params.maxValue = 4096;
+            break;
+        case LdpFPU14:
+            params.shift = 1;
+            params.offset = 1;
+            params.midpoint = 8192;
+            params.maxValue = 16383;
+            break;
+        // Signed planes (upscale converted planes)
+        case LdpFPS8:
+            params.maxValue = 255;
+            params.shift = 7;
+            break;
+        case LdpFPS10:
+            params.maxValue = 1023;
+            params.shift = 5;
+            break;
+        case LdpFPS12:
+            params.maxValue = 4096;
+            params.shift = 3;
+            break;
+        case LdpFPS14:
+            params.maxValue = 16383;
+            params.shift = 1;
+            break;
+        case LdpFPCount: break;
+    }
+
+    return params;
+}
 
 /*!
  * Helper function that performs horizontal upscaling for a given job.
@@ -247,8 +254,8 @@ static void horizontalTask(const UpscaleSlicedJobContext* context, uint32_t ySta
                            PAMode paMode)
 {
     bool is2D = context->colFunction != NULL;
-    const uint32_t baseWidth = context->srcLayout->width >>
-                               context->srcLayout->layoutInfo->planeWidthShift[context->planeIndex];
+    const uint32_t channelWidth = context->srcLayout->width >>
+                                  context->srcLayout->layoutInfo->planeWidthShift[context->planeIndex];
     const LdpPicturePlaneDesc* horizontalInputPlane =
         is2D ? &context->intermediatePlane : &context->srcPlane;
 
@@ -257,6 +264,9 @@ static void horizontalTask(const UpscaleSlicedJobContext* context, uint32_t ySta
     uint8_t* dstPtrs[2];
     const uint8_t* srcPtrs[2];
     const uint8_t* basePtrs[2] = {NULL, NULL};
+    LdppHorizontalUpscaleParams params =
+        generateParams(&context->kernel, context->dstLayout->layoutInfo->fixedPoint, is2D,
+                       getInterleaving(context->dstLayout->layoutInfo, context->planeIndex));
 
     if (context->frameDither) {
         ldppDitherSliceInitialise(&sliceDither, context->frameDither, yStart, context->planeIndex);
@@ -295,8 +305,7 @@ static void horizontalTask(const UpscaleSlicedJobContext* context, uint32_t ySta
         }
 
         context->lineFunction(context->frameDither ? &sliceDither : NULL, srcPtrs, dstPtrs,
-                              basePtrs, baseWidth, 0, baseWidth, &context->kernel,
-                              context->dstLayout->layoutInfo->fixedPoint);
+                              basePtrs, channelWidth, 0, channelWidth, &params);
     }
 }
 
@@ -314,23 +323,21 @@ static void verticalTask(const UpscaleSlicedJobContext* context, uint32_t yStart
 {
     UpscaleVerticalFunction vertFunction = context->colFunction;
     const LdpFixedPoint srcFP = context->srcLayout->layoutInfo->fixedPoint;
-    const LdpFixedPoint dstFP = context->dstLayout->layoutInfo->fixedPoint;
+    const LdpFixedPoint dstFP = context->intermediateLayout->layoutInfo->fixedPoint;
     const uint32_t srcPelSize = fixedPointByteSize(srcFP);
-    const uint32_t dstPelSize = fixedPointByteSize(dstFP);
+    const uint32_t dstPelSize = sizeof(int16_t);
     uint32_t srcStep = xStep * srcPelSize;
     uint32_t dstStep = xStep * dstPelSize;
     const uint32_t rowCount = yEnd - yStart;
 
     /* Assume that src and dst interleaving is the same. */
-    const uint32_t channelCount = context->srcLayout->layoutInfo->interleave[context->planeIndex];
     const uint8_t* srcPtr = context->srcPlane.firstSample;
     uint8_t* dstPtr = context->intermediatePlane.firstSample;
-    const uint32_t width =
-        context->srcLayout->width >>
-        context->srcLayout->layoutInfo->planeWidthShift[context->planeIndex] * channelCount;
-    const uint32_t height =
-        context->srcLayout->height >>
-        context->srcLayout->layoutInfo->planeHeightShift[context->planeIndex] * channelCount;
+    const uint32_t width = (context->srcLayout->width >>
+                            context->srcLayout->layoutInfo->planeWidthShift[context->planeIndex]) *
+                           context->srcLayout->layoutInfo->interleave[context->planeIndex];
+    const uint32_t height = context->srcLayout->height >>
+                            context->srcLayout->layoutInfo->planeHeightShift[context->planeIndex];
     const uint32_t srcStride = context->srcPlane.rowByteStride / srcPelSize;
     const uint32_t dstStride = context->intermediatePlane.rowByteStride / dstPelSize;
 
@@ -338,7 +345,9 @@ static void verticalTask(const UpscaleSlicedJobContext* context, uint32_t yStart
         /* Check if there's a potential overflow in the current step */
         if ((x + xStep) > width) {
             /* If overflow is detected, set up for scalar mode by default */
-            vertFunction = upscaleGetVerticalFunction(srcFP, dstFP);
+            vertFunction = upscaleGetVerticalFunctionScalar(srcFP, dstFP);
+            assert(vertFunction != NULL);
+
             xStep = 2;
             srcStep = xStep * srcPelSize;
             dstStep = xStep * dstPelSize;
@@ -365,14 +374,14 @@ static bool upscaleSlicedJob(void* argument, uint32_t offset, uint32_t count)
 
     const UpscaleSlicedJobContext* context = (const UpscaleSlicedJobContext*)argument;
 
-    const bool bothPasses = (context->colFunction != NULL);
-    const int32_t horiStart = (int32_t)(offset << (bothPasses ? 1 : 0));
-    const int32_t horiEnd = (int32_t)((offset + count) << (bothPasses ? 1 : 0));
-    const PAMode paMode = getPAMode(context->applyPA, bothPasses);
+    const bool is2D = (context->colFunction != NULL);
+    const uint32_t horiStart = offset << (is2D ? 1 : 0);
+    const uint32_t horiEnd = (offset + count) << (is2D ? 1 : 0);
+    const PAMode paMode = getPAMode(context->applyPA, is2D);
 
-    if (bothPasses) {
-        const int32_t vertStart = (int32_t)offset;
-        const int32_t vertEnd = (int32_t)(offset + count);
+    if (is2D) { // 1D scale mode only runs the horizontal upscale
+        const uint32_t vertStart = offset;
+        const uint32_t vertEnd = offset + count;
         const uint32_t vertStep = context->colStepping;
 
         verticalTask(context, vertStart, vertEnd, vertStep);
@@ -384,55 +393,39 @@ static bool upscaleSlicedJob(void* argument, uint32_t offset, uint32_t count)
     return true;
 }
 
-/* Callback that is invoked once upscale is completed. */
-static bool upscaleSlicedJobCompletion(void* argument, uint32_t count)
-{
-    VNTraceScopedBegin();
-
-    VNUnused(count);
-    UpscaleSlicedJobContext* context = (UpscaleSlicedJobContext*)argument;
-
-    if (VNIsAllocated(context->intermediateAllocation)) {
-        VNFree(context->intermediateAllocator, &context->intermediateAllocation);
-    }
-
-    VNTraceScopedEnd();
-    return true;
-}
-
 /*! Execute a multi-threaded upscale operation. */
-static bool upscaleExecute(LdcMemoryAllocator* allocator, LdcTaskPool* taskPool, LdcTask* parent,
-                           const LdppUpscaleArgs* params, const LdeKernel* kernel)
+static bool upscaleExecute(LdcTaskPool* taskPool, LdcTask* parent, const LdppUpscaleArgs* params,
+                           const LdeKernel* kernel)
 {
     assert(params->mode != Scale0D);
 
     UpscaleSlicedJobContext slicedJobContext = {0};
 
-    internalInitialise(allocator, params, &slicedJobContext.intermediateAllocation,
-                       &slicedJobContext.intermediatePlane);
-
     const bool is2D = (params->mode == Scale2D);
 
     const LdpPictureLayoutInfo* srcLayoutInfo = params->srcLayout->layoutInfo;
-    const LdpPictureLayoutInfo* dstLayoutInfo = params->srcLayout->layoutInfo;
-    const LdpFixedPoint horizontalFPInput = is2D ? dstLayoutInfo->fixedPoint : srcLayoutInfo->fixedPoint;
+    const LdpPictureLayoutInfo* dstLayoutInfo = params->dstLayout->layoutInfo;
+    const LdpFixedPoint intermediateFP = is2D && params->intermediateLayout
+                                             ? params->intermediateLayout->layoutInfo->fixedPoint
+                                             : srcLayoutInfo->fixedPoint;
 
     slicedJobContext.planeIndex = params->planeIndex;
     slicedJobContext.srcLayout = params->srcLayout;
     slicedJobContext.dstLayout = params->dstLayout;
+    slicedJobContext.intermediateLayout = params->intermediateLayout;
     slicedJobContext.srcPlane = params->srcPlane;
     slicedJobContext.dstPlane = params->dstPlane;
-    if (!is2D) {
-        slicedJobContext.intermediatePlane = params->srcPlane;
+    slicedJobContext.intermediatePlane = params->intermediatePlane;
+
+    slicedJobContext.colFunction = NULL;
+    if (is2D) {
+        slicedJobContext.colFunction =
+            getVerticalFunction(srcLayoutInfo->fixedPoint, intermediateFP, params->forceScalar,
+                                &slicedJobContext.colStepping);
     }
     slicedJobContext.lineFunction =
-        getHorizontalFunction(horizontalFPInput, dstLayoutInfo->fixedPoint,
-                              params->applyPA ? srcLayoutInfo->fixedPoint : LdpFPCount,
+        getHorizontalFunction(intermediateFP, dstLayoutInfo->fixedPoint,
                               getInterleaving(srcLayoutInfo, params->planeIndex), params->forceScalar);
-    slicedJobContext.colFunction =
-        is2D ? getVerticalFunction(srcLayoutInfo->fixedPoint, dstLayoutInfo->fixedPoint,
-                                   params->forceScalar, &slicedJobContext.colStepping)
-             : NULL;
     slicedJobContext.kernel = *kernel;
     slicedJobContext.applyPA = params->applyPA;
     slicedJobContext.frameDither = params->frameDither;
@@ -447,30 +440,28 @@ static bool upscaleExecute(LdcMemoryAllocator* allocator, LdcTaskPool* taskPool,
         return false;
     }
 
-    slicedJobContext.intermediateAllocator = allocator;
-
     const uint32_t srcHeight = params->srcLayout->height >>
                                params->srcLayout->layoutInfo->planeHeightShift[params->planeIndex];
 
-    return ldcTaskPoolAddSlicedDeferred(taskPool, parent, &upscaleSlicedJob, &upscaleSlicedJobCompletion,
+    return ldcTaskPoolAddSlicedDeferred(taskPool, parent, &upscaleSlicedJob, NULL,
                                         &slicedJobContext, sizeof(slicedJobContext), srcHeight);
 }
 
 /*------------------------------------------------------------------------------*/
 
-bool ldppUpscale(LdcMemoryAllocator* allocator, LdcTaskPool* taskPool, LdcTask* parent,
-                 const LdeKernel* kernel, const LdppUpscaleArgs* params)
+bool ldppUpscale(LdcTaskPool* taskPool, LdcTask* parent, const LdeKernel* kernel,
+                 const LdppUpscaleArgs* params)
 {
     const LdpPictureLayout* srcLayout = params->srcLayout;
     const LdpPictureLayout* dstLayout = params->dstLayout;
 
     if (!interleavingEqual(srcLayout->layoutInfo, dstLayout->layoutInfo)) {
-        VNLogError("upscale: src and dst must be the same interleaving type\n");
+        VNLogError("Upscale: src and dst must be the same interleaving type");
         return false;
     }
 
     if (kernel->length & 1 || kernel->length > 8 || !kernel->length) {
-        VNLogError("upscale: kernel length must be multiple of 2 and max 8 and non-zero\n");
+        VNLogError("Upscale: kernel length must be multiple of 2 and max 8 and non-zero");
         return false;
     }
 
@@ -478,17 +469,17 @@ bool ldppUpscale(LdcMemoryAllocator* allocator, LdcTaskPool* taskPool, LdcTask* 
     const LdpFixedPoint dstFP = dstLayout->layoutInfo->fixedPoint;
 
     if (fixedPointIsSigned(srcFP) != fixedPointIsSigned(dstFP)) {
-        VNLogError("upscale: cannot convert between signed and unsigned formats\n");
+        VNLogError("Upscale: cannot convert between signed and unsigned formats");
         return false;
     }
 
     if (!fixedPointIsSigned(srcFP) && (bitdepthFromFixedPoint(srcFP) > bitdepthFromFixedPoint(dstFP))) {
-        VNLogError("upscale: src bitdepth must be less than or equal to dst bitdepth - do "
-                   "not currently support demotion conversions\n");
+        VNLogError("Upscale: src bitdepth must be less than or equal to dst bitdepth - LCEVC"
+                   "doesn't allow bit-depth reduction");
         return false;
     }
 
-    return upscaleExecute(allocator, taskPool, parent, params, kernel);
+    return upscaleExecute(taskPool, parent, params, kernel);
 }
 
 /*------------------------------------------------------------------------------*/

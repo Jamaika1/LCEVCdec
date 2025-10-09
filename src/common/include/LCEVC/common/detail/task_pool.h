@@ -169,7 +169,8 @@ typedef struct LdcTaskGroup
     // Pool that holds this group of tasks
     LdcTaskPool* pool;
 
-    const char* name; // Name used in debug dumps
+    // Name used in debug dumps
+    const char* name;
 
     // Tasks remaining in this group
     uint32_t tasksCount;

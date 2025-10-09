@@ -30,11 +30,14 @@ layout(push_constant) uniform consts {
     int srcWidth;
     int srcHeight;
     int residualOffset;
-    int stride;
+    int containerStride;
+    int containerOffset;
     int saturate;
-    int testVal;
     int layerCount;
     int tuRasterOrder;
+    int tileX;
+    int tileY;
+    int tileWidth;
 };
 
 const uint ADD = 0;
@@ -42,49 +45,38 @@ const uint SET = 1;
 const uint SETZERO = 2;
 const uint CLEARSET = 3;
 const int SATURATION = 32767;
-const uint bit8 = 1;
 
 uint applyCounter = 0;
 
 #include "common.glsl"
 
-void applyTu(uint firstPixelinTu, uint firstResidual, uint operation, uint tuWidth)
+void applyTu(uint firstContainerInTu, uint firstResidual, uint operation, uint tuWidth)
 {
     for (uint j = 0; j < tuWidth; ++j) {
         for (uint i = 0; i < (tuWidth >> 1); ++i) {
-            const uint pixelPairIndex = firstPixelinTu + i + j * (stride >> 1);
+            const uint containerIndex = firstContainerInTu + i + j * containerStride;
             const uint residualPairIndex = (residualOffset >> 2) + (firstResidual >> 1) +
                                            applyCounter * tuWidth * (tuWidth >> 1) + i + j * (tuWidth >> 1);
 
-            if (pixelPairIndex >= srcWidth * (srcHeight >> 1)) {
+            if (containerIndex >= containerOffset + srcWidth * (srcHeight >> 1)) {
                 return;
             }
 
-            ivec2 pixelPair;
-            if (operation == ADD) {
-                if (saturate == 1) {
-                    pixelPair.x = SATURATION;
-                    pixelPair.y = SATURATION;
-                } else {
-                    pixelPair = unpack16bitInternals(dst.samples[pixelPairIndex]);
-                    const ivec2 residualPair = unpack16bitInternals(cmd.samples[residualPairIndex]);
-                    pixelPair.x += residualPair.x;
-                    pixelPair.y += residualPair.y;
+            ivec2 pixelPair = ivec2(SATURATION);
+            if (saturate != 1) {
+                ivec2 residualPair;
+                if (operation == ADD || operation == SET) {
+                    residualPair = unpack16bitInternals(cmd.samples[residualPairIndex]);
                 }
-            } else if (operation == SET) {
-                if (saturate == 1) {
-                    pixelPair.x = SATURATION;
-                    pixelPair.y = SATURATION;
-                } else {
-                    const ivec2 residualPair = unpack16bitInternals(cmd.samples[residualPairIndex]);
-                    pixelPair.x = residualPair.x;
-                    pixelPair.y = residualPair.y;
+
+                switch(operation) {
+                    case ADD : pixelPair = saturateS16(unpack16bitInternals(dst.samples[containerIndex]) + residualPair); break;
+                    case SET : pixelPair = residualPair; break;
+                    case SETZERO : pixelPair = ivec2(0); break;
+                    default : break;
                 }
-            } else if (operation == SETZERO) {
-                pixelPair.x = 0;
-                pixelPair.y = 0;
             }
-            dst.samples[pixelPairIndex] = pack16bitInternals(pixelPair);
+            dst.samples[containerIndex] = pack16bitInternals(pixelPair);
         }
     }
     if (operation != SETZERO) {
@@ -92,101 +84,62 @@ void applyTu(uint firstPixelinTu, uint firstResidual, uint operation, uint tuWid
     }
 }
 
-void process64Bitmask(uint bitmaskMost, uint bitmaskLeast, uint operation,
-                      uint startingPixelInBLock, uint tu, uint tuWidth, uint dds)
+void processSubBlock(uint bitmaskMost, uint bitmaskLeast, uint operation,
+                      uint startingContainerInSubBlock, uint blockX, uint blockY, uint tu, uint tuWidth, uint tusInBlockWidth, uint dds)
 {
     for (uint i = 0; i < 64; ++i) {
-        uint bitSelector;
-        uint willApply;
-        if (i < 32) {
-            bitSelector = 1 << (31 - i);
-            willApply = bitmaskMost & bitSelector;
-        } else {
-            bitSelector = 1 << (63 - i);
-            willApply = bitmaskLeast & bitSelector;
-        }
-
-        const uint tusInRow = (dds == 1) ? 8 : 16;
-        const uint iX = i % tusInRow;
-        const uint iY = i / tusInRow;
-
-        const uint widthInPairs = stride >> 1;
-        const uint index = startingPixelInBLock + iX * (tuWidth >> 1) + iY * tuWidth * widthInPairs;
-
-        const uint startX = startingPixelInBLock % widthInPairs;
-        const uint startY = startingPixelInBLock / widthInPairs;
-        const uint X = startX + iX * (tuWidth >> 1);
-        const uint Y = startY + iY * tuWidth;
-        if(X >= widthInPairs || Y >= srcHeight) {
+        const uint bitIndex = 31 - (i & 31u); // same as 31 - (i % 32)
+        const uint bitSelector = 1u << bitIndex;
+        const uint currentBitmask = (i < 32u) ? bitmaskMost : bitmaskLeast;
+        const uint ix = i % tusInBlockWidth;
+        const uint iy = i / tusInBlockWidth;
+        const uint x = blockX * 16 + ix * (tuWidth >> 1);
+        const uint y = blockY * 16 + iy * tuWidth;
+        if(x >= containerStride || y >= srcHeight) {
             continue;
         }
 
-        if (willApply > 0) {
-            if (operation == ADD) {
-                applyTu(index, tu, ADD, tuWidth);
-            } else if (operation == SET) {
-                applyTu(index, tu, SET, tuWidth);
-            } else if (operation == SETZERO) {
-                applyTu(index, tu, SETZERO, tuWidth);
-            } else { // CLEARSET
-                applyTu(index, tu, SET, tuWidth);
+        const uint index = startingContainerInSubBlock + ix * (tuWidth >> 1) + iy * tuWidth * containerStride;
+        if ((currentBitmask & bitSelector) != 0u) {
+            switch(operation) {
+                case ADD : applyTu(index, tu, ADD, tuWidth); break;
+                case SETZERO : applyTu(index, tu, SETZERO, tuWidth); break;
+                default : applyTu(index, tu, SET, tuWidth); // SET or CLEARSET
             }
-        } else {
-            if (operation == CLEARSET) {
-                applyTu(index, 0, SETZERO, tuWidth);
-            }
+        } else if (operation == CLEARSET) {
+            applyTu(index, 0, SETZERO, tuWidth);
         }
     }
 }
 
-void processRasterBitmask(uvec4 bitmask1and2, uvec4 bitmask3and4, uint operation, uint block, uint tu, uint tuWidth, uint dds)
+void processBlock(const uint bitmask[8], uint operation, uint block, uint tu, uint tuWidth, uint dds)
 {
-    const uint pixelPairsInRaster = (256 >> 1) * tuWidth;
-    const uint pixelPairStartIndex = block * pixelPairsInRaster;
-    const uint widthInPairs = stride >> 1;
+    const uint pixelsInBlockLength = 32;
+    const uint tusInBlockWidth = (dds == 1) ? 8 : 16;
+    const uint width = (tileWidth != 0) ? tileWidth : srcWidth;
+    const uint blocksInRow = (width % pixelsInBlockLength == 0) ? (width / pixelsInBlockLength) : (width / pixelsInBlockLength) + 1;
+    const uint blockX = block % blocksInRow;
+    const uint blockY = block / blocksInRow;
+    const uint firstContainerInBLock = containerOffset + (tileX >> 1) + blockX * (pixelsInBlockLength >> 1) + tileY * containerStride + blockY * containerStride * pixelsInBlockLength;
 
+    for(int i = 0; i<((dds == 1) ? 1 : 4); ++i) {
+        processSubBlock(bitmask[2*i], bitmask[2*i + 1], operation, firstContainerInBLock + i * 8 * containerStride, blockX, blockY, tu, tuWidth, tusInBlockWidth, dds);
+    }
+}
+
+void processRaster(const uint bitmask[8], uint operation, uint block, uint tu, uint tuWidth, uint dds)
+{
+    const uint containersInRaster = (256 >> 1) * tuWidth;
+    const uint containerStartIndex = block * containersInRaster;
     for (uint i = 0; i < 256; ++i) {
-        uint bitSelector;
-        uint willApply;
-        if (i < 32) {
-            bitSelector = 1 << (31 - i);
-            willApply = bitmask1and2.y & bitSelector;
-        }
-        else if (i < 64){
-            bitSelector = 1 << (63 - i);
-            willApply = bitmask1and2.x & bitSelector;
-        }
-        else if (i < 96) {
-            bitSelector = 1 << (95 - i);
-            willApply = bitmask1and2.w & bitSelector;
-        }
-        else if (i < 128){
-            bitSelector = 1 << (127 - i);
-            willApply = bitmask1and2.z & bitSelector;
-        }
-        else if (i < 160) {
-            bitSelector = 1 << (159 - i);
-            willApply = bitmask3and4.y & bitSelector;
-        }
-        else if (i < 192){
-            bitSelector = 1 << (191 - i);
-            willApply = bitmask3and4.x & bitSelector;
-        }
-        else if (i < 224) {
-            bitSelector = 1 << (223 - i);
-            willApply = bitmask3and4.w & bitSelector;
-        }
-        else if (i < 256){
-            bitSelector = 1 << (255 - i);
-            willApply = bitmask3and4.z & bitSelector;
-        }
-
-        if (willApply > 0) {
-            const uint pixelPairIndex = pixelPairStartIndex + i * (tuWidth >> 1);
-            const uint Y = pixelPairIndex / widthInPairs;
-            const uint X = pixelPairIndex % widthInPairs;
-            const uint index = X + Y * tuWidth * widthInPairs;
-
+        const uint segment = i >> 5; // same as i / 32
+        const uint bitIndex = 31 - (i & 31u); // same as 31 - (i % 32)
+        const uint bitSelector = 1u << bitIndex;
+        if ((bitmask[segment] & bitSelector) != 0u) {
+            const uint containerIndex = containerStartIndex + i * (tuWidth >> 1);
+            const uint y = containerIndex / containerStride;
+            const uint x = containerIndex % containerStride;
+            const uint index = containerOffset + x + y * tuWidth * containerStride;
             applyTu(index, tu, ADD, tuWidth);
         }
     }
@@ -194,51 +147,34 @@ void processRasterBitmask(uvec4 bitmask1and2, uvec4 bitmask3and4, uint operation
 
 void main()
 {
-    const uint CMDSIZE =
-        10; // 4 without DD. The 3 extra (wasted) uint64_t are still part of the command stream in DDS.
+    const uint CMDSIZE = 10; // 64 bit command + four 64 bit bitmasks
     const uint dds = (layerCount == 16) ? 1 : 0;
     const uint tuWidth = (dds == 1) ? 4 : 2;
-    const uint x = gl_GlobalInvocationID.x;
-    const uint commandIndex = x * CMDSIZE;
-    ivec4 command = ivec4(cmd.samples[commandIndex], cmd.samples[commandIndex + 1],
+    const uint commandIndex = gl_GlobalInvocationID.x * CMDSIZE;
+    const ivec4 command = ivec4(cmd.samples[commandIndex], cmd.samples[commandIndex + 1],
                           cmd.samples[commandIndex + 2], cmd.samples[commandIndex + 3]);
 
-    uint operation = command.x & 0x3;        // One of GpuApplyOperation.
-    uint block = (command.x >> 2) & 0x3FFFF; // Number of block within temporal buffer to operate on.
-    uint tu = ((command.x >> 20) & 0xFFF) |
+    const uint operation = command.x & 0x3;        // One of GpuApplyOperation.
+    const uint block = (command.x >> 2) & 0x3FFFF; // Number of block within temporal buffer to operate on.
+    const uint tu = ((command.x >> 20) & 0xFFF) |
               ((command.y & 0x7FFF) << 12); // Offset into CommandBuffer of first residual for operation.
-    uint bitStart = (command.y >> 15) & 0xFF;  // First set bit in bitmask.
-    uint bitCount = (command.y >> 23) & 0x1FF; // Number of set bits in bitmask.
-    uvec4 bitmask1and2 = uvec4(command.z, command.w , 0, 0); // 1_lsb, 1_msb, 2_lsb, 2_msb
+    const uint bitStart = (command.y >> 15) & 0xFF;  // First set bit in bitmask.
+    const uint bitCount = (command.y >> 23) & 0x1FF; // Number of set bits in bitmask.
 
-    // DD
-    uvec4 bitmask3and4 = uvec4(0, 0, 0, 0); // 3_lsb, 3_msb, 4_lsb, 4_msb
+    uint bitmask[8];
+    bitmask[1] = command.z;
+    bitmask[0] = command.w;
     if (dds == 0 || tuRasterOrder == 1) { // when in raster order, we make use of all 4 bitmasks for DDS
-        bitmask1and2.z = cmd.samples[commandIndex + 4];
-        bitmask1and2.w = cmd.samples[commandIndex + 5];
-        bitmask3and4.x = cmd.samples[commandIndex + 6];
-        bitmask3and4.y = cmd.samples[commandIndex + 7];
-        bitmask3and4.z = cmd.samples[commandIndex + 8];
-        bitmask3and4.w = cmd.samples[commandIndex + 9];
+        const int map[] = {3, 2, 5, 4, 7, 6};
+        for (int i = 0; i < 6; ++i) {
+            bitmask[map[i]] = cmd.samples[commandIndex + 4 + i];
+        }
     }
 
     if (tuRasterOrder == 1) {
-        processRasterBitmask(bitmask1and2, bitmask3and4, operation, block, tu, tuWidth, dds);
+        processRaster(bitmask, operation, block, tu, tuWidth, dds);
     }
-    else { // temporal on block order
-        const uint pixelsInBlockLength = 32;
-        const uint blocksInRow = (srcWidth % pixelsInBlockLength == 0) ? (srcWidth / pixelsInBlockLength) : (srcWidth / pixelsInBlockLength) + 1;
-        const uint blockX = block % blocksInRow;
-        const uint blockY = block / blocksInRow;
-        const uint firstPixelInBLock = blockX * (pixelsInBlockLength >> 1) + blockY * (stride >> 1) * pixelsInBlockLength;
-
-        if (dds == 1) {
-            process64Bitmask(bitmask1and2.y, bitmask1and2.x, operation, firstPixelInBLock, tu, tuWidth, 1);
-        } else { // DD
-            process64Bitmask(bitmask1and2.y, bitmask1and2.x, operation, firstPixelInBLock, tu, tuWidth, 0);
-            process64Bitmask(bitmask1and2.w, bitmask1and2.z, operation, firstPixelInBLock + 4 * stride, tu, tuWidth, 0);
-            process64Bitmask(bitmask3and4.y, bitmask3and4.x, operation, firstPixelInBLock + 2 * 4 * stride, tu, tuWidth, 0);
-            process64Bitmask(bitmask3and4.w, bitmask3and4.z, operation, firstPixelInBLock + 3 * 4 * stride, tu, tuWidth, 0);
-        }
+    else { // temporal-on or tile-mode block order
+        processBlock(bitmask, operation, block, tu, tuWidth, dds);
     }
 }

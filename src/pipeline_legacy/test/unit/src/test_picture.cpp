@@ -410,7 +410,7 @@ TYPED_TEST(PictureFixture, copyData)
         const uint8_t* ptrToPlaneI420 = this->m_pic.getPlaneFirstSample(plane);
 
         if (plane == 0) {
-            EXPECT_EQ(memcmp(ptrToPlaneNV12, ptrToPlaneI420, this->m_pic.getPlaneMemorySize(plane) - 1), 0);
+            EXPECT_EQ(memcmp(ptrToPlaneNV12, ptrToPlaneI420, this->m_pic.getPlaneMemorySize(plane)), 0);
             continue;
         }
 
@@ -419,14 +419,15 @@ TYPED_TEST(PictureFixture, copyData)
             ptrToPlaneNV12++;
         }
 
-        for (uint32_t row = 0; row < pic.getPlaneHeight(nv12Plane); row++) {
+        for (uint32_t row = 0; row < pic.getPlaneHeight(nv12Plane) - 1; row++) {
             const uint8_t* ptrToRowNV12 = ptrToPlaneNV12 + row * pic.getPlaneByteStride(nv12Plane);
             const uint8_t* ptrToRowI420 = ptrToPlaneI420 + row * this->m_pic.getPlaneByteStride(plane);
             const uint8_t* const nv12End = ptrToRowNV12 + pic.getPlaneWidthBytes(nv12Plane);
             while (ptrToRowNV12 < nv12End) {
                 // Assert here, so it fails fast, rather than printing one error per pixel.
                 ASSERT_EQ(*ptrToRowNV12, *ptrToRowI420)
-                    << "Failed at row " << row << " out of " << pic.getPlaneHeight(nv12Plane);
+                    << "Failed on plane " << (uint32_t)plane << " at row " << row << " out of "
+                    << pic.getPlaneHeight(nv12Plane);
                 ptrToRowNV12 += pic.getPlaneBytesPerPixel(nv12Plane);
                 ptrToRowI420 += this->m_pic.getPlaneBytesPerPixel(plane);
             }

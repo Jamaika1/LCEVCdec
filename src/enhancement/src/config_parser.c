@@ -221,35 +221,31 @@ static bool parseBlockSequenceConfig(ByteStream* stream, LdeGlobalConfig* global
     VNCheckB(bytestreamReadU8(stream, &data));
 
     /* Profile: 4 bits */
-    uint8_t profile = (data >> 4) & 0x0F;
-    VNLogDebug("  Profile: %u", profile);
+    globalConfig->profile = (data >> 4) & 0x0F;
+    VNLogDebug("  Profile: %u", globalConfig->profile);
 
     /* Level: 4 bits */
-    uint8_t level = (data >> 0) & 0x0F;
-    VNLogDebug("  Level: %u", level);
+    globalConfig->level = (data >> 0) & 0x0F;
+    VNLogDebug("  Level: %u", globalConfig->level);
 
     VNCheckB(bytestreamReadU8(stream, &data));
 
     /* Sub-level: 2 bits */
-#ifdef VN_SDK_LOG_ENABLE_DEBUG
-    uint8_t sublevel = (data >> 6) & 0x03;
-    VNLogDebug("  Sub-level: %u", sublevel);
-#endif
+    globalConfig->sublevel = (data >> 6) & 0x03;
+    VNLogDebug("  Sub-level: %u", globalConfig->sublevel);
 
     /* Conformance window flag: 1 bit */
     globalConfig->cropEnabled = (data >> 5) & 0x01;
     VNLogDebug("  Conformance window enabled: %u", globalConfig->cropEnabled);
 
     /* Possible extended profile: 8 bits */
-    if (profile == 15 || level == 15) {
+    if (globalConfig->profile == 15 || globalConfig->level == 15) {
         VNCheckB(bytestreamReadU8(stream, &data));
-#ifdef VN_SDK_LOG_ENABLE_DEBUG
-        const uint8_t extendedProfile = (data >> 5) & 0x07;
-        VNLogDebug("   Extended profile: %u", extendedProfile);
+        globalConfig->extendedProfile = (data >> 5) & 0x07;
+        VNLogDebug("   Extended profile: %u", globalConfig->extendedProfile);
 
-        const uint8_t extendedLevel = (data >> 1) & 0x7F;
-        VNLogDebug("   Extended level: %u", extendedLevel);
-#endif
+        globalConfig->extendedLevel = (data >> 1) & 0x7F;
+        VNLogDebug("   Extended level: %u", globalConfig->extendedLevel);
     }
 
     if (globalConfig->cropEnabled) {

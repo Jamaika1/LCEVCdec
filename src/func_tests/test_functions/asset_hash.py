@@ -1,4 +1,4 @@
-# Copyright (c) V-Nova International Limited 2023-2024. All rights reserved.
+# Copyright (c) V-Nova International Limited 2023-2025. All rights reserved.
 # This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
 # No patent licenses are granted under this license. For enquiries about patent licenses,
 # please contact legal@v-nova.com.
@@ -18,6 +18,7 @@ import hashlib
 
 from utilities.paths import get_executable
 from utilities.runner import get_runner, ADBRunner
+from utilities.load_tests import csv_json_to_dict
 from utilities.test_runner import BaseTest
 from utilities.assets import get_asset
 from utilities.config import config, logger
@@ -42,6 +43,9 @@ class Test(BaseTest):
             runner.set_positional_arg(1, 'dump.yuv')
             runner.set_positional_arg(2, config_file)
         else:
+            json_config = csv_json_to_dict(test.get('json', {}))
+            if json_config:
+                runner.set_json_param('--configuration', json_config)
             runner.set_param('--input', stream_path, path=True)
             runner.set_param(hash_flag, hash_file)
 

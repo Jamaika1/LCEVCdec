@@ -89,6 +89,13 @@ int saturateS16(int v)
     return v;
 }
 
+ivec2 saturateS16(ivec2 v) {
+    ivec2 s;
+    s.x = saturateS16(v.x);
+    s.y = saturateS16(v.y);
+    return s;
+}
+
 int clamp2(int val, int l, int h)
 {
     int min = val < h ? val : h;

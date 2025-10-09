@@ -29,7 +29,7 @@ extern "C"
 {
 #endif
 
-/* \file
+/*! \file
  * This file is the entry point for the surface upscaling functionality.
  */
 
@@ -39,29 +39,30 @@ extern "C"
 typedef struct ldppUpscaleArgs
 {
     uint32_t planeIndex;
-    LdpPictureLayout* srcLayout;
-    LdpPictureLayout* dstLayout;
+    const LdpPictureLayout* srcLayout;
+    const LdpPictureLayout* intermediateLayout;
+    const LdpPictureLayout* dstLayout;
     LdpPicturePlaneDesc srcPlane;
+    LdpPicturePlaneDesc intermediatePlane;
     LdpPicturePlaneDesc dstPlane;
-    bool applyPA;                 /**< Indicates that predicted-average should be applied */
-    LdppDitherFrame* frameDither; /**< Indicates that dithering should be applied  */
-    LdeScalingMode mode;          /**< The type of scaling to perform (1D or 2D). */
-    bool forceScalar;             /**< Desired CPU acceleration features to use. */
+    bool applyPA;                       /**< Indicates that predicted-average should be applied */
+    const LdppDitherFrame* frameDither; /**< Indicates that dithering should be applied  */
+    LdeScalingMode mode;                /**< The type of scaling to perform (1D or 2D). */
+    bool forceScalar;                   /**< Desired CPU acceleration features to use. */
 } LdppUpscaleArgs;
 
 /*------------------------------------------------------------------------------*/
 
 /*! \brief Upscales a source surface to a destination surface using the supplied args.
  *
- *  \param allocator      The memory allocator.
  *  \param taskPool       The task pool to create a sliced blit task from
  *  \param parent         If not NULL, task to inherit dependencies from
  *  \param kernel         The kernel to use for upscaling.
  *  \param params         The arguments to use for upscaling.
  *
  *  \return True if the upscale operation was successful. */
-bool ldppUpscale(LdcMemoryAllocator* allocator, LdcTaskPool* taslPool, LdcTask* parent,
-                 const LdeKernel* kernel, const LdppUpscaleArgs* params);
+bool ldppUpscale(LdcTaskPool* taskPool, LdcTask* parent, const LdeKernel* kernel,
+                 const LdppUpscaleArgs* params);
 
 /*------------------------------------------------------------------------------*/
 

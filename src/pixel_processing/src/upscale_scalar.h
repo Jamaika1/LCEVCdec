@@ -19,42 +19,27 @@
 
 /*------------------------------------------------------------------------------*/
 
-void horizontalU8Planar(LdppDitherSlice* dither, const uint8_t* in[2], uint8_t* out[2],
+void horizontalU8Scalar(LdppDitherSlice* dither, const uint8_t* in[2], uint8_t* out[2],
                         const uint8_t* base[2], uint32_t width, uint32_t xStart, uint32_t xEnd,
-                        const LdeKernel* kernel, const LdpFixedPoint dstFP);
+                        LdppHorizontalUpscaleParams* params);
 
-void horizontalS16Planar(LdppDitherSlice* dither, const uint8_t* in[2], uint8_t* out[2],
+void horizontalS16Scalar(LdppDitherSlice* dither, const uint8_t* in[2], uint8_t* out[2],
                          const uint8_t* base[2], uint32_t width, uint32_t xStart, uint32_t xEnd,
-                         const LdeKernel* kernel, const LdpFixedPoint dstFP);
+                         LdppHorizontalUpscaleParams* params);
 
-void horizontalU8NV12(LdppDitherSlice* dither, const uint8_t* in[2], uint8_t* out[2],
-                      const uint8_t* base[2], uint32_t width, uint32_t xStart, uint32_t xEnd,
-                      const LdeKernel* kernel, const LdpFixedPoint dstFP);
-
-void horizontalU8RGB(LdppDitherSlice* dither, const uint8_t* in[2], uint8_t* out[2],
-                     const uint8_t* base[2], uint32_t width, uint32_t xStart, uint32_t xEnd,
-                     const LdeKernel* kernel, const LdpFixedPoint dstFP);
-
-void horizontalU8RGBA(LdppDitherSlice* dither, const uint8_t* in[2], uint8_t* out[2],
-                      const uint8_t* base[2], uint32_t width, uint32_t xStart, uint32_t xEnd,
-                      const LdeKernel* kernel, const LdpFixedPoint dstFP);
-
-void horizontalUNPlanar(LdppDitherSlice* dither, const uint8_t* in[2], uint8_t* out[2],
+void horizontalUNScalar(LdppDitherSlice* dither, const uint8_t* in[2], uint8_t* out[2],
                         const uint8_t* base[2], uint32_t width, uint32_t xStart, uint32_t xEnd,
-                        const LdeKernel* kernel, uint16_t maxValue);
+                        LdppHorizontalUpscaleParams* params);
 
 /*------------------------------------------------------------------------------*/
 
 /*! \brief Retrieves a function pointer to a horizontal upscaling function that uses NEON.
  *
- *  \param interleaving  The interleaving type to upscale for.
  *  \param srcFP         The source data fixedpoint type to upscale from.
  *  \param dstFP         The destination data fixedpoint type to upscale to.
- *  \param baseFP        The base data fixedpoint type to read from for PA.
  *
  *  \return A valid function pointer on success otherwise NULL. */
-UpscaleHorizontalFunction upscaleGetHorizontalFunction(Interleaving interleaving, LdpFixedPoint srcFP,
-                                                       LdpFixedPoint dstFP, LdpFixedPoint baseFP);
+UpscaleHorizontalFunction upscaleGetHorizontalFunctionScalar(LdpFixedPoint srcFP, LdpFixedPoint dstFP);
 
 /*! \brief Retrieves a function pointer to a vertical upscaling function that uses NEON.
  *         upscaling with the supplied source and destination fixedpoint types.
@@ -63,7 +48,7 @@ UpscaleHorizontalFunction upscaleGetHorizontalFunction(Interleaving interleaving
  *  \param dstFP    The destination data fixedpoint type to upscale to.
  *
  * \return A valid function pointer if available, otherwise NULL. */
-UpscaleVerticalFunction upscaleGetVerticalFunction(LdpFixedPoint srcFP, LdpFixedPoint dstFP);
+UpscaleVerticalFunction upscaleGetVerticalFunctionScalar(LdpFixedPoint srcFP, LdpFixedPoint dstFP);
 
 /*------------------------------------------------------------------------------*/
 

@@ -72,8 +72,8 @@ bool ldppDitherFrameInitialise(LdppDitherFrame* frame, LdppDitherGlobal* global,
     return true;
 }
 
-void ldppDitherSliceInitialise(LdppDitherSlice* slice, LdppDitherFrame* frame, uint32_t offset,
-                               uint32_t planeIndex)
+void ldppDitherSliceInitialise(LdppDitherSlice* slice, const LdppDitherFrame* frame,
+                               uint32_t offset, uint32_t planeIndex)
 {
     slice->global = frame->global;
     slice->strength = frame->strength;
@@ -95,17 +95,6 @@ const uint16_t* ldppDitherGetBuffer(LdppDitherSlice* dither, size_t length)
 
     const size_t position = ldcRandomValue(&dither->random) % (kDitherBufferSize - length);
     return &dither->global->buffer[position];
-}
-
-int8_t ldppDitherGetShiftS16(LdpFixedPoint bitDepth)
-{
-    switch (bitDepth) {
-        case LdpFPS8: return 7;
-        case LdpFPS10: return 5;
-        case LdpFPS12: return 3;
-        case LdpFPS14: return 1;
-        default: return 0;
-    }
 }
 
 /*------------------------------------------------------------------------------*/

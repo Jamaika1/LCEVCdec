@@ -24,6 +24,7 @@
 #include <LCEVC/pipeline/pipeline.h>
 #include <LCEVC/pipeline/types.h>
 #include <LCEVC/pipeline_vulkan/create_pipeline.h>
+#include <LCEVC/pipeline_vulkan/types_vulkan.h>
 #include <picture_vulkan.h>
 #include <pipeline_vulkan.h>
 
@@ -69,7 +70,7 @@ TEST_F(PipelineVulkanFixture, AllocatePicturesManaged)
 {
     const LdpPictureDesc pictureDesc{1920, 1080, LdpColorFormatI420_8};
 
-    auto picture = mPipeline->allocPictureManaged(pictureDesc);
+    auto picture = mPipeline->allocPicture(pictureDesc);
     ASSERT_TRUE(picture);
 
     mPipeline->freePicture(picture);

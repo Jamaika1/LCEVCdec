@@ -1076,8 +1076,8 @@ static inline void verticalGetPelsU8(const uint8_t* in, uint32_t height, uint32_
  * \param  count    The number of rows to load in.
  * \param pels     The destination to load the pixels into.
  */
-static inline void verticalGetPelsN16(const uint8_t* in, uint32_t height, uint32_t stride,
-                                      int32_t offset, int32_t count, int16x8x2_t pels[UCMaxKernelSize])
+static inline void verticalGetPelsUN(const uint8_t* in, uint32_t height, uint32_t stride,
+                                     int32_t offset, int32_t count, int16x8x2_t pels[UCMaxKernelSize])
 {
     const int16_t* in16 = (const int16_t*)in;
 
@@ -1320,7 +1320,7 @@ static void ldlVerticalS16NEON(const uint8_t* in, uint32_t inStride, uint8_t* ou
     assert(kernelLength <= UCMaxKernelSize);
 
     /* Prime rows. */
-    verticalGetPelsN16(in, height, inStride, loadOffset, kernelLength, pels);
+    verticalGetPelsUN(in, height, inStride, loadOffset, kernelLength, pels);
     loadOffset += 1;
 
     for (rowIndex = 0; rowIndex < rows; ++rowIndex) {
@@ -1366,7 +1366,7 @@ static inline void ldlVerticalU16NEON(const uint8_t* in, uint32_t inStride, uint
     assert(kernelLength <= UCMaxKernelSize);
 
     /* Prime rows. */
-    verticalGetPelsN16(in, height, inStride, loadOffset, kernelLength, pels);
+    verticalGetPelsUN(in, height, inStride, loadOffset, kernelLength, pels);
     loadOffset += 1;
 
     for (rowIndex = 0; rowIndex < rows; ++rowIndex) {

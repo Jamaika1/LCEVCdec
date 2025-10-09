@@ -29,17 +29,16 @@ layout(std430, set = 0, binding = 1) buffer restrict writeonly DstImageBuffer {
 layout(push_constant) uniform consts {
     int width;
     int height;
-    int batchSize; // number of elements to process in each shader invocation
+    int containerStride;
+    int containerOffset;
 };
 
 #include "common.glsl"
 
 void main()
 {
-    const uint x = gl_GlobalInvocationID.x;
-    const uint y = gl_GlobalInvocationID.y;
-    const uint index = x + (width / 2) * y;
-    if (index < ((width / 2) * height)) {
+    const uint index = containerOffset + gl_GlobalInvocationID.x + containerStride * gl_GlobalInvocationID.y;
+    if (index < containerOffset + containerStride * height) {
         const ivec2 srcPixels = unpack16bitInternals(src.samples[index]);
         ivec2 dstPixels = unpack16bitInternals(dst.samples[index]);
         ivec2 sum;

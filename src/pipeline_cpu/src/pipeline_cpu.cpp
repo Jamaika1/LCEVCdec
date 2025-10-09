@@ -17,6 +17,7 @@
 #include "frame_cpu.h"
 #include "picture_cpu.h"
 #include "pipeline_config_cpu.h"
+#include "tasks_cpu.h"
 
 #include <LCEVC/common/check.h>
 #include <LCEVC/common/constants.h>
@@ -27,55 +28,26 @@
 #include <LCEVC/common/return_code.h>
 #include <LCEVC/common/task_pool.h>
 #include <LCEVC/common/threads.h>
-#include <LCEVC/enhancement/bitstream_types.h>
-#include <LCEVC/enhancement/decode.h>
-#include <LCEVC/pipeline/buffer.h>
-#include <LCEVC/pipeline/picture_layout.h>
-#include <LCEVC/pixel_processing/apply_cmdbuffer.h>
-#include <LCEVC/pixel_processing/blit.h>
-#include <LCEVC/pixel_processing/upscale.h>
 //
-#include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <ctime>
 
 namespace lcevc_dec::pipeline_cpu {
 
 // Utility functions for finding and sorting things in Vectors
 //
 namespace {
-    // Compare 'close' timestamps - allows wrapping around end of uint64_t range
-    // (Unlikely when starting at zero - but allows timestamps to start 'before' zero)
-    inline int compareTimestamps(uint64_t lhs, uint64_t rhs)
-    {
-        const int64_t delta = (int64_t)(lhs - rhs);
-        if (delta < 0) {
-            return -1;
-        }
-        if (delta > 0) {
-            return 1;
-        }
-        return 0;
-    }
-
-    inline int findFrameTimestamp(const void* element, const void* ptr)
-    {
-        const auto* alloc{static_cast<const LdcMemoryAllocation*>(element)};
-        assert(VNIsAllocated(*alloc));
-        const uint64_t ets{VNAllocationPtr(*alloc, FrameCPU)->timestamp};
-        const uint64_t ts{*static_cast<const uint64_t*>(ptr)};
-
-        return compareTimestamps(ets, ts);
-    }
-
+    // Compare two frames in an array of frame pointers
     inline int sortFramePtrTimestamp(const void* lhs, const void* rhs)
     {
         const auto* frameLhs{*static_cast<const FrameCPU* const *>(lhs)};
         const auto* frameRhs{*static_cast<const FrameCPU* const *>(rhs)};
 
-        return compareTimestamps(frameLhs->timestamp, frameRhs->timestamp);
+        return pipeline::compareTimestamps(frameLhs->timestamp, frameRhs->timestamp);
     }
 
+    // Check timestamp of an allocated BasePicture
     inline int findBasePictureTimestamp(const void* element, const void* ptr)
     {
         const auto* alloc{static_cast<const LdcMemoryAllocation*>(element)};
@@ -83,7 +55,21 @@ namespace {
         const uint64_t ets{VNAllocationPtr(*alloc, BasePicture)->timestamp};
         const uint64_t ts{*static_cast<const uint64_t*>(ptr)};
 
-        return compareTimestamps(ets, ts);
+        return pipeline::compareTimestamps(ets, ts);
+    }
+
+    inline int compareFramePtr(const void* element, const void* other)
+    {
+        const auto* frameLhs{*static_cast<const FrameCPU* const *>(element)};
+        const auto* frameRhs{static_cast<const FrameCPU*>(other)};
+
+        if (frameLhs < frameRhs) {
+            return -1;
+        }
+        if (frameLhs > frameRhs) {
+            return 1;
+        }
+        return 0;
     }
 
 } // namespace
@@ -99,6 +85,8 @@ PipelineCPU::PipelineCPU(const PipelineBuilderCPU& builder, pipeline::EventSink*
     , m_frames(builder.configuration().maxLatency, builder.allocator())
     , m_reorderIndex(builder.configuration().maxLatency, builder.allocator())
     , m_processingIndex(builder.configuration().maxLatency, builder.allocator())
+    , m_doneIndex(builder.configuration().maxLatency, builder.allocator())
+    , m_flushIndex(builder.configuration().maxLatency, builder.allocator())
     , m_maxReorder(m_configuration.defaultMaxReorder)
     , m_temporalBuffers(builder.configuration().numTemporalBuffers * RCMaxPlanes, builder.allocator())
     , m_basePicturePending(nextPowerOfTwoU32(builder.configuration().maxLatency + 1), builder.allocator())
@@ -128,6 +116,7 @@ PipelineCPU::PipelineCPU(const PipelineBuilderCPU& builder, pipeline::EventSink*
 
     // Fill in empty temporal buffer anchors
     TemporalBuffer buf{};
+    buf.allocator = m_allocator;
     buf.desc.timestamp = kInvalidTimestamp;
     buf.timestampLimit = kInvalidTimestamp;
     for (uint32_t i = 0; i < m_configuration.numTemporalBuffers * RCMaxPlanes; ++i) {
@@ -142,6 +131,9 @@ PipelineCPU::PipelineCPU(const PipelineBuilderCPU& builder, pipeline::EventSink*
 
 PipelineCPU::~PipelineCPU()
 {
+    // Flush and wait for any remaining frames
+    this->synchronizeDecoder(kInvalidTimestamp, true);
+
     // Release pictures
     for (uint32_t i = 0; i < m_pictures.size(); ++i) {
         PictureCPU* picture{VNAllocationPtr(m_pictures[i], PictureCPU)};
@@ -153,7 +145,7 @@ PipelineCPU::~PipelineCPU()
     // Release frames
     for (uint32_t i = 0; i < m_frames.size(); ++i) {
         FrameCPU* frame{VNAllocationPtr(m_frames[i], FrameCPU)};
-        frame->release(false);
+        frame->release(true);
         // Call destructor directly, as we are doing in-place construct/destruct
         frame->~FrameCPU();
         VNFree(m_allocator, &m_frames[i]);
@@ -169,8 +161,10 @@ PipelineCPU::~PipelineCPU()
     // Release dither
     ldppDitherGlobalRelease(&m_dither);
 
+    // Release config
     ldeConfigPoolRelease(&m_configPool);
 
+    // Release frame memory arena
     ldcRollingArenaDestroy(&m_rollingArena);
 
     // Close down task pool
@@ -181,20 +175,20 @@ PipelineCPU::~PipelineCPU()
 
 // Send/receive
 //
-LdcReturnCode PipelineCPU::sendEnhancementData(uint64_t timestamp, const uint8_t* data, uint32_t byteSize)
+LdcReturnCode PipelineCPU::sendDecoderEnhancementData(uint64_t timestamp, const uint8_t* data, uint32_t byteSize)
 {
-    VNLogDebug("sendEnhancementData: %" PRIx64 " %d", timestamp, byteSize);
-    VNTraceInstant("sendEnhancementData", timestamp);
+    VNLogDebug("sendDecoderEnhancementData: ts:%" PRIx64 " %d", timestamp, byteSize);
 
     // Invalid if this timestamp is already present in decoder.
     //
     // NB: API clients are expected to make distinct timestamps over discontinuities using utility library
-    if (findFrame(timestamp)) {
+    if (findFrame(timestamp) != nullptr) {
+        VNLogDebug("sendDecoderEnhancementData: ts:%" PRIx64 " Duplicate Frame", timestamp);
         return LdcReturnCodeInvalidParam;
     }
 
     if (frameLatency() >= m_configuration.maxLatency) {
-        VNLogDebug("sendEnhancementData: %" PRIx64 " AGAIN", timestamp);
+        VNLogDebug("sendDecoderEnhancementData: ts:%" PRIx64 " AGAIN", timestamp);
         return LdcReturnCodeAgain;
     }
 
@@ -204,11 +198,16 @@ LdcReturnCode PipelineCPU::sendEnhancementData(uint64_t timestamp, const uint8_t
         return LdcReturnCodeError;
     }
 
-    LdcMemoryAllocation enhancementDataAllocation{};
-    uint8_t* const enhancement{VNAllocateArray(m_allocator, &enhancementDataAllocation, uint8_t, byteSize)};
-    memcpy(enhancement, data, byteSize);
-    frame->m_enhancementData = enhancementDataAllocation;
-    frame->m_state = FrameStateReorder;
+    // Keep record of highest sent frame timestamp
+    if (m_sendLimit == kInvalidTimestamp || pipeline::compareTimestamps(timestamp, m_sendLimit)) {
+        m_sendLimit = timestamp;
+    }
+
+    // Attach enhancement data to frame
+    frame->setEnhancementData(data, byteSize);
+
+    // Frame ready to be reordered into presentation order for correct LCEVC decode
+    frame->setState(FrameStateReorder);
 
     // Add frame to reorder table sorted by timestamp
     m_reorderIndex.insert(sortFramePtrTimestamp, frame);
@@ -216,7 +215,7 @@ LdcReturnCode PipelineCPU::sendEnhancementData(uint64_t timestamp, const uint8_t
     // Attach any pending base for matching timestamp
     if (BasePicture* bp = m_basePicturePending.findUnordered(findBasePictureTimestamp, &frame->timestamp);
         bp) {
-        frame->setBase(bp->picture, bp->deadline, bp->userData);
+        frame->setBasePicture(bp->picture, bp->deadline, bp->userData);
         m_basePicturePending.remove(bp);
         m_eventSink->generate(pipeline::EventCanSendBase);
     }
@@ -225,24 +224,27 @@ LdcReturnCode PipelineCPU::sendEnhancementData(uint64_t timestamp, const uint8_t
     return LdcReturnCodeSuccess;
 }
 
-LdcReturnCode PipelineCPU::sendBasePicture(uint64_t timestamp, LdpPicture* basePicture,
+LdcReturnCode PipelineCPU::sendDecoderBase(uint64_t timestamp, LdpPicture* basePicture,
                                            uint32_t timeoutUs, void* userData)
 {
-    VNLogDebug("sendBasePicture: %" PRIx64 " %p", timestamp, (void*)basePicture);
-    VNTraceInstant("sendBasePicture", timestamp);
+    VNLogDebug("sendDecoderBase: ts:%" PRIx64 " %p", timestamp, (void*)basePicture);
 
     // Find the frame associated with PTS
     FrameCPU* frame{findFrame(timestamp)};
     if (frame) {
         // Enhancement exists
-        if (LdcReturnCode ret = frame->setBase(
+        if (LdcReturnCode ret = frame->setBasePicture(
                 basePicture, threadTimeMicroseconds(static_cast<int32_t>(timeoutUs)), userData);
             ret != LdcReturnCodeSuccess) {
             return ret;
         }
 
+        // Force pass-through if requested
+        if (m_configuration.passthroughMode == PassthroughMode::Force) {
+            frame->setPassthrough();
+        }
         // Kick off any frames that are at or before the base timestamp
-        startProcessing(timestamp);
+        process(timestamp);
         m_eventSink->generate(pipeline::EventCanSendBase);
         return LdcReturnCodeSuccess;
     }
@@ -251,7 +253,7 @@ LdcReturnCode PipelineCPU::sendBasePicture(uint64_t timestamp, LdpPicture* baseP
                       threadTimeMicroseconds(static_cast<int32_t>(timeoutUs)), userData};
 
     if (m_basePicturePending.size() < m_configuration.enhancementDelay) {
-        // Room to buffer picture
+        // There is capacity to buffer base picture
         m_basePicturePending.append(bp);
         return LdcReturnCodeSuccess;
     }
@@ -278,26 +280,23 @@ LdcReturnCode PipelineCPU::sendBasePicture(uint64_t timestamp, LdpPicture* baseP
     }
 
     // Add frame to reorder table sorted by timestamp
-    passFrame->m_state = FrameStateReorder;
-    passFrame->m_ready = true;
-    passFrame->m_passthrough = true;
-    passFrame->setBase(basePicture, threadTimeMicroseconds(static_cast<int32_t>(timeoutUs)), userData);
-
+    passFrame->setBasePicture(basePicture, threadTimeMicroseconds(static_cast<int32_t>(timeoutUs)), userData);
+    passFrame->setPassthrough();
+    passFrame->setState(FrameStateReorder);
     m_reorderIndex.insert(sortFramePtrTimestamp, passFrame);
 
     startReadyFrames();
     return LdcReturnCodeSuccess;
 }
 
-LdcReturnCode PipelineCPU::sendOutputPicture(LdpPicture* outputPicture)
+LdcReturnCode PipelineCPU::sendDecoderPicture(LdpPicture* outputPicture)
 {
-    VNLogDebug("sendOutputPicture: %p", (void*)outputPicture);
-    VNTraceInstant("sendOutputPicture", (void*)outputPicture);
+    VNLogDebug("sendDecoderPicture: %p", (void*)outputPicture);
 
     // Add to available queue
     if (m_outputPictureAvailableBuffer.size() > m_configuration.maxLatency ||
         !m_outputPictureAvailableBuffer.tryPush(outputPicture)) {
-        VNLogDebug("sendOutputPicture: AGAIN");
+        VNLogDebug("sendDecoderPicture: AGAIN");
         return LdcReturnCodeAgain;
     }
 
@@ -307,39 +306,42 @@ LdcReturnCode PipelineCPU::sendOutputPicture(LdpPicture* outputPicture)
     return LdcReturnCodeSuccess;
 }
 
-LdpPicture* PipelineCPU::receiveOutputPicture(LdpDecodeInformation& decodeInfoOut)
+LdpPicture* PipelineCPU::receiveDecoderPicture(LdpDecodeInformation& decodeInfoOut)
 {
     FrameCPU* frame{};
 
+    releaseFlushedFrames();
+
     // Pull any done frame from start (lowest timestamp) of 'processing' frame index.
-    while (true) {
+    {
         common::ScopedLock lock(m_interTaskMutex);
 
-        if (m_processingIndex.isEmpty()) {
-            // No frames in progress
-            break;
-        }
+        if (!m_doneIndex.isEmpty()) {
+            // Something in 'done' index
+            frame = m_doneIndex[0];
+            m_doneIndex.removeIndex(0);
+        } else if (m_processingIndex.size() > m_configuration.minLatency &&
+                   m_processingIndex[0]->canComplete() && !isFlushed(m_processingIndex[0])) {
+            const FrameCPU* pendingFrame = m_processingIndex[0];
 
-        if (m_processingIndex[0]->m_state == FrameStateDone) {
-            // Earliest frame is finished
-            frame = m_processingIndex[0];
-            m_processingIndex.removeIndex(0);
-            break;
-        }
+            // Earliest frame will complete, so hang around and wait for it to move to done index
+            VNLogDebug("waiting for ts:%" PRIx64, pendingFrame->timestamp);
 
-        if (m_processingIndex.size() > m_configuration.minLatency && m_processingIndex[0]->canComplete()) {
-            // Earliest frame will complete, so hang around and wait for it
-            VNLogDebug("receiveOutputPicture waiting for %" PRIx64, m_processingIndex[0]->timestamp);
-
-            if (m_interTaskFrameDone.waitDeadline(lock, m_processingIndex[0]->m_deadline)) {
-                continue;
-            }
-            VNLogWarning("receiveOutputPicture wait timed out");
+            if (!m_interTaskFrameDone.waitDeadline(lock, pendingFrame->deadline)) {
+                VNLogWarning("wait timed out ts:%" PRIx64, pendingFrame->timestamp);
 #ifdef VN_SDK_LOG_ENABLE_DEBUG
-            ldcTaskPoolDump(&m_taskPool, nullptr);
+                ldcTaskPoolDump(&m_taskPool, nullptr);
 #endif
-        } else {
-            break;
+            } else {
+                VNLogDebug("wait done ts:%" PRIx64, pendingFrame->timestamp);
+            }
+
+            if (!m_doneIndex.isEmpty()) {
+                frame = m_doneIndex[0];
+                m_doneIndex.removeIndex(0);
+            } else {
+                VNLogDebug("no picture ts:%" PRIx64, m_processingIndex[0]->timestamp);
+            }
         }
     }
 
@@ -348,14 +350,12 @@ LdpPicture* PipelineCPU::receiveOutputPicture(LdpDecodeInformation& decodeInfoOu
     }
 
     // Copy surviving data from frame
-    decodeInfoOut = frame->m_decodeInfo;
+    decodeInfoOut = frame->decodeInformation;
     LdpPicture* pictureOut{frame->outputPicture};
 
-    VNLogDebug("receiveOutputPicture: %" PRIx64 " %p hb:%d he:%d sk:%d enh:%d",
+    VNLogDebug("receiveDecoderPicture: ts:%" PRIx64 " %p hb:%d he:%d sk:%d enh:%d",
                decodeInfoOut.timestamp, (void*)pictureOut, decodeInfoOut.hasBase,
                decodeInfoOut.hasEnhancement, decodeInfoOut.skipped, decodeInfoOut.enhanced);
-
-    VNTraceInstant("receiveOutputPicture", frame->timestamp, (void*)frame->outputPicture);
 
     // Once an output picture has left the building - we can drop the associated frame
     freeFrame(frame);
@@ -363,7 +363,7 @@ LdpPicture* PipelineCPU::receiveOutputPicture(LdpDecodeInformation& decodeInfoOu
     return pictureOut;
 }
 
-LdpPicture* PipelineCPU::receiveFinishedBasePicture()
+LdpPicture* PipelineCPU::receiveDecoderBase()
 {
     // Is there anything in finished base FIFO?
     LdpPicture* basePicture{};
@@ -371,17 +371,29 @@ LdpPicture* PipelineCPU::receiveFinishedBasePicture()
         return nullptr;
     }
 
-    VNLogDebug("receiveFinishedBasePicture: %" PRIx64 " %p", (void*)basePicture);
-    VNTraceInstant("receiveFinishedBasePicture", (void*)basePicture);
+    VNLogDebug("receiveDecoderBase: %" PRIx64 " %p", (void*)basePicture);
 
     return basePicture;
 }
 
+void PipelineCPU::getCapacity(LdpPipelineCapacity* capacity)
+{
+    assert(capacity);
+    capacity->enhancementAvailable = m_configuration.maxLatency - frameLatency();
+    capacity->baseAvailable = m_configuration.maxLatency - frameLatency();
+    capacity->outputAvailable =
+        m_outputPictureAvailableBuffer.capacity() - m_outputPictureAvailableBuffer.size();
+
+    capacity->enhancementMaximum = m_configuration.maxLatency;
+    capacity->baseMaximum = m_configuration.maxLatency;
+    capacity->outputAvailable = m_outputPictureAvailableBuffer.capacity();
+}
+
 // Dig out info about a current timestamp
-LdcReturnCode PipelineCPU::peek(uint64_t timestamp, uint32_t& widthOut, uint32_t& heightOut)
+LdcReturnCode PipelineCPU::peekDecoder(uint64_t timestamp, uint32_t& widthOut, uint32_t& heightOut)
 {
     // Flush everything up to given timestamp
-    startProcessing(timestamp);
+    process(timestamp);
 
     // Find the frame associated with PTS
     const FrameCPU* frame{findFrame(timestamp)};
@@ -391,93 +403,200 @@ LdcReturnCode PipelineCPU::peek(uint64_t timestamp, uint32_t& widthOut, uint32_t
     if (!frame->globalConfig) {
         if (m_configuration.passthroughMode == PassthroughMode::Disable) {
             return LdcReturnCodeNotFound;
-        } else {
-            return LdcReturnCodeAgain;
         }
+        return LdcReturnCodeAgain;
     }
 
-    widthOut = frame->globalConfig->width;
-    heightOut = frame->globalConfig->height;
+    if (frame->isPassthrough()) {
+        widthOut = frame->baseWidth;
+        heightOut = frame->baseHeight;
+    } else {
+        widthOut = frame->globalConfig->width;
+        heightOut = frame->globalConfig->height;
+    }
     return LdcReturnCodeSuccess;
 }
 
 // Move any reorder frames at or before timestamp into processing state
-void PipelineCPU::startProcessing(uint64_t timestamp)
+void PipelineCPU::process(uint64_t timestamp)
 {
-    // Mark any frames in reorder buffer as 'flush'
-    for (uint32_t i = 0; i < m_reorderIndex.size(); ++i) {
-        FrameCPU* const frame = m_reorderIndex[i];
-        if (frame->m_state == FrameStateReorder && compareTimestamps(frame->timestamp, timestamp) <= 0) {
-            frame->m_ready = true;
-        }
+    assert(timestamp != kInvalidTimestamp);
+
+    // Move 'processing' point forwards
+    if (m_processingLimit != kInvalidTimestamp &&
+        pipeline::compareTimestamps(timestamp, m_processingLimit) < 0) {
+        VNLogError("Processing timestamp went backwards.");
+        return;
     }
+    m_processingLimit = timestamp;
 
     startReadyFrames();
 }
 
-// Make frames before timestamp as disposable
-LdcReturnCode PipelineCPU::flush(uint64_t timestamp)
-{
-    VNLogDebug("flush: %" PRIx64 " %p", timestamp);
-    VNTraceInstant("flush", timestamp);
-
-    // Mark any frames in reorder buffer as 'flush'
-    for (uint32_t i = 0; i < m_reorderIndex.size(); ++i) {
-        FrameCPU* const frame = m_reorderIndex[i];
-        if (compareTimestamps(frame->timestamp, timestamp) <= 0) {
-            // Mark frame as flushable
-            frame->m_ready = true;
-        }
-    }
-
-    startReadyFrames();
-    return LdcReturnCodeSuccess;
-}
-
-// Mark everything before timestamp as not needing decoding
 LdcReturnCode PipelineCPU::skip(uint64_t timestamp)
 {
-    VNLogDebug("skip: %" PRIx64 " %p", timestamp);
-    VNTraceInstant("skip", timestamp);
+    const uint64_t fromTimestamp = m_skipLimit;
 
-    // Look at all frames
-    for (uint32_t i = 0; i < m_frames.size(); ++i) {
-        FrameCPU* const frame{VNAllocationPtr(m_frames[i], FrameCPU)};
-        if (compareTimestamps(frame->timestamp, timestamp) <= 0) {
-            // Mark frame as skippable and flushable
-            frame->m_skip = true;
-            frame->m_ready = true;
-        }
+    VNLogDebug("skip: ts:%" PRIx64 " %p", timestamp);
+
+    // Using kInvalidTimstamp skips all sent frames
+    if (timestamp == kInvalidTimestamp) {
+        timestamp = m_sendLimit;
+    }
+
+    // Skipping beyond highest sent timestamp does nothing
+    if (pipeline::compareTimestamps(timestamp, m_sendLimit) > 0) {
+        return LdcReturnCodeSuccess;
+    }
+
+    // Move 'skip' point forwards
+    if (m_skipLimit != kInvalidTimestamp && pipeline::compareTimestamps(timestamp, m_skipLimit) < 0) {
+        VNLogError("Skip timestamp went backwards.");
+        return LdcReturnCodeError;
+    }
+    m_skipLimit = timestamp;
+
+    // Bump 'processing' point if necessary
+    if (m_processingLimit == kInvalidTimestamp ||
+        pipeline::compareTimestamps(timestamp, m_processingLimit) > 0) {
+        m_processingLimit = timestamp;
     }
 
     startReadyFrames();
+    unblockSkippedFrames(fromTimestamp);
     return LdcReturnCodeSuccess;
+}
+
+// Flush any frames  at or before timestamp into processing state
+LdcReturnCode PipelineCPU::flush(uint64_t timestamp)
+{
+    const uint64_t fromTimestamp = m_flushLimit;
+
+    VNLogDebug("flush: ts:%" PRIx64 " %p", timestamp);
+
+    // Using kInvalidTimstamp flushed all sent frames
+    if (timestamp == kInvalidTimestamp) {
+        timestamp = m_sendLimit;
+    }
+
+    // Move 'flush' point forwards
+    if (m_flushLimit != kInvalidTimestamp && pipeline::compareTimestamps(timestamp, m_flushLimit) < 0) {
+        VNLogError("Flush timestamp went backwards.");
+        return LdcReturnCodeError;
+    }
+    m_flushLimit = timestamp;
+
+    // Bump 'processing' point if necessary
+    if (m_processingLimit == kInvalidTimestamp ||
+        pipeline::compareTimestamps(timestamp, m_processingLimit) > 0) {
+        m_processingLimit = timestamp;
+    }
+
+    // Bump 'skip' point if necessary
+    if (m_skipLimit == kInvalidTimestamp || pipeline::compareTimestamps(timestamp, m_skipLimit) > 0) {
+        m_skipLimit = timestamp;
+    }
+
+    startReadyFrames();
+    unblockFlushedFrames(fromTimestamp);
+    return LdcReturnCodeSuccess;
+}
+
+// Make sure any skipped frames are ready to run
+void PipelineCPU::unblockSkippedFrames(uint64_t fromTimestamp)
+{
+    for (uint32_t i = 0; i < m_frames.size(); ++i) {
+        FrameCPU* const frame{VNAllocationPtr(m_frames[i], FrameCPU)};
+        if (!frame->isStateProcessing()) {
+            continue;
+        }
+        // Already skipped?
+        if (fromTimestamp != kInvalidTimestamp &&
+            pipeline::compareTimestamps(fromTimestamp, frame->timestamp) >= 0) {
+            continue;
+        }
+
+        if (isSkipped(frame)) {
+            frame->unblockForSkip();
+        }
+    }
+}
+
+// Make sure any flushed frames are ready to run
+void PipelineCPU::unblockFlushedFrames(uint64_t fromTimestamp)
+{
+    for (uint32_t i = 0; i < m_frames.size(); ++i) {
+        FrameCPU* const frame{VNAllocationPtr(m_frames[i], FrameCPU)};
+        if (!frame->isStateProcessing()) {
+            continue;
+        }
+
+        // Already flushed?
+        if (fromTimestamp != kInvalidTimestamp &&
+            pipeline::compareTimestamps(fromTimestamp, frame->timestamp) >= 0) {
+            continue;
+        }
+
+        if (isFlushed(frame)) {
+            frame->unblockForFlush();
+        }
+    }
 }
 
 // Wait for all work to be finished - optionally stopping anything in progress
-LdcReturnCode PipelineCPU::synchronize(bool dropPending)
+LdcReturnCode PipelineCPU::synchronizeDecoder(uint64_t timestamp, bool flushPending)
 {
-    VNLogDebug("synchronize: %d", dropPending);
-    VNTraceInstant("synchronize", dropPending);
+    VNLogDebug("synchronizeDecoder: %d", flushPending);
 
-    // Mark current frames as skippable
-    for (uint32_t i = 0; i < m_frames.size(); ++i) {
-        FrameCPU* const frame{VNAllocationPtr(m_frames[i], FrameCPU)};
-        frame->m_skip = dropPending;
-    }
-    startReadyFrames();
+    if (flushPending) {
+        // Mark current frames as flushed
+        flush(timestamp);
 
-    // For all pending frames that are not blocked on input - wait in timestamp order
-    for (uint32_t i = 0; i < m_processingIndex.size(); ++i) {
-        FrameCPU* frame = m_processingIndex[i];
-        if (!frame->canComplete()) {
-            continue;
+        while (m_processingIndex.size() > 0) {
+            FrameCPU* const frame = m_processingIndex[0];
+            if (!frame->canComplete()) {
+                VNLogError("Flushed frame cannot complete: ts:%" PRIx64, frame->timestamp);
+            }
+            frame->waitForTasks();
         }
-        ldcTaskGroupWait(&frame->m_taskGroup);
+    } else {
+        // For frames that are not blocked on input - wait in timestamp order
+        while (m_processingIndex.size() > 0 && m_processingIndex[0]->canComplete()) {
+            m_processingIndex[0]->waitForCompletableTasks();
+        }
     }
 
+    releaseFlushedFrames();
     return LdcReturnCodeSuccess;
 }
+
+bool PipelineCPU::isProcessing(const FrameCPU* frame) const
+{
+    assert(frame);
+
+    if (m_processingLimit == kInvalidTimestamp) {
+        return false;
+    }
+    return frame->timestamp <= m_processingLimit;
+}
+
+bool PipelineCPU::isSkipped(const FrameCPU* frame) const
+{
+    assert(frame);
+    if (m_skipLimit == kInvalidTimestamp) {
+        return false;
+    }
+    return frame->timestamp <= m_skipLimit;
+};
+
+bool PipelineCPU::isFlushed(const FrameCPU* frame) const
+{
+    assert(frame);
+    if (m_flushLimit == kInvalidTimestamp) {
+        return false;
+    }
+    return frame->timestamp <= m_flushLimit;
+};
 
 // Buffers
 //
@@ -559,7 +678,7 @@ void PipelineCPU::releasePicture(PictureCPU* picture)
     m_pictures.removeReorder(pAlloc);
 }
 
-LdpPicture* PipelineCPU::allocPictureManaged(const LdpPictureDesc& desc)
+LdpPicture* PipelineCPU::allocPicture(const LdpPictureDesc& desc)
 {
     PictureCPU* picture{allocatePicture()};
     picture->setDesc(desc);
@@ -593,12 +712,14 @@ void PipelineCPU::freePicture(LdpPicture* ldpPicture)
 // Given that there is going to be in the order of 100 or less frames, stick
 // with an array and linear searches.
 //
+// NB: There may be more allocated frames that the configured latency - 'Done' frames
+// do not count towards latency limit.
+//
 // Returns nullptr if there is no capacity for another frame.
 //
 FrameCPU* PipelineCPU::allocateFrame(uint64_t timestamp)
 {
     assert(findFrame(timestamp) == nullptr);
-    assert(m_frames.size() < m_configuration.maxLatency);
 
     // Allocate frame with in place construction
     LdcMemoryAllocation frameAllocation = {};
@@ -611,16 +732,22 @@ FrameCPU* PipelineCPU::allocateFrame(uint64_t timestamp)
     m_frames.append(frameAllocation);
 
     // In place construction
-    return new (frame) FrameCPU(this, timestamp); // NOLINT(cppcoreguidelines-owning-memory)
+    return new (frame) FrameCPU(this->m_allocator, timestamp); // NOLINT(cppcoreguidelines-owning-memory)
 }
 
 // Find existing Frame for a timestamp, or return nullptr if it does not exist.
 //
 FrameCPU* PipelineCPU::findFrame(uint64_t timestamp)
 {
-    // Look for frame
-    if (const LdcMemoryAllocation * pAlloc{m_frames.findUnordered(findFrameTimestamp, &timestamp)}) {
-        return VNAllocationPtr(*pAlloc, FrameCPU);
+    for (uint32_t i = 0; i < m_frames.size(); ++i) {
+        FrameCPU* const frame{VNAllocationPtr(m_frames[i], FrameCPU)};
+        if (isSkipped(frame)) {
+            continue;
+        }
+
+        if (pipeline::compareTimestamps(frame->timestamp, timestamp) == 0) {
+            return frame;
+        }
     }
 
     return nullptr;
@@ -633,12 +760,12 @@ void PipelineCPU::freeFrame(FrameCPU* frame)
     // Release task group and allocations
     frame->release(true);
 
-    // Find slot
-    LdcMemoryAllocation* frameAlloc{m_frames.findUnordered(ldcVectorCompareAllocationPtr, frame)};
+    // Find allocation containing the frame
+    LdcMemoryAllocation* frameAllocation{m_frames.findUnordered(ldcVectorCompareAllocationPtr, frame)};
 
-    if (!frameAlloc) {
-        // Could not find picture!
-        VNLogWarning("Could not find frame to release: %p", (void*)frame);
+    if (!frameAllocation) {
+        // Could not find frame!
+        VNLogWarning("Could not find frame allocation: %p", (void*)frame);
         return;
     }
 
@@ -646,9 +773,19 @@ void PipelineCPU::freeFrame(FrameCPU* frame)
     frame->~FrameCPU();
 
     // Release memory
-    VNFree(m_allocator, frameAlloc);
+    VNFree(m_allocator, frameAllocation);
 
-    m_frames.removeReorder(frameAlloc);
+    m_frames.removeReorder(frameAllocation);
+
+    // If there are no remaining frames, reset limits so that we can accept 'earlier' timestamp
+    // into an empty decoder.
+    if (m_frames.isEmpty()) {
+        VNLogDebug("Reset limits");
+        m_sendLimit = kInvalidTimestamp;
+        m_processingLimit = kInvalidTimestamp;
+        m_skipLimit = kInvalidTimestamp;
+        m_flushLimit = kInvalidTimestamp;
+    }
 }
 
 // Number of outstanding frames
@@ -669,7 +806,7 @@ FrameCPU* PipelineCPU::getNextReordered()
     }
 
     // If exceeded reorder limit, or flushing
-    if (m_reorderIndex.size() >= m_maxReorder || m_reorderIndex[0]->m_ready) {
+    if (m_reorderIndex.size() >= m_maxReorder || isProcessing(m_reorderIndex[0])) {
         FrameCPU* const frame{m_reorderIndex[0]};
         m_reorderIndex.removeIndex(0);
         // Tell API there is enhancement space
@@ -686,64 +823,78 @@ FrameCPU* PipelineCPU::getNextReordered()
 //
 void PipelineCPU::startReadyFrames()
 {
+    releaseFlushedFrames();
+
     // Pull ready frames from reorder table
     while (FrameCPU* frame = getNextReordered()) {
         const uint64_t timestamp{frame->timestamp};
         bool goodConfig = false;
 
         if (m_previousTimestamp != kInvalidTimestamp &&
-            compareTimestamps(m_previousTimestamp, timestamp) > 0) {
-            // Frame has been flushed out of reorder queue too late - mark as pass- through
+            pipeline::compareTimestamps(m_previousTimestamp, timestamp) > 0) {
+            // Frame has been flushed out of reorder queue too late - mark as passthrough
             VNLogDebug("startReadyFrames: out of order: ts:%" PRIx64 " prev: %" PRIx64);
-            frame->m_passthrough = true;
+            frame->setPassthrough();
         }
 
-        if (!frame->m_passthrough) {
-            // Parse the LCEVC configuration into distinct per-frame data
-            // Switch to pass-through if configuration parse failed.
-            goodConfig = ldeConfigPoolFrameInsert(&m_configPool, timestamp,
-                                                  VNAllocationPtr(frame->m_enhancementData, uint8_t),
-                                                  VNAllocationSize(frame->m_enhancementData, uint8_t),
-                                                  &frame->globalConfig, &frame->config);
-
+        // Try and parse frame configuration
+        if (!frame->isPassthrough()) {
+            goodConfig = frame->parseEnhancementData(&m_configPool);
             if (!goodConfig) {
-                frame->m_passthrough = true;
+                frame->setPassthrough();
             }
         }
 
-        if (frame->m_passthrough) {
+        if (frame->isPassthrough()) {
             // Set up enough frame configuration to support pass-through
             ldeConfigPoolFramePassthrough(&m_configPool, &frame->globalConfig, &frame->config);
         }
 
-        VNLogDebug("Start Frame: %" PRIx64 " goodConfig:%d temporalEnabled:%d, temporalPresent:%d "
-                   "temporalRefresh:%d loqEnabled[0]:%d loqEnabled[1]:%d passthrough:%d",
-                   timestamp, goodConfig, frame->globalConfig->temporalEnabled,
-                   frame->config.temporalSignallingPresent, frame->config.temporalRefresh,
-                   frame->config.loqEnabled[0], frame->config.loqEnabled[1], frame->m_passthrough);
+        VNLogDebug(
+            "Start Frame: ts:%" PRIx64 " goodConfig:%d temporalEnabled:%d, temporalPresent:%d "
+            "temporalRefresh:%d loqEnabled[0]:%d loqEnabled[1]:%d skip:%d flush:%d passthrough:%d",
+            timestamp, goodConfig, frame->globalConfig->temporalEnabled,
+            frame->config.temporalSignallingPresent, frame->config.temporalRefresh,
+            frame->config.loqEnabled[0], frame->config.loqEnabled[1], isSkipped(frame),
+            isFlushed(frame), frame->isPassthrough());
 
         // Once we have per frame configuration, we can properly initialize and figure out tasks for the frame
-        if (!frame->initialize()) {
-            VNLogError("Could not allocate frame buffers: %" PRIx64, frame->timestamp);
+        if (!frame->initialize(m_configuration, &m_taskPool, &m_dither)) {
+            VNLogError("Could not allocate frame buffers: ts:%" PRIx64, frame->timestamp);
             // Could not allocate buffers - switch to pass-through
-            frame->m_passthrough = true;
+            frame->setPassthrough();
         }
 
-        // All good - make tasks, and add to processing index
-        // with frame it should get temporal from if it needs it
-
-        {
-            common::ScopedLock lock(m_interTaskMutex);
-            frame->m_state = FrameStateProcessing;
-            m_processingIndex.append(frame);
+        // Unblock frames if they are skipped or flushed
+        if (isSkipped(frame)) {
+            frame->unblockForSkip();
         }
 
-        frame->generateTasks(m_lastGoodTimestamp);
+        if (isFlushed(frame)) {
+            frame->unblockForFlush();
+        }
 
-        // Remember timestamps for next time
-        m_previousTimestamp = timestamp;
-        if (goodConfig) {
-            m_lastGoodTimestamp = timestamp;
+        if (isFlushed(frame) && frame->basePicture == nullptr && frame->outputPicture == nullptr) {
+            // Frame can just be released now, otherwise let it go through normal processing
+            // to allow pictures to be returned.
+            VNLogDebug("Freeing flushed frame: ts:%" PRIx64, frame->timestamp);
+            freeFrame(frame);
+        } else {
+            // Decode the frame as normal, add it to the processing index with the previous
+            // frame's temporal buffer timestamp (if required for temporal=on)
+            {
+                common::ScopedLock lock(m_interTaskMutex);
+                frame->setState(FrameStateProcessing);
+                m_processingIndex.append(frame);
+            }
+
+            generateTasks(this, frame, m_lastGoodTimestamp);
+
+            // Remember timestamps for the next frame
+            m_previousTimestamp = timestamp;
+            if (goodConfig) {
+                m_lastGoodTimestamp = timestamp;
+            }
         }
     }
 
@@ -788,7 +939,7 @@ void PipelineCPU::connectOutputPictures()
         assert(ldpPicture);
 
         // Set the output layout
-        const LdpPictureDesc desc{frame->getOutputPictureDesc()};
+        const LdpPictureDesc desc{frame->getOutputPictureDesc(m_configuration.passthroughMode)};
         ldpPictureSetDesc(ldpPicture, &desc);
         if (frame->globalConfig->cropEnabled) {
             ldpPicture->margins.left = frame->globalConfig->crop.left;
@@ -797,66 +948,52 @@ void PipelineCPU::connectOutputPictures()
             ldpPicture->margins.bottom = frame->globalConfig->crop.bottom;
         }
 
-        // Poke it into the frame's task group
-        frame->outputPicture = ldpPicture;
-
-        VNLogDebug("connectOutputPicture: %" PRIx64 " %p %ux%u (r:%d p:%d o:%d)", frame->timestamp,
+        VNLogDebug("connectOutputPicture: ts:%" PRIx64 " %p %ux%u (r:%d p:%d o:%d)", frame->timestamp,
                    (void*)ldpPicture, desc.width, desc.height, m_reorderIndex.size(),
                    m_processingIndex.size(), m_outputPictureAvailableBuffer.size());
-        ldcTaskDependencyMet(&frame->m_taskGroup, frame->m_depOutputPicture, ldpPicture);
+
+        // Poke it into the frame's task group
+        frame->setOutputPicture(ldpPicture);
 
         // Tell API there is output picture space
-
         m_eventSink->generate(pipeline::EventCanSendPicture);
+    }
+}
+
+// Clear 'flush' index
+//
+// This is done on main pipeline thread (and not as part of taskDone) allowing task groups tasks
+// to finish cleanly.
+//
+void PipelineCPU::releaseFlushedFrames()
+{
+    while (!m_flushIndex.isEmpty()) {
+        FrameCPU* frame{nullptr};
+        {
+            common::ScopedLock lock(m_interTaskMutex);
+            frame = m_flushIndex[0];
+            assert(frame);
+            m_flushIndex.removeIndex(0);
+        }
+        VNLogDebug("Released flushed frame: ts:%" PRIx64, frame->timestamp);
+        freeFrame(frame);
     }
 }
 
 //// Temporal
 //
-// Mark a frame as needing a temporal buffer of given timestamp and dimensions
+// Look through all temporal buffers, looking for one that matches the given frame and plane's requirements
 //
-// This may be resolved immediately if the previous frame is done already, otherwise
-// the buffer will be connected later when another frame releases it.
+// The frame<->temporal buffer search loops are where individual frame tasks can interact with
+// each other, so are protected by protected by m_interTaskMutex.
 //
-LdcTaskDependency PipelineCPU::requireTemporalBuffer(FrameCPU* frame, uint64_t timestamp, uint32_t plane)
-{
-    LdcTaskDependency dep{ldcTaskDependencyAdd(&frame->m_taskGroup)};
-
-    uint32_t width = frame->globalConfig->width;
-    uint32_t height = frame->globalConfig->height;
-    width >>= ldpColorFormatPlaneWidthShift(frame->baseFormat, plane);
-    height >>= ldpColorFormatPlaneHeightShift(frame->baseFormat, plane);
-
-    // Fill in requirements
-    frame->m_temporalBufferDesc[plane].timestamp = timestamp;
-    frame->m_temporalBufferDesc[plane].clear =
-        frame->config.nalType == NTIDR || frame->config.temporalRefresh;
-    frame->m_temporalBufferDesc[plane].width = width;
-    frame->m_temporalBufferDesc[plane].height = height;
-    frame->m_temporalBufferDesc[plane].plane = plane;
-
-    frame->m_depTemporalBuffer[plane] = dep;
-
-    VNLogDebug("requireTemporalBuffer: %" PRIx64 " wants %" PRIx64 " plane %" PRIu32 " (%d %dx%d)",
-               frame->timestamp, timestamp, plane, frame->m_temporalBufferDesc[plane].clear, width,
-               height);
-
-    if (TemporalBuffer* temporalBuffer = matchTemporalBuffer(frame, plane)) {
-        ldcTaskDependencyMet(&frame->m_taskGroup, dep, temporalBuffer);
-    }
-
-    return dep;
-}
-
-TemporalBuffer* PipelineCPU::matchTemporalBuffer(FrameCPU* frame, uint32_t plane)
+TemporalBuffer* PipelineCPU::findTemporalBuffer(FrameCPU* frame, uint32_t plane)
 {
     TemporalBuffer* foundTemporalBuffer{};
-    const uint64_t timestamp = frame->m_temporalBufferDesc[plane].timestamp;
 
     {
         common::ScopedLock lock(m_interTaskMutex);
 
-        // Do any of the available temporal buffers meet the requirements?
         for (uint32_t i = 0; i < m_temporalBuffers.size(); ++i) {
             TemporalBuffer* tb{m_temporalBuffers.at(i)};
             if (tb->frame) {
@@ -864,1016 +1001,142 @@ TemporalBuffer* PipelineCPU::matchTemporalBuffer(FrameCPU* frame, uint32_t plane
                 continue;
             }
 
-            if (tb->desc.plane == plane && tb->desc.timestamp == timestamp) {
-                // Exact plane index and timestamp match
+            if (frame->tryAttachTemporalBuffer(plane, tb)) {
                 foundTemporalBuffer = tb;
                 break;
-            }
-
-            if (frame->m_temporalBufferDesc[plane].clear && tb->desc.plane == plane &&
-                tb->desc.timestamp == kInvalidTimestamp) {
-                // An existing unused buffer
-                foundTemporalBuffer = tb;
-                break;
-            }
-        }
-
-        // Got one - mark it as in use
-        if (foundTemporalBuffer) {
-            frame->m_temporalBuffer[plane] = foundTemporalBuffer;
-            foundTemporalBuffer->frame = frame;
-
-            if (frame->m_temporalBufferDesc[plane].clear) {
-                // Update limit on any other prior buffers
-                for (uint32_t i = 0; i < m_temporalBuffers.size(); ++i) {
-                    TemporalBuffer* tb = m_temporalBuffers.at(i);
-                    if (tb == foundTemporalBuffer) {
-                        continue;
-                    }
-                }
             }
         }
     }
 
     if (!foundTemporalBuffer) {
-        // Not found - will get resolved later by prior frame
+        // Not found - will get resolved later by being transferred from a previous frame
         return nullptr;
     }
 
-    VNLogDebug("  matchTemporalBuffer found: plane=%" PRIu32 " frame=%" PRIx64 " prev=%" PRIx64,
+    VNLogDebug("  findTemporalBuffer found: plane:%" PRIu32 " ts:%" PRIx64 " found_ts:%" PRIx64,
                plane, frame->timestamp, foundTemporalBuffer->desc.timestamp);
 
-    // Make sure found buffer meets requirements
-    updateTemporalBufferDesc(foundTemporalBuffer, frame->m_temporalBufferDesc[plane]);
+    //
+    frame->updateTemporalBuffer(plane);
 
     return foundTemporalBuffer;
 }
 
-// Mark the frame as having finished with it's temporal buffer, and possibly
-// hand buffer on to another frame
+// Mark the frame as having finished with it's temporal buffer, and try to transfer buffer on to another frame
 //
-void PipelineCPU::releaseTemporalBuffer(FrameCPU* frame, uint32_t plane)
+void PipelineCPU::transferTemporalBuffer(FrameCPU* frame, uint32_t plane)
 {
-    VNLogDebug("releaseTemporalBuffer: %" PRIx64 " plane: %" PRIu32, frame->timestamp, plane);
+    VNLogDebug("releaseTemporalBuffer: ts:%" PRIx64 " plane: %" PRIu32, frame->timestamp, plane);
 
     FrameCPU* foundNextFrame{nullptr};
-    TemporalBuffer* const tb{frame->m_temporalBuffer[plane]};
+    TemporalBuffer* tb{nullptr};
 
     {
         common::ScopedLock lock(m_interTaskMutex);
 
-        if (!tb) {
+        tb = frame->detachTemporalBuffer(plane);
+        if (tb == nullptr) {
             // No temporal buffer to be released
             return;
         }
 
-        // Detach from frame
-        frame->m_temporalBuffer[plane] = nullptr;
-        tb->frame = nullptr;
-
-        tb->desc.timestamp = frame->timestamp;
-
         // Do any of the pending frames want this buffer?
         for (uint32_t idx = 0; idx < m_processingIndex.size(); ++idx) {
             FrameCPU* nextFrame{m_processingIndex[idx]};
-            if (tb->desc.timestamp == nextFrame->m_temporalBufferDesc[plane].timestamp &&
-                tb->desc.plane == nextFrame->m_temporalBufferDesc[plane].plane) {
-                // Matches this frame
+            if (nextFrame->tryAttachTemporalBuffer(plane, tb)) {
                 foundNextFrame = nextFrame;
                 break;
             }
         }
-
-        if (foundNextFrame) {
-            foundNextFrame->m_temporalBuffer[plane] = tb;
-            tb->frame = foundNextFrame;
-        }
     }
 
-    if (foundNextFrame) {
-        VNLogDebug("  CPU::releaseTemporalBuffer found: plane=%" PRIu32 " frame=%" PRIx64
-                   " prev=%" PRIx64,
-                   plane, foundNextFrame->timestamp, frame->timestamp);
-        updateTemporalBufferDesc(tb, foundNextFrame->m_temporalBufferDesc[plane]);
-        ldcTaskDependencyMet(&foundNextFrame->m_taskGroup, foundNextFrame->m_depTemporalBuffer[plane], tb);
-    }
-}
-
-// Make a temporal buffer match the given description
-void PipelineCPU::updateTemporalBufferDesc(TemporalBuffer* buffer, const TemporalBufferDesc& desc) const
-{
-    const size_t paddedWidth = alignU32(desc.width, kBufferRowAlignment);
-    const size_t byteStride{paddedWidth * sizeof(uint16_t)};
-    const size_t bufferSize{byteStride * static_cast<size_t>(desc.height)};
-
-    if (!VNIsAllocated(buffer->allocation) || buffer->desc.width != desc.width ||
-        buffer->desc.height != desc.height) {
-        // Reallocate buffer
-        if (!desc.clear && desc.timestamp != kInvalidTimestamp) {
-            // Frame was expecting prior residuals - but dimensions are wrong!?
-            VNLogWarning("Temporal buffer does not match: %08d Got %dx%d, Wanted %dx%d", desc.timestamp,
-                         buffer->desc.width, buffer->desc.height, desc.width, desc.height);
-        }
-        buffer->planeDesc.firstSample = VNAllocateAlignedZeroArray(
-            allocator(), &buffer->allocation, uint8_t, kBufferRowAlignment, bufferSize);
-        buffer->planeDesc.rowByteStride = static_cast<uint32_t>(byteStride);
-        memset(buffer->planeDesc.firstSample, 0, bufferSize);
-    } else if (desc.clear) {
-        memset(buffer->planeDesc.firstSample, 0, bufferSize);
+    if (!foundNextFrame) {
+        return;
     }
 
-    // Update description
-    buffer->desc = desc;
-    buffer->desc.clear = false;
+    VNLogDebug("  CPU::releaseTemporalBuffer found: plane:%" PRIu32 " next_ts:%" PRIx64
+               " ts:%" PRIx64,
+               plane, foundNextFrame->timestamp, frame->timestamp);
+    foundNextFrame->updateTemporalBuffer(plane);
 }
 
-//// ConvertToInternal
+// End of frame processing
 //
-// Copy incoming picture plane to internal fixed point surface format
-//
-// NB: There is likely a good templated C++ class that wraps these tasks up neatly,
-// Worth figuring out once this has stabilised.
-//
-struct TaskConvertToInternalData
+void PipelineCPU::baseDone(LdpPicture* picture)
 {
-    PipelineCPU* pipeline;
-    FrameCPU* frame;
-    uint32_t planeIndex;
-    uint32_t baseDepth;
-    uint32_t enhancementDepth;
-};
-
-void* PipelineCPU::taskConvertToInternal(LdcTask* task, const LdcTaskPart* /*part*/)
-{
-    VNTraceScoped();
-    assert(task->dataSize == sizeof(TaskConvertToInternalData));
-
-    const TaskConvertToInternalData& data{VNTaskData(task, TaskConvertToInternalData)};
-    PipelineCPU* const pipeline{data.pipeline};
-    FrameCPU* const frame{data.frame};
-
-    if (frame->m_skip) {
-        return nullptr;
-    }
-
-    bool isNV12 = frame->basePicture->layout.layoutInfo->format == LdpColorFormatNV12_8;
-    uint32_t srcPlaneIndex = (isNV12 && data.planeIndex == 2) ? 1 : data.planeIndex;
-    LdpPicturePlaneDesc srcPlane;
-    frame->getBasePlaneDesc(srcPlaneIndex, srcPlane);
-
-    // Intermediate buffers are set up so that unused ones point to higher LoQs - so requesting
-    // LOQ2 will pick up the correct 'input' buffer
-    LdpPicturePlaneDesc dstPlane;
-    frame->getIntermediatePlaneDesc(data.planeIndex, LOQ2, dstPlane);
-
-    VNLogDebug("taskConvertToInternal timestamp:%" PRIx64 " plane:%d enhanced:%d",
-               data.frame->timestamp, data.planeIndex);
-
-    if (!ldppPlaneBlit(&pipeline->m_taskPool, task, pipeline->m_configuration.forceScalar,
-                       data.planeIndex, &frame->basePicture->layout,
-                       &frame->m_intermediateLayout[LOQ2], &srcPlane, &dstPlane, BMCopy)) {
-        VNLogError("ldppPlaneBlit In failed");
-    }
-    return nullptr;
-}
-
-LdcTaskDependency PipelineCPU::addTaskConvertToInternal(FrameCPU* frame, uint32_t planeIndex,
-                                                        uint32_t baseDepth, uint32_t enhancementDepth,
-                                                        LdcTaskDependency inputDep)
-{
-    const TaskConvertToInternalData data{this, frame, planeIndex, baseDepth, enhancementDepth};
-    const LdcTaskDependency inputs[] = {inputDep};
-    const LdcTaskDependency outputDep{ldcTaskDependencyAdd(&frame->m_taskGroup)};
-
-    ldcTaskGroupAdd(&frame->m_taskGroup, inputs, VNArraySize(inputs), outputDep,
-                    taskConvertToInternal, nullptr, 1, 1, sizeof(data), &data, "ConvertToInternal");
-
-    return outputDep;
-}
-
-//// ConvertFromInternal
-//
-// Concert a picture plane from internal fixed point to output picture pixel format.
-//
-struct TaskConvertFromInternalData
-{
-    PipelineCPU* pipeline;
-    FrameCPU* frame;
-    uint32_t planeIndex;
-    uint32_t baseDepth;
-    uint32_t enhancementDepth;
-};
-
-void* PipelineCPU::taskConvertFromInternal(LdcTask* task, const LdcTaskPart* /*part*/)
-{
-    VNTraceScoped();
-    assert(task->dataSize == sizeof(TaskConvertFromInternalData));
-
-    const TaskConvertFromInternalData& data{VNTaskData(task, TaskConvertFromInternalData)};
-    PipelineCPU* const pipeline{data.pipeline};
-    FrameCPU* const frame{data.frame};
-
-    if (frame->m_skip) {
-        return nullptr;
-    }
-
-    LdpPicturePlaneDesc srcPlane;
-    frame->getIntermediatePlaneDesc(data.planeIndex, LOQ0, srcPlane);
-
-    bool isNV12 = frame->outputPicture->layout.layoutInfo->format == LdpColorFormatNV12_8;
-    uint32_t dstPlaneIndex = (isNV12 && data.planeIndex == 2) ? 1 : data.planeIndex;
-    LdpPicturePlaneDesc dstPlane;
-    frame->getOutputPlaneDesc(dstPlaneIndex, dstPlane);
-
-    VNLogDebug("taskConvertFromInternal timestamp:%" PRIx64 " plane:%d", data.frame->timestamp,
-               data.planeIndex);
-
-    if (!ldppPlaneBlit(&pipeline->m_taskPool, task, pipeline->m_configuration.forceScalar,
-                       data.planeIndex, &frame->m_intermediateLayout[LOQ0],
-                       &frame->outputPicture->layout, &srcPlane, &dstPlane, BMCopy)) {
-        VNLogError("ldppPlaneBlit out failed");
-    }
-
-    return nullptr;
-}
-
-LdcTaskDependency PipelineCPU::addTaskConvertFromInternal(FrameCPU* frame, uint32_t planeIndex,
-                                                          uint32_t baseDepth, uint32_t enhancementDepth,
-                                                          LdcTaskDependency dst, LdcTaskDependency src)
-{
-    const TaskConvertFromInternalData data{this, frame, planeIndex, baseDepth, enhancementDepth};
-    const LdcTaskDependency inputs[] = {dst, src};
-    const LdcTaskDependency output = ldcTaskDependencyAdd(&frame->m_taskGroup);
-
-    ldcTaskGroupAdd(&frame->m_taskGroup, inputs, VNArraySize(inputs), output, taskConvertFromInternal,
-                    nullptr, 1, 1, sizeof(data), &data, "ConvertFromInternal");
-
-    return output;
-}
-
-//// Upsample
-//
-// Upscale (1D or 2D) for one plane of picture.
-//
-// Inputs and outputs may be fixed point or 'external' format if no residuals are being applied.
-//
-struct TaskUpsampleData
-{
-    PipelineCPU* pipeline;
-    FrameCPU* frame;
-    LdeLOQIndex fromLoq;
-    uint32_t plane;
-};
-
-void* PipelineCPU::taskUpsample(LdcTask* task, const LdcTaskPart* /*part*/)
-{
-    VNTraceScoped();
-    assert(task->dataSize == sizeof(TaskUpsampleData));
-
-    const TaskUpsampleData& data{VNTaskData(task, TaskUpsampleData)};
-    PipelineCPU* const pipeline{data.pipeline};
-    FrameCPU* const frame{data.frame};
-
-    if (frame->m_skip) {
-        return nullptr;
-    }
-
-    LdppUpscaleArgs upscaleArgs{};
-
-    const LdeLOQIndex loq = data.fromLoq;
-    assert(loq > LOQ0);
-    upscaleArgs.srcLayout = &frame->m_intermediateLayout[loq];
-    frame->getIntermediatePlaneDesc(data.plane, loq, upscaleArgs.srcPlane);
-
-    upscaleArgs.dstLayout = &frame->m_intermediateLayout[loq - 1];
-    frame->getIntermediatePlaneDesc(data.plane, static_cast<LdeLOQIndex>(loq - 1), upscaleArgs.dstPlane);
-
-    upscaleArgs.planeIndex = data.plane;
-    upscaleArgs.applyPA = frame->globalConfig->predictedAverageEnabled;
-    upscaleArgs.frameDither = frame->m_frameDither.strength ? &frame->m_frameDither : NULL;
-    upscaleArgs.mode = frame->globalConfig->scalingModes[data.fromLoq - 1];
-    upscaleArgs.forceScalar = pipeline->m_configuration.forceScalar;
-
-    assert(upscaleArgs.mode != Scale0D);
-    VNLogDebug("taskUpsample timestamp:%" PRIx64 " loq:%d plane:%d", frame->timestamp,
-               (uint32_t)data.fromLoq, data.plane);
-
-    if (!ldppUpscale(pipeline->allocator(), &pipeline->m_taskPool, task,
-                     &frame->globalConfig->kernel, &upscaleArgs)) {
-        VNLogError("Upsample failed");
-    }
-
-    return nullptr;
-}
-
-LdcTaskDependency PipelineCPU::addTaskUpsample(FrameCPU* frame, LdeLOQIndex fromLoq, uint32_t plane,
-                                               LdcTaskDependency src)
-{
-    assert(fromLoq > LOQ0);
-    assert(frame->globalConfig->scalingModes[fromLoq - 1] != Scale0D);
-
-    const TaskUpsampleData data{this, frame, fromLoq, plane};
-    const LdcTaskDependency inputs[] = {src};
-    const LdcTaskDependency output{ldcTaskDependencyAdd(&frame->m_taskGroup)};
-
-    ldcTaskGroupAdd(&frame->m_taskGroup, inputs, VNArraySize(inputs), output, taskUpsample, nullptr,
-                    1, 1, sizeof(data), &data, "Upsample");
-
-    return output;
-}
-
-//// GenerateCmdBuffer
-//
-// Convert un-encapsulated chunks into a single command buffer.
-//
-struct TaskGenerateCmdBufferData
-{
-    PipelineCPU* pipeline;
-    FrameCPU* frame;
-    LdpEnhancementTile* enhancementTile;
-};
-
-void* PipelineCPU::taskGenerateCmdBuffer(LdcTask* task, const LdcTaskPart* /*part*/)
-{
-    VNTraceScoped();
-    assert(task->dataSize == sizeof(TaskGenerateCmdBufferData));
-
-    const TaskGenerateCmdBufferData& data{VNTaskData(task, TaskGenerateCmdBufferData)};
-    FrameCPU* const frame{data.frame};
-
-    VNLogDebug("taskGenerateCmdBuffer timestamp:%" PRIx64 " tile:%d loq:%d plane:%d",
-               data.frame->timestamp, data.enhancementTile->tile,
-               (uint32_t)data.enhancementTile->loq, data.enhancementTile->plane);
-
-    if (!ldeDecodeEnhancement(frame->globalConfig, &frame->config, data.enhancementTile->loq,
-                              data.enhancementTile->plane, data.enhancementTile->tile,
-                              &data.enhancementTile->buffer, nullptr, nullptr)) {
-        VNLogError("ldeDecodeEnhancement failed");
-    }
-
-    return nullptr;
-}
-
-LdcTaskDependency PipelineCPU::addTaskGenerateCmdBuffer(FrameCPU* frame, LdpEnhancementTile* enhancementTile)
-{
-    const TaskGenerateCmdBufferData data{this, frame, enhancementTile};
-    const LdcTaskDependency outputDep{ldcTaskDependencyAdd(&frame->m_taskGroup)};
-
-    ldcTaskGroupAdd(&frame->m_taskGroup, nullptr, 0, outputDep, taskGenerateCmdBuffer, nullptr, 1,
-                    1, sizeof(data), &data, "GenerateCmdBuffer");
-
-    return outputDep;
-}
-
-//// ApplyCmdBufferDirect
-//
-// Apply a generated CPU command buffer to directly to output plane. (No Temporal)
-//
-// NB: The output plane will be in 'internal' fixed point format
-//
-struct TaskApplyCmdBufferDirectData
-{
-    PipelineCPU* pipeline;
-    FrameCPU* frame;
-    LdpEnhancementTile* enhancementTile;
-};
-
-void* PipelineCPU::taskApplyCmdBufferDirect(LdcTask* task, const LdcTaskPart* /*part*/)
-{
-    VNTraceScoped();
-    assert(task->dataSize == sizeof(TaskApplyCmdBufferDirectData));
-
-    const TaskApplyCmdBufferDirectData& data{VNTaskData(task, TaskApplyCmdBufferDirectData)};
-    PipelineCPU* const pipeline{data.pipeline};
-    FrameCPU* const frame{data.frame};
-
-    if (frame->m_skip) {
-        return nullptr;
-    }
-
-    VNLogDebug("taskApplyCmdBufferDirect timestamp:%" PRIx64 " loq:%d plane:%d", data.frame->timestamp,
-               (uint32_t)data.enhancementTile->loq, data.enhancementTile->plane);
-
-    LdpPicturePlaneDesc ppDesc{};
-
-    frame->getIntermediatePlaneDesc(data.enhancementTile->plane, data.enhancementTile->loq, ppDesc);
-
-    const bool tuRasterOrder =
-        !frame->globalConfig->temporalEnabled && frame->globalConfig->tileDimensions == TDTNone;
-
-    if (!ldppApplyCmdBuffer(&pipeline->m_taskPool, NULL, data.enhancementTile, LdpFPS14, &ppDesc,
-                            tuRasterOrder, pipeline->m_configuration.forceScalar,
-                            pipeline->m_configuration.highlightResiduals)) {
-        VNLogError("taskApplyCmdBufferDirect failed");
-    }
-
-    return nullptr;
-}
-
-LdcTaskDependency PipelineCPU::addTaskApplyCmdBufferDirect(FrameCPU* frame,
-                                                           LdpEnhancementTile* enhancementTile,
-                                                           LdcTaskDependency imageBuffer,
-                                                           LdcTaskDependency cmdBuffer)
-{
-    const TaskApplyCmdBufferDirectData data{this, frame, enhancementTile};
-
-    const LdcTaskDependency inputs[] = {imageBuffer, cmdBuffer};
-    const LdcTaskDependency output{ldcTaskDependencyAdd(&frame->m_taskGroup)};
-
-    ldcTaskGroupAdd(&frame->m_taskGroup, inputs, VNArraySize(inputs), output, taskApplyCmdBufferDirect,
-                    nullptr, 1, 1, sizeof(data), &data, "ApplyCmdBufferDirect");
-
-    return output;
-}
-
-//// ApplyCmdBufferTemporal
-//
-// Apply a generated CPU command buffer to a temporal buffer.
-//
-struct TaskApplyCmdBufferTemporalData
-{
-    PipelineCPU* pipeline;
-    FrameCPU* frame;
-    LdpEnhancementTile* enhancementTile;
-};
-
-void* PipelineCPU::taskApplyCmdBufferTemporal(LdcTask* task, const LdcTaskPart* /*part*/)
-{
-    VNTraceScoped();
-    assert(task->dataSize == sizeof(TaskApplyCmdBufferTemporalData));
-
-    const TaskApplyCmdBufferTemporalData& data{VNTaskData(task, TaskApplyCmdBufferTemporalData)};
-    PipelineCPU* const pipeline{data.pipeline};
-    FrameCPU* const frame{data.frame};
-
-    VNLogDebug("taskApplyCmdBufferTemporal timestamp:%" PRIx64 " tile:%d loq:%d plane:%d",
-               data.frame->timestamp, data.enhancementTile->tile,
-               (uint32_t)data.enhancementTile->loq, data.enhancementTile->plane);
-
-    LdpPicturePlaneDesc ppDesc{frame->m_temporalBuffer[data.enhancementTile->plane]->planeDesc};
-
-    if (!ldppApplyCmdBuffer(&pipeline->m_taskPool, NULL, data.enhancementTile, LdpFPS14, &ppDesc,
-                            false, pipeline->m_configuration.forceScalar,
-                            pipeline->m_configuration.highlightResiduals)) {
-        VNLogError("ldppApplyCmdBufferTemporal failed");
-    }
-    return nullptr;
-}
-
-LdcTaskDependency PipelineCPU::addTaskApplyCmdBufferTemporal(FrameCPU* frame,
-                                                             LdpEnhancementTile* enhancementTile,
-                                                             LdcTaskDependency temporalBuffer,
-                                                             LdcTaskDependency cmdBuffer)
-{
-    const TaskApplyCmdBufferTemporalData data{this, frame, enhancementTile};
-
-    const LdcTaskDependency inputs[] = {temporalBuffer, cmdBuffer};
-    const LdcTaskDependency output{ldcTaskDependencyAdd(&frame->m_taskGroup)};
-
-    ldcTaskGroupAdd(&frame->m_taskGroup, inputs, VNArraySize(inputs), output, taskApplyCmdBufferTemporal,
-                    nullptr, 1, 1, sizeof(data), &data, "ApplyCmdBufferTemporal");
-
-    return output;
-}
-
-//// ApplyAddTemporal
-//
-// Add a temporal buffer to a picture plane.
-//
-struct TaskApplyAddTemporalData
-{
-    PipelineCPU* pipeline;
-    FrameCPU* frame;
-    uint32_t planeIndex;
-};
-
-void* PipelineCPU::taskApplyAddTemporal(LdcTask* task, const LdcTaskPart* /*part*/)
-{
-    VNTraceScoped();
-    assert(task->dataSize == sizeof(TaskApplyAddTemporalData));
-
-    const TaskApplyAddTemporalData& data{VNTaskData(task, TaskApplyAddTemporalData)};
-    PipelineCPU* const pipeline{data.pipeline};
-    FrameCPU* const frame{data.frame};
-
-    if (frame->m_skip || frame->m_passthrough) {
-        pipeline->releaseTemporalBuffer(frame, data.planeIndex);
-        return nullptr;
-    }
-
-    VNLogDebug("taskApplyAddTemporal timestamp:%" PRIx64 " plane:%d", data.frame->timestamp, data.planeIndex);
-
-    LdpPicturePlaneDesc dstPlane{};
-    frame->getIntermediatePlaneDesc(data.planeIndex, LOQ0, dstPlane);
-
-    if (!ldppPlaneBlit(&pipeline->m_taskPool, task, pipeline->m_configuration.forceScalar, data.planeIndex,
-                       &frame->m_intermediateLayout[LOQ0], &frame->m_intermediateLayout[LOQ0],
-                       &frame->m_temporalBuffer[data.planeIndex]->planeDesc, &dstPlane, BMAdd)) {
-        VNLogError("ldppPlaneBlit out failed");
-    }
-
-    return nullptr;
-}
-
-LdcTaskDependency PipelineCPU::addTaskApplyAddTemporal(FrameCPU* frame, uint32_t planeIndex,
-                                                       LdcTaskDependency temporalBuffer,
-                                                       LdcTaskDependency imageBuffer)
-{
-    const TaskApplyAddTemporalData data{this, frame, planeIndex};
-
-    const LdcTaskDependency inputs[] = {temporalBuffer, imageBuffer};
-    const LdcTaskDependency output{ldcTaskDependencyAdd(&frame->m_taskGroup)};
-
-    ldcTaskGroupAdd(&frame->m_taskGroup, inputs, VNArraySize(inputs), output, taskApplyAddTemporal,
-                    nullptr, 1, 1, sizeof(data), &data, "ApplyAddTemporal");
-
-    return output;
-}
-
-//// Passthrough
-//
-// Copy incoming picture plane to output picture
-//
-struct TaskPassthroughData
-{
-    PipelineCPU* pipeline;
-    FrameCPU* frame;
-    uint32_t planeIndex;
-};
-
-void* PipelineCPU::taskPassthrough(LdcTask* task, const LdcTaskPart* /*part*/)
-{
-    VNTraceScoped();
-    assert(task->dataSize == sizeof(TaskPassthroughData));
-
-    const TaskPassthroughData& data{VNTaskData(task, TaskPassthroughData)};
-    PipelineCPU* const pipeline{data.pipeline};
-    const FrameCPU* const frame{data.frame};
-
-    if (frame->m_skip) {
-        return nullptr;
-    }
-
-    // Check if this plane is valid
-    if (data.planeIndex >= ldpPictureLayoutPlanes(&frame->basePicture->layout)) {
-        return nullptr;
-    }
-
-    LdpPicturePlaneDesc srcPlane;
-    frame->getBasePlaneDesc(data.planeIndex, srcPlane);
-
-    LdpPicturePlaneDesc dstPlane;
-    frame->getOutputPlaneDesc(data.planeIndex, dstPlane);
-
-    VNLogDebug("taskPassthrough timestamp:%" PRIx64 " plane:%d", data.frame->timestamp, data.planeIndex);
-
-    if (!ldppPlaneBlit(&pipeline->m_taskPool, task, pipeline->m_configuration.forceScalar,
-                       data.planeIndex, &frame->basePicture->layout, &frame->outputPicture->layout,
-                       &srcPlane, &dstPlane, BMCopy)) {
-        VNLogError("ldppPlaneBlit In failed");
-    }
-
-    return nullptr;
-}
-
-LdcTaskDependency PipelineCPU::addTaskPassthrough(FrameCPU* frame, uint32_t planeIndex,
-                                                  LdcTaskDependency dest, LdcTaskDependency src)
-{
-    const TaskPassthroughData data{this, frame, planeIndex};
-    const LdcTaskDependency inputs[] = {dest, src};
-    const LdcTaskDependency output{ldcTaskDependencyAdd(&frame->m_taskGroup)};
-
-    ldcTaskGroupAdd(&frame->m_taskGroup, inputs, VNArraySize(inputs), output, taskPassthrough,
-                    nullptr, 1, 1, sizeof(data), &data, "Passthrough");
-
-    return output;
-}
-
-//// WaitForMany
-//
-// Wait for several input dependencies to be met.
-//
-// NB: If this appears to be a bottleneck, it could be integrated better into the task pool.
-//
-struct TaskWaitForManyData
-{
-    PipelineCPU* pipeline;
-    FrameCPU* frame;
-};
-
-void* PipelineCPU::taskWaitForMany(LdcTask* task, const LdcTaskPart* /*part*/)
-{
-    VNTraceScoped();
-    assert(task->dataSize == sizeof(TaskWaitForManyData));
-
-    VNLogDebug("taskWaitForMany timestamp:%" PRIx64 "",
-               VNTaskData(task, TaskWaitForManyData).frame->timestamp);
-    return nullptr;
-}
-
-LdcTaskDependency PipelineCPU::addTaskWaitForMany(FrameCPU* frame, const LdcTaskDependency* inputs,
-                                                  uint32_t inputsCount)
-{
-    const TaskWaitForManyData data{this, frame};
-    const LdcTaskDependency outputDep{ldcTaskDependencyAdd(&frame->m_taskGroup)};
-
-    ldcTaskGroupAdd(&frame->m_taskGroup, inputs, inputsCount, outputDep, taskWaitForMany, nullptr,
-                    1, 1, sizeof(data), &data, "WaitForMany");
-
-    return outputDep;
-}
-
-//// BaseDone
-//
-// Wait for base picture planes to be used, then send base picture back to client
-//
-struct TaskBaseDoneData
-{
-    PipelineCPU* pipeline;
-    FrameCPU* frame;
-};
-
-void* PipelineCPU::taskBaseDone(LdcTask* task, const LdcTaskPart* /*part*/)
-{
-    VNTraceScoped();
-    assert(task->dataSize == sizeof(TaskBaseDoneData));
-
-    const TaskBaseDoneData& data{VNTaskData(task, TaskBaseDoneData)};
-
-    VNLogDebug("taskBaseDone timestamp:%" PRIx64, data.frame->timestamp);
-    assert(data.frame->basePicture);
-
     // Generate event
-    data.pipeline->m_eventSink->generate(pipeline::EventBasePictureDone, data.frame->basePicture);
+    m_eventSink->generate(pipeline::EventBasePictureDone, picture);
 
     // Send base picture back to API
-    data.pipeline->m_basePictureOutBuffer.push(data.frame->basePicture);
-
-    // Frame no longer has access to base picture
-    data.frame->basePicture = nullptr;
-    return nullptr;
+    m_basePictureOutBuffer.push(picture);
 }
 
-void PipelineCPU::addTaskBaseDone(FrameCPU* frame, const LdcTaskDependency* inputs, uint32_t inputsCount)
+void PipelineCPU::outputDone(FrameCPU* frame)
 {
-    const TaskBaseDoneData data{this, frame};
+    common::ScopedLock lock(m_interTaskMutex);
 
-    ldcTaskGroupAdd(&frame->m_taskGroup, inputs, inputsCount, kTaskDependencyInvalid, taskBaseDone,
-                    nullptr, 1, 1, sizeof(data), &data, "BaseDone");
-}
+    // Remove from processing index
+    const int idx = m_processingIndex.findUnorderedIndex(compareFramePtr, frame);
+    assert(idx != -1);
+    m_processingIndex.removeIndex(idx);
 
-//// OutputSend
-//
-// Wait for a bunch of input dependencies to be met, then:
-//
-// - Send output picture to output queue
-// - Release frame
-//
-struct TaskOutputDoneData
-{
-    PipelineCPU* pipeline;
-    FrameCPU* frame;
-};
+    if (!frame->outputPicture) {
+        // Hand off to 'flush' index
+        frame->setState(FrameStateFlush);
+        m_flushIndex.insert(sortFramePtrTimestamp, frame);
+    } else {
+        // Hand off to 'done' index - even if frame was skipped, so that output
+        // picture can be returned to integration (marked as skipped)
+        frame->setState(FrameStateDone);
+        m_doneIndex.insert(sortFramePtrTimestamp, frame);
+        m_interTaskFrameDone.signal();
 
-void* PipelineCPU::taskOutputDone(LdcTask* task, const LdcTaskPart* /*part*/)
-{
-    VNTraceScoped();
-    assert(task->dataSize == sizeof(TaskOutputDoneData));
-
-    const TaskOutputDoneData& data{VNTaskData(task, TaskOutputDoneData)};
-    PipelineCPU* const pipeline{data.pipeline};
-    FrameCPU* const frame{data.frame};
-
-    VNLogDebug("taskOutputDone timestamp:%" PRIx64, frame->timestamp);
-
-    // Mark as done, and signal pipeline if it is waiting
-    {
-        common::ScopedLock lock(pipeline->m_interTaskMutex);
-        frame->m_state = FrameStateDone;
-
-        // Build the decode info for the frame
-        frame->m_decodeInfo.timestamp = frame->timestamp;
-        frame->m_decodeInfo.hasBase = true;
-        frame->m_decodeInfo.hasEnhancement =
-            frame->config.loqEnabled[LOQ1] || frame->config.loqEnabled[LOQ0];
-        frame->m_decodeInfo.skipped = frame->m_skip;
-        frame->m_decodeInfo.enhanced = frame->config.loqEnabled[LOQ1] || frame->config.loqEnabled[LOQ0];
-        frame->m_decodeInfo.baseWidth = frame->baseWidth;
-        frame->m_decodeInfo.baseHeight = frame->baseHeight;
-        frame->m_decodeInfo.baseBitdepth = frame->baseBitdepth;
-        frame->m_decodeInfo.userData = frame->userData;
-
-        pipeline->m_interTaskFrameDone.signal();
-
-        pipeline->m_eventSink->generate(pipeline::EventOutputPictureDone, frame->outputPicture,
-                                        &frame->m_decodeInfo);
-        pipeline->m_eventSink->generate(pipeline::EventCanReceive);
+        m_eventSink->generate(pipeline::EventOutputPictureDone, frame->outputPicture,
+                              &frame->decodeInformation);
     }
-
-    return nullptr;
-}
-
-void PipelineCPU::addTaskOutputDone(FrameCPU* frame, const LdcTaskDependency* inputs, uint32_t inputsCount)
-{
-    const TaskOutputDoneData data{this, frame};
-
-    ldcTaskGroupAdd(&frame->m_taskGroup, inputs, inputsCount, kTaskDependencyInvalid,
-                    taskOutputDone, nullptr, 1, 1, sizeof(data), &data, "OutputDone");
-}
-
-//// TemporalRelease
-//
-// Wait for a bunch of input dependencies to be met, then:
-//
-// - Release temporal buffer to next frame
-//
-struct TaskTemporalReleaseData
-{
-    PipelineCPU* pipeline;
-    FrameCPU* frame;
-    uint32_t planeIndex;
-};
-
-void* PipelineCPU::taskTemporalRelease(LdcTask* task, const LdcTaskPart* /*part*/)
-{
-    VNTraceScoped();
-    assert(task->dataSize == sizeof(TaskTemporalReleaseData));
-
-    const TaskTemporalReleaseData& data{VNTaskData(task, TaskTemporalReleaseData)};
-    PipelineCPU* const pipeline{data.pipeline};
-    FrameCPU* const frame{data.frame};
-    const uint32_t planeIndex{data.planeIndex};
-
-    VNLogDebug("taskTemporalRelease timestamp:%" PRIx64, frame->timestamp);
-
-    pipeline->releaseTemporalBuffer(frame, planeIndex);
-
-    return nullptr;
-}
-
-void PipelineCPU::addTaskTemporalRelease(FrameCPU* frame, const LdcTaskDependency* deps, uint32_t planeIndex)
-{
-    const TaskTemporalReleaseData data{this, frame, planeIndex};
-    const LdcTaskDependency inputs[] = {deps[planeIndex]};
-
-    ldcTaskGroupAdd(&frame->m_taskGroup, inputs, VNArraySize(inputs), kTaskDependencyInvalid,
-                    taskTemporalRelease, nullptr, 1, 1, sizeof(data), &data, "TemporalRelease");
-}
-
-// Fill out a task group given a frame configuration
-//
-void PipelineCPU::generateTasksEnhancement(FrameCPU* frame, uint64_t previousTimestamp)
-{
-    VNTraceScoped();
-
-    // Convenience values for readability
-    const LdeFrameConfig& frameConfig{frame->config};
-    const LdeGlobalConfig& globalConfig{*frame->globalConfig};
-    const uint8_t numImagePlanes{frame->numImagePlanes()};
-
-    uint32_t enhancementTileIdx = 0;
-
-    if (frame->config.sharpenType != STDisabled && frame->config.sharpenStrength != 0.0f) {
-        VNLogWarning("S-Filter is configured in stream, but not supported by decoder.");
-    }
-
-    //// LoQ 1
-    //
-    LdcTaskDependency basePlanes[kLdpPictureMaxNumPlanes] = {};
-
-    // Input planes - will be filled in via sendBase()
-    for (uint8_t plane = 0; plane < numImagePlanes; ++plane) {
-        basePlanes[plane] = frame->m_depBasePicture;
-    }
-
-    // Upsample and residuals
-    for (uint8_t plane = 0; plane < numImagePlanes; ++plane) {
-        const bool isEnhanced = frame->isEnhanced(LOQ1, plane);
-
-        //// Input conversion
-        //
-        LdcTaskDependency basePlane{};
-
-        // Convert between base and enhancement bit depth
-        basePlane = addTaskConvertToInternal(frame, plane, globalConfig.baseDepth,
-                                             globalConfig.enhancedDepth, basePlanes[plane]);
-
-        //// Base + Residuals
-        //
-        // First upsample
-        LdcTaskDependency baseUpsampled{kTaskDependencyInvalid};
-        if (globalConfig.scalingModes[LOQ1] != Scale0D) {
-            baseUpsampled = addTaskUpsample(frame, LOQ2, plane, basePlane);
-        } else {
-            baseUpsampled = basePlane;
-        }
-
-        // Enhancement LOQ1 decoding
-        if (isEnhanced && frameConfig.loqEnabled[LOQ1]) {
-            const uint32_t numPlaneTiles = globalConfig.numTiles[plane][LOQ1];
-            if (numPlaneTiles > 1) {
-                LdcTaskDependency* tiles =
-                    static_cast<LdcTaskDependency*>(alloca(numPlaneTiles * sizeof(LdcTaskDependency)));
-
-                // Generate and apply each tile's command buffer
-                for (uint32_t tile = 0; tile < numPlaneTiles; ++tile) {
-                    LdpEnhancementTile* et{frame->getEnhancementTile(enhancementTileIdx++)};
-                    assert(et->plane == plane && et->loq == LOQ1 && et->tile == tile);
-
-                    LdcTaskDependency commands = addTaskGenerateCmdBuffer(frame, et);
-                    tiles[tile] = addTaskApplyCmdBufferDirect(frame, et, baseUpsampled, commands);
-                }
-                // Wait for all tiles to finish
-                basePlanes[plane] = addTaskWaitForMany(frame, tiles, numPlaneTiles);
-            } else {
-                LdpEnhancementTile* et{frame->getEnhancementTile(enhancementTileIdx++)};
-                assert(et->plane == plane && et->loq == LOQ1 && et->tile == 0);
-
-                LdcTaskDependency commands = addTaskGenerateCmdBuffer(frame, et);
-                basePlanes[plane] = addTaskApplyCmdBufferDirect(frame, et, baseUpsampled, commands);
-            }
-        } else {
-            basePlanes[plane] = baseUpsampled;
-        }
-    }
-
-    // Upsample from combined intermediate picture to preliminary output picture
-    LdcTaskDependency upsampledPlanes[kLdpPictureMaxNumPlanes] = {};
-
-    for (uint8_t plane = 0; plane < numImagePlanes; ++plane) {
-        if (globalConfig.scalingModes[LOQ0] != Scale0D) {
-            upsampledPlanes[plane] = addTaskUpsample(frame, LOQ1, plane, basePlanes[plane]);
-        } else {
-            upsampledPlanes[plane] = basePlanes[plane];
-        }
-    }
-
-    //// LoQ 0
-    //
-    LdcTaskDependency reconstructedPlanes[kLdpPictureMaxNumPlanes] = {};
-
-    for (uint8_t plane = 0; plane < numImagePlanes; ++plane) {
-        const bool isEnhanced = frame->isEnhanced(LOQ0, plane);
-
-        LdcTaskDependency recon{upsampledPlanes[plane]};
-
-        if (globalConfig.temporalEnabled && !frame->m_passthrough) {
-            LdcTaskDependency temporal{kTaskDependencyInvalid};
-
-            if (plane < globalConfig.numPlanes) {
-                // Still need a temporal buffer, even if the particular frame is not enhanced
-                // winds up getting passed through and applied
-                temporal = requireTemporalBuffer(frame, previousTimestamp, plane);
-            }
-
-            if (isEnhanced && frameConfig.loqEnabled[LOQ0]) {
-                // Enhancement residuals
-                const uint32_t numPlaneTiles = globalConfig.numTiles[plane][LOQ0];
-                if (numPlaneTiles > 1) {
-                    LdcTaskDependency* tiles = static_cast<LdcTaskDependency*>(
-                        alloca(numPlaneTiles * sizeof(LdcTaskDependency)));
-
-                    // Generate and apply each tile's command buffer
-                    for (uint32_t tile = 0; tile < numPlaneTiles; ++tile) {
-                        LdpEnhancementTile* et{frame->getEnhancementTile(enhancementTileIdx++)};
-                        assert(et->plane == plane && et->loq == LOQ0 && et->tile == tile);
-                        LdcTaskDependency commands{addTaskGenerateCmdBuffer(frame, et)};
-
-                        tiles[tile] = addTaskApplyCmdBufferTemporal(frame, et, temporal, commands);
-                    }
-                    // Wait for all tiles to finish
-                    temporal = addTaskWaitForMany(frame, tiles, numPlaneTiles);
-                } else {
-                    LdpEnhancementTile* et = frame->getEnhancementTile(enhancementTileIdx++);
-                    assert(et && et->plane == plane && et->loq == LOQ0 && et->tile == 0);
-
-                    LdcTaskDependency commands{addTaskGenerateCmdBuffer(frame, et)};
-
-                    temporal = addTaskApplyCmdBufferTemporal(frame, et, temporal, commands);
-                }
-            }
-
-            // Always add temporal buffer, even if no enhancement this frame
-            if (plane < globalConfig.numPlanes) {
-                reconstructedPlanes[plane] = addTaskApplyAddTemporal(frame, plane, temporal, recon);
-                addTaskTemporalRelease(frame, reconstructedPlanes, plane);
-            } else {
-                reconstructedPlanes[plane] = recon;
-            }
-        } else {
-            if (isEnhanced && frameConfig.loqEnabled[LOQ0]) {
-                // Enhancement residuals
-                const uint32_t numPlaneTiles = globalConfig.numTiles[plane][LOQ0];
-                if (numPlaneTiles > 1) {
-                    LdcTaskDependency* tiles = static_cast<LdcTaskDependency*>(
-                        alloca(numPlaneTiles * sizeof(LdcTaskDependency)));
-
-                    // Generate and apply each tile's command buffer
-                    for (uint32_t tile = 0; tile < numPlaneTiles; ++tile) {
-                        LdpEnhancementTile* et{frame->getEnhancementTile(enhancementTileIdx++)};
-                        assert(et->plane == plane && et->loq == LOQ0 && et->tile == tile);
-                        LdcTaskDependency commands{addTaskGenerateCmdBuffer(frame, et)};
-                        tiles[tile] = addTaskApplyCmdBufferDirect(frame, et, recon, commands);
-                    }
-                    // Wait for all tiles to finish
-                    recon = addTaskWaitForMany(frame, tiles, numPlaneTiles);
-                } else {
-                    LdpEnhancementTile* et = frame->getEnhancementTile(enhancementTileIdx++);
-                    assert(et->plane == plane && et->loq == LOQ0 && et->tile == 0);
-
-                    LdcTaskDependency commands{addTaskGenerateCmdBuffer(frame, et)};
-
-                    recon = addTaskApplyCmdBufferDirect(frame, et, recon, commands);
-                }
-            }
-
-            reconstructedPlanes[plane] = recon;
-        }
-    }
-
-    assert(enhancementTileIdx == frame->enhancementTileCount);
-
-    LdcTaskDependency outputPlanes[kLdpPictureMaxNumPlanes] = {};
-
-    // Convert any enhanced planes back to output
-    for (uint8_t plane = 0; plane < numImagePlanes; ++plane) {
-        outputPlanes[plane] =
-            addTaskConvertFromInternal(frame, plane, globalConfig.baseDepth, globalConfig.enhancedDepth,
-                                       frame->m_depOutputPicture, reconstructedPlanes[plane]);
-    }
-
-    // Send output when all planes are ready
-    addTaskOutputDone(frame, outputPlanes, numImagePlanes);
-
-    // Send base when all tasks that use it have completed
-    LdcTaskDependency deps[kLdpPictureMaxNumPlanes] = {};
-    uint32_t depsCount = 0;
-    ldcTaskGroupFindOutputSetFromInput(&frame->m_taskGroup, frame->m_depBasePicture, deps,
-                                       kLdpPictureMaxNumPlanes, &depsCount);
-    addTaskBaseDone(frame, deps, depsCount);
-}
-
-// Fill out a task group for a simple unscaled passthrough configuration
-//
-void PipelineCPU::generateTasksPassthrough(FrameCPU* frame)
-{
-    VNTraceScoped();
-
-    uint8_t numImagePlanes{kLdpPictureMaxNumPlanes};
-    if (frame->basePicture) {
-        VNLogDebugF("No base for passthrough: %" PRIx64, frame->timestamp);
-        numImagePlanes = ldpPictureLayoutPlanes(&frame->basePicture->layout);
-    }
-
-    LdcTaskDependency outputPlanes[kLdpPictureMaxNumPlanes] = {};
-
-    for (uint8_t plane = 0; plane < numImagePlanes; ++plane) {
-        outputPlanes[plane] =
-            addTaskPassthrough(frame, plane, frame->m_depOutputPicture, frame->m_depBasePicture);
-    }
-
-    // Send output and base when all planes are ready
-    addTaskOutputDone(frame, outputPlanes, numImagePlanes);
-    addTaskBaseDone(frame, outputPlanes, numImagePlanes);
+    m_eventSink->generate(pipeline::EventCanReceive);
 }
 
 #ifdef VN_SDK_LOG_ENABLE_DEBUG
 // Dump frame and index state
 //
-void PipelineCPU::logFrames() const
+void PipelineCPU::logFrames()
 {
     char buffer[512];
 
-    VNLogDebugF("Frames: %d", m_frames.size());
+    VNLogDebug("Frames: %d", m_frames.size());
     for (uint32_t i = 0; i < m_frames.size(); ++i) {
         FrameCPU* const frame{VNAllocationPtr(m_frames[i], FrameCPU)};
         frame->longDescription(buffer, sizeof(buffer));
         VNLogDebugF("  %4d: %s", i, buffer);
+        frame->dumpTasks(&m_taskPool);
     }
 
-    VNLogDebugF("Reorder: %d", m_reorderIndex.size());
-    for (uint32_t i = 0; i < m_reorderIndex.size(); ++i) {
-        FrameCPU* const frame{m_reorderIndex[i]};
-        const LdcMemoryAllocation* const ptr =
-            m_frames.findUnordered(ldcVectorCompareAllocationPtr, frame);
-        const int32_t idx = static_cast<int32_t>(ptr ? (ptr - &m_frames[0]) : -1);
-        VNLogDebugF("  %2d: %4d", i, idx);
-    }
+    logFrameIndex("Reorder", m_reorderIndex);
+    logFrameIndex("Processing", m_processingIndex);
+    logFrameIndex("Done", m_doneIndex);
+    logFrameIndex("Flush", m_flushIndex);
 
-    VNLogDebugF("Processing: %d", m_processingIndex.size());
-    for (uint32_t i = 0; i < m_processingIndex.size(); ++i) {
-        FrameCPU* const frame{m_processingIndex[i]};
-        const LdcMemoryAllocation* const ptr =
-            m_frames.findUnordered(ldcVectorCompareAllocationPtr, frame);
-        const int32_t idx = static_cast<int32_t>(ptr ? (ptr - &m_frames[0]) : -1);
-        VNLogDebugF("  %2d: %4d", i, idx);
-    }
-
-    VNLogDebugF("Bases In: %d (%d)", m_basePicturePending.size(), m_basePicturePending.reserved());
-    VNLogDebugF("Bases Out: %d (%d)", m_basePictureOutBuffer.size(), m_basePictureOutBuffer.capacity());
-    VNLogDebugF("Output: %d (%d)", m_outputPictureAvailableBuffer.size(),
-                m_outputPictureAvailableBuffer.capacity());
+    VNLogDebug("Bases In: %d (%d)", m_basePicturePending.size(), m_basePicturePending.reserved());
+    VNLogDebug("Bases Out: %d (%d)", m_basePictureOutBuffer.size(), m_basePictureOutBuffer.capacity());
+    VNLogDebug("Output: %d (%d)", m_outputPictureAvailableBuffer.size(),
+               m_outputPictureAvailableBuffer.capacity());
+    VNLogDebug("Limits Flush:%" PRIx64 " Skip:%" PRIx64 " Processing:%" PRIx64 " Send:%" PRIx64,
+               m_flushLimit.load(), m_skipLimit.load(), m_processingLimit.load(), m_sendLimit.load());
 }
+
+void PipelineCPU::logFrameIndex(const char* indexName, const lcevc_dec::common::Vector<FrameCPU*>& index) const
+{
+    VNLogDebug("Index %s: %d", indexName, index.size());
+    for (uint32_t i = 0; i < index.size(); ++i) {
+        const FrameCPU* const frame{index[i]};
+        const LdcMemoryAllocation* const ptr =
+            m_frames.findUnordered(ldcVectorCompareAllocationPtr, frame);
+        const int32_t idx = static_cast<int32_t>(ptr ? (ptr - &m_frames[0]) : -1);
+        VNLogDebugF("  %2d: %4d ts:%" PRIx64, i, idx, frame->timestamp);
+    }
+}
+
 #endif
 
 } // namespace lcevc_dec::pipeline_cpu

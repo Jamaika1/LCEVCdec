@@ -166,6 +166,18 @@ static inline int ldcVectorFindIdx(const LdcVector* vector, LdcVectorCompareFn c
 static inline void* ldcVectorFindUnordered(const LdcVector* vector, LdcVectorCompareFn compareFn,
                                            const void* other);
 
+/*! Get index to element in an unsorted vector that matches a comparison function
+ *
+ * This used a linear search.
+ *
+ * @param[in] vector            An initialized vector.
+ * @param[in] compareFn         Pointer function that provides a comparison between elements <0, 0 or >0.
+ * @param[in] other             The second argument to the comparison function.
+ * @return                      index of element, or -1 if not found
+ */
+static inline int ldcVectorFindUnorderedIdx(const LdcVector* vector, LdcVectorCompareFn compareFn,
+                                            const void* other);
+
 /*! Insert element into vector
  *
  * @param[in] vector            An initialized vector.

@@ -124,6 +124,17 @@ static inline void* ldcVectorFindUnordered(const LdcVector* vector, LdcVectorCom
     return NULL;
 }
 
+static inline int ldcVectorFindUnorderedIdx(const LdcVector* vector, LdcVectorCompareFn compareFn,
+                                            const void* other)
+{
+    const uint8_t* const ptr = (const uint8_t*)ldcVectorFindUnordered(vector, compareFn, other);
+    if (!ptr) {
+        return -1;
+    }
+
+    return (int)(ptr - vector->data) / vector->elementSize;
+}
+
 static inline void* ldcVectorInsert(LdcVector* vector, LdcVectorCompareFn compareFn, const void* element)
 {
     _ldcVectorGrow(vector);

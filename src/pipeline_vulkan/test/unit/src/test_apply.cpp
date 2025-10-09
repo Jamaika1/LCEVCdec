@@ -24,6 +24,7 @@
 #include <LCEVC/pipeline/pipeline.h>
 #include <LCEVC/pipeline/types.h>
 #include <LCEVC/pipeline_vulkan/create_pipeline.h>
+#include <LCEVC/pipeline_vulkan/types_vulkan.h>
 #include <picture_vulkan.h>
 #include <pipeline_vulkan.h>
 
@@ -117,21 +118,24 @@ TEST_F(PipelineVulkanApplyFixture, ApplyGpuCommandBufferToTemporal)
     constexpr auto width = 1920;
     constexpr auto height = 1080;
 
+    auto temporalPicture = std::make_unique<PictureVulkan>(*pipeline);
+
     VulkanApplyArgs args{};
-    args.plane = nullptr;
+    args.picture = nullptr;
     args.planeWidth = width;
     args.planeHeight = height;
     args.bufferGpu = cmdBuffer;
     args.temporalRefresh = false;
     args.highlightResiduals = false;
+    args.temporalPicture = temporalPicture.get();
+    args.chroma = LdeChroma::CT420;
 
-    EXPECT_TRUE(pipeline->apply(&args));
+    EXPECT_TRUE(pipeline->getCore().apply(&args));
 
-    auto* temporal = pipeline->getTemporalPicture();
-    auto* temporalBuffer = static_cast<BufferVulkan*>(temporal->buffer);
+    auto* temporalBuffer = static_cast<BufferVulkan*>(args.temporalPicture->buffer);
 
     const std::string hash = vulkan_test_util::hashMd5(temporalBuffer->ptr(), temporalBuffer->size());
-    EXPECT_EQ(hash, "039f0cce21e8139795ad9b57100c7d45");
+    EXPECT_EQ(hash, "92dd3a4af302a9362ba79a110fcfdb9f");
 }
 
 TEST_F(PipelineVulkanApplyFixture, ApplyGpuCommandBufferToPlane)
@@ -144,20 +148,20 @@ TEST_F(PipelineVulkanApplyFixture, ApplyGpuCommandBufferToPlane)
     constexpr auto height = 1080;
 
     const LdpPictureDesc srcDesc{width, height, LdpColorFormatI420_16_LE};
-    auto* src = static_cast<PictureVulkan*>(pipeline->allocPictureManaged(srcDesc));
+    auto* src = static_cast<PictureVulkan*>(pipeline->allocPicture(srcDesc));
     auto* srcBuffer = static_cast<BufferVulkan*>(src->buffer);
     const auto data = vulkan_test_util::generateYUV420FromFixedSeed<int16_t>(width, height);
     std::memcpy(srcBuffer->ptr(), data.data(), data.size() * sizeof(data[0]));
 
     VulkanApplyArgs args{};
-    args.plane = src;
+    args.picture = src;
     args.planeWidth = width;
     args.planeHeight = height;
     args.bufferGpu = cmdBuffer;
     args.temporalRefresh = false;
     args.highlightResiduals = false;
 
-    EXPECT_TRUE(pipeline->apply(&args));
+    EXPECT_TRUE(pipeline->getCore().apply(&args));
 
     const std::string hash = vulkan_test_util::hashMd5(srcBuffer->ptr(), srcBuffer->size());
     EXPECT_EQ(hash, "2026379c4a0a0aef687b65de565553b4");

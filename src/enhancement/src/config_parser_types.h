@@ -109,10 +109,10 @@ static const LdeKernel kKernels[] = {
     /* Nearest */
     {{{16384, 0}, {0, 16384}}, 2, false},
 
-    /* Bilinear */
+    /* Linear */
     {{{12288, 4096}, {4096, 12288}}, 2, false},
 
-    /* Bicubic (a = -0.6) */
+    /* Cubic (a = -0.6) */
     {{{-1382, 14285, 3942, -461}, {-461, 3942, 14285, -1382}}, 4, false},
 
     /* ModifiedCubic */

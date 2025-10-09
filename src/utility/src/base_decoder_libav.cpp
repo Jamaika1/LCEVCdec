@@ -20,6 +20,8 @@
 #include <LCEVC/extract/extract.h>
 #include <LCEVC/utility/string_utils.h>
 
+#include <cstring>
+
 extern "C"
 {
 #ifdef _MSC_VER
@@ -100,7 +102,8 @@ public:
 private:
     friend std::unique_ptr<BaseDecoder> createBaseDecoderLibAV(std::string_view source,
                                                                std::string_view sourceFormat,
-                                                               LCEVC_ColorFormat baseFormat, bool verbose);
+                                                               LCEVC_ColorFormat baseFormat,
+                                                               bool verbose, bool extract);
     int openInput(std::string_view source, std::string_view sourceFormat);
     int openStream(AVMediaType type);
     int addFilter(std::string_view filters);
@@ -145,8 +148,8 @@ private:
     // True if video data should be parsed to derive PTS
     bool m_parsing = false;
 
-    // True if enhancement NAL units should be removed from AU going to base codec.
-    bool m_removeEnhanced = false;
+    // True if enhancement data should be extracted from NAL Units before passing it on.
+    bool m_extractEnhanced = true;
 
     // Current state of decoder
     enum class State
@@ -517,44 +520,35 @@ bool BaseDecoderLibAV::update()
                 m_lastDiscontinuity = enhancementPts;
                 m_gopStartPts = INT64_MIN;
             }
-            int32_t extractResult = 0;
+            int32_t enhancementFound = 0;
 
-            if (m_removeEnhanced) {
-                // Extract enhanced data from AU, and remove enhancement NAL units
-                uint32_t nalOutSize = 0;
-                uint32_t nalOutOffset = 0;
-                extractResult = LCEVC_extractAndRemoveEnhancementFromNAL(
-                    m_videoPacket->data, m_videoPacket->size, m_nalFormat,
-                    lcevcCodecType(m_videoDecCtx->codec_id), m_enhancement.data(),
-                    static_cast<uint32_t>(m_enhancement.size()), &enhancementSize, &nalOutOffset,
-                    &nalOutSize);
-                // Truncate NAL to actual size
-                av_packet_ref(m_basePacket, m_videoPacket);
-                m_basePacket->size = static_cast<int>(nalOutSize);
-            } else {
-                // Extract enhanced data from AU, leaving enhancement NAL units in place
-                extractResult = LCEVC_extractEnhancementFromNAL(
-                    m_videoPacket->data, m_videoPacket->size, m_nalFormat,
-                    lcevcCodecType(m_videoDecCtx->codec_id), m_enhancement.data(),
-                    static_cast<uint32_t>(m_enhancement.size()), &enhancementSize);
-                av_packet_ref(m_basePacket, m_videoPacket);
-            }
-            if (extractResult < 0) {
+            // Extract enhanced data from AU, leaving enhancement NAL units in place
+            enhancementFound = LCEVC_extractEnhancementFromNAL(
+                m_videoPacket->data, m_videoPacket->size, m_nalFormat,
+                lcevcCodecType(m_videoDecCtx->codec_id), m_enhancement.data(),
+                static_cast<uint32_t>(m_enhancement.size()), &enhancementSize);
+            av_packet_ref(m_basePacket, m_videoPacket);
+
+            if (enhancementFound < 0) {
                 fmt::print(stderr, "extract function failed, data {}, size {}\n",
                            fmt::ptr(m_videoPacket->data), m_videoPacket->size);
             }
 
-            av_packet_unref(m_videoPacket);
-
-            if (extractResult == 1) {
-                // Truncate enhancement to actual size
-                m_enhancement.resize(enhancementSize);
-
+            if (enhancementFound == 1) {
+                if (m_extractEnhanced) {
+                    // Truncate enhancement to actual size
+                    m_enhancement.resize(enhancementSize);
+                } else {
+                    // Rstore video packet data
+                    m_enhancement.resize(m_videoPacket->size);
+                    memcpy(m_enhancement.data(), m_videoPacket->data, m_videoPacket->size);
+                }
                 // Got some LCEVC data - return to client
                 m_enhancementData.ptr = m_enhancement.data();
                 m_enhancementData.size = static_cast<uint32_t>(m_enhancement.size());
                 m_enhancementData.pts = enhancementPts;
                 m_enhancementData.discontinuityCount = m_enhancementDiscontinuityCount;
+                av_packet_unref(m_videoPacket);
                 return true;
             }
         }
@@ -672,9 +666,11 @@ int64_t BaseDecoderLibAV::generateIncreasingPoc(int64_t decodedPoc, bool isIdr)
 // If baseFormat is not Unknown, then the decoded images will be converted to the given format
 //
 std::unique_ptr<BaseDecoder> createBaseDecoderLibAV(std::string_view input, std::string_view inputFormat,
-                                                    LCEVC_ColorFormat baseFormat, bool verbose)
+                                                    LCEVC_ColorFormat baseFormat, bool verbose, bool extract)
 {
     auto decoder = std::make_unique<BaseDecoderLibAV>();
+
+    decoder->m_extractEnhanced = extract;
 
     if (static bool registered = false; !registered) {
 #if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(58, 10, 100)

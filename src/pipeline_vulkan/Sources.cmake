@@ -15,6 +15,7 @@
 list(
     APPEND
     SOURCES
+    "src/backend_vulkan.cpp"
     "src/buffer_vulkan.cpp"
     "src/frame_vulkan.cpp"
     "src/picture_lock_vulkan.cpp"
@@ -25,6 +26,7 @@ list(
 list(
     APPEND
     HEADERS
+    "src/backend_vulkan.h"
     "src/buffer_vulkan.h"
     "src/frame_vulkan.h"
     "src/picture_lock_vulkan.h"

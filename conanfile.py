@@ -13,6 +13,7 @@
 # THE EXCLUSION OF PATENT LICENSES PROVISION OF THE BSD-3-CLAUSE-CLEAR LICENSE.
 
 import os
+import shutil
 
 from conan import ConanFile
 from conan.tools.scm import Git
@@ -54,12 +55,6 @@ class LCEVCDecoderSDK(ConanFile):
     }
 
     generators = "cmake_find_package_multi"
-    # CMake generator to use (default is Ninja)
-    cmake_generator = {
-        'iOS': 'Unix Makefiles',
-        'Macos': 'Unix Makefiles',
-        'Linux': 'Unix Makefiles',
-    }
 
     # NB: maybe switch to scm attribute when it is stable.
     no_copy_source = True
@@ -98,7 +93,6 @@ class LCEVCDecoderSDK(ConanFile):
 
         if self.options.base_decoder == "ffmpeg":
             self.options['ffmpeg'].shared = True
-            self.options['ffmpeg'].postproc = False
             if self.settings.os == 'Linux':
                 self.options['ffmpeg'].with_libalsa = False
                 self.options['ffmpeg'].with_pulse = False
@@ -142,7 +136,7 @@ class LCEVCDecoderSDK(ConanFile):
             reqs.append('nlohmann_json/3.11.3')
 
         if self.options.base_decoder == "ffmpeg":
-            reqs.append('ffmpeg/7.1.1')
+            reqs.append('ffmpeg/8.0')
 
         if self.options.base_decoder == "libav":
             reqs.append('libav/12.3')
@@ -221,8 +215,8 @@ class LCEVCDecoderSDK(ConanFile):
             self.options.unit_tests = False
             self.options.executables = False
 
-        cmake = CMakeToolchain(self, generator=self.cmake_generator.get(
-            str(self.settings.os), "Ninja"))
+        cmake = CMakeToolchain(self)
+        cmake.generator = "Ninja" if shutil.which("ninja") else "Unix Makefiles"
         cmake.variables["TARGET_ARCH"] = self.settings.arch
         cmake.variables["CMAKE_FIND_ROOT_PATH_MODE_PACKAGE"] = "BOTH"
         cmake.variables["BUILD_SHARED_LIBS"] = self.options.shared
@@ -262,25 +256,20 @@ class LCEVCDecoderSDK(ConanFile):
         cmake.install()
 
     def package_info(self):
-        # Core
-        self.cpp_info.components["core"].libs = ["lcevc_dec_core"]
-        if not self.options.shared:
-            self.cpp_info.components["core"].libs.append("lcevc_dec_overlay_images")
-        if self.settings.os == "Linux":
-            self.cpp_info.components["core"].system_libs.append("pthread")
-            self.cpp_info.components["core"].system_libs.append("dl")
-
-        # Utilities
+        self.cpp_info.components["common"].libs = ["lcevc_dec_common"]
+        self.cpp_info.components["pixel_processing"].libs = ["lcevc_dec_pixel_processing"]
+        self.cpp_info.components["enhancement"].libs = ["lcevc_dec_enhancement"]
+        self.cpp_info.components["pipeline"].libs = ["lcevc_dec_pipeline"]
+        self.cpp_info.components["sequencer"].libs = ["lcevc_dec_sequencer"]
+        self.cpp_info.components["legacy"].libs = ["lcevc_dec_legacy"]
+        self.cpp_info.components["pipeline_legacy"].libs = ["lcevc_dec_pipeline_legacy"]
+        if self.options.vulkan:
+            self.cpp_info.components["pipeline_vulkan"].libs = ["lcevc_dec_pipeline_vulkan"]
+        self.cpp_info.components["pipeline_cpu"].libs = ["lcevc_dec_pipeline_cpu"]
+        self.cpp_info.components["extract"].libs = ["lcevc_dec_extract"]
         if self.options.api_layer:
-            self.cpp_info.components["utility"].libs = ["lcevc_dec_utility"]
             self.cpp_info.components["api_utility"].libs = ["lcevc_dec_api_utility"]
-
-        # Extract
-        if self.options.api_layer:
-            self.cpp_info.components["extract"].libs = ["lcevc_dec_extract"]
-
-        # API
+        if self.options.executables or self.options.unit_tests:
+            self.cpp_info.components["utility"].libs = ["lcevc_dec_utility"]
         if self.options.api_layer:
             self.cpp_info.components["api"].libs = ["lcevc_dec_api"]
-            if not self.options.shared:
-                self.cpp_info.components["api"].requires = ["utility", "api_utility", "extract"]

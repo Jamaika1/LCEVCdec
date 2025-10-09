@@ -1,4 +1,4 @@
-# Copyright (c) V-Nova International Limited 2022-2024. All rights reserved.
+# Copyright (c) V-Nova International Limited 2022-2025. All rights reserved.
 # This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
 # No patent licenses are granted under this license. For enquiries about patent licenses,
 # please contact legal@v-nova.com.
@@ -25,5 +25,12 @@ set(ANDROID_ARM_NEON TRUE)
 
 # Look for packages in the build directory as well
 set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE "BOTH")
+
+if (VN_SDK_COVERAGE)
+    add_compile_options(-ftest-coverage -fprofile-arcs --coverage -fprofile-instr-generate
+                        -fcoverage-mapping)
+    add_link_options(-ftest-coverage -fprofile-arcs --coverage -fprofile-instr-generate
+                     -fcoverage-mapping)
+endif ()
 
 include($ENV{ANDROID_NDK}/build/cmake/android.toolchain.cmake)

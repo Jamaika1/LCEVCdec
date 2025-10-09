@@ -117,12 +117,15 @@ public:
  *
  * @param[in]       source          The source stream, passed to avformat_open_input()
  * @param[in]       baseFormat      Optional output format for decoded base images.
+ * @param[in]       verbose         Set the libav log level to verbose..
+ * @param[in]       extract         Extract the LVEVC data from NAL Units,
  *
  * @return                          Unique pointer to a new base Decoder, or nullptr if failed.
  */
-std::unique_ptr<BaseDecoder>
-createBaseDecoderLibAV(std::string_view source, std::string_view sourceFormat = std::string_view(),
-                       LCEVC_ColorFormat baseFormat = LCEVC_ColorFormat_Unknown, bool verbose = false);
+std::unique_ptr<BaseDecoder> createBaseDecoderLibAV(std::string_view source,
+                                                    std::string_view sourceFormat = std::string_view(),
+                                                    LCEVC_ColorFormat baseFormat = LCEVC_ColorFormat_Unknown,
+                                                    bool verbose = false, bool extract = true);
 
 /*!
  * \brief Create a base video stream decoder that reads LCEVC bin files and raw base frames in

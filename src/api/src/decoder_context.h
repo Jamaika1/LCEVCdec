@@ -99,7 +99,7 @@ public:
     Pool<LdpPictureLock>& pictureLockPool() { return m_pictureLockPool; }
 
     // Convert pipelineBuilder into pipeline
-    bool initialize();
+    bool initializeDecoder();
 
     VNNoCopyNoMove(DecoderContext);
 

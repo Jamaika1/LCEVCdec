@@ -62,6 +62,13 @@ typedef struct LdeGlobalConfig
     LdeDeblock deblock;                /**< Deblocking filter constants */
     bool cropEnabled; /**< Enable cropping at the edge of the picture for very non-standard resolutions */
     LdeCrop crop; /**< Crop amounts from each edge of the picture if cropping is enabled */
+
+    uint8_t profile;  /**< Sequence block profile per. Annex A */
+    uint8_t level;    /**< Sequence block level per. Annex A  */
+    uint8_t sublevel; /**< Sequence block sublevel per. Annex A */
+    uint8_t extendedProfile; /**< Sequence block extended profile per. Annex A (present when profile == 15) */
+    uint8_t extendedLevel; /**< Sequence block extended profile per. Annex A  (present when level == 15) */
+
     LdeUserDataConfig userData; /**< Some user data can be tied to each global config - not much use for this yet */
 
     LdeHDRInfo hdrInfo; /**< HDR parameters defined in annex D and E of the standard */
@@ -76,6 +83,11 @@ typedef struct LdeGlobalConfig
     uint32_t numTiles[RCMaxPlanes][LOQEnhancedCount]; /**< Helper to track the total number of tiles on each LOQ and plane */
 } LdeGlobalConfig;
 
+/*! \brief Parameters that relevant to an individual frame and may either inherit or change the to
+ *         the next frame. This struct also includes the raw unencapsulated LCEVC bitstream for a
+ *         frame as well as chunks which point to the unencapsulated buffer as entrypoints to given
+ *         huffman layers.
+ */
 typedef struct LdeFrameConfig
 {
     bool frameConfigSet;  /**< Tracks if the config has been initialized */

@@ -526,9 +526,11 @@ private:
 #if VN_SDK_FEATURE(TRACING)
 
 // Scoped object to generate begin/end events
+// NB: Trailing semicolon is missing
 #define VNTraceScoped()                                                 \
     static LdcDiagSiteWrapper _traceSite(__FILE__, __LINE__, __func__); \
-    LdcTraceScoped _traceScoped(&_traceSite);
+    LdcTraceScoped _traceScoped(&_traceSite)
+
 #else
 #define VNTraceScoped() (void)(0)
 #endif

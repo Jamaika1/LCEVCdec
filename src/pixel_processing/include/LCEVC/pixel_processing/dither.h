@@ -53,14 +53,14 @@ extern "C"
  * does appear to provide subjectively sound noise.
  *
  * # Usage
- * As mutiple frames may be decoded in paralel each with their own required strength
+ * As multiple frames may be decoded in parallel each with their own required strength
  * a global buffer of unscaled entropy is shared between threads this entropy
- * is scaled down to the frames's strength at application of dithering.
+ * is scaled down to the frames' strength at application of dithering.
  *
  * At the start of each slice we generate a random offset into the buffer to avoid
  * repeating patterns
  *
- * ldppDitherGlobalInitialize is used to initalise the global entropy buffer with a
+ * ldppDitherGlobalInitialize is used to initialize the global entropy buffer with a
  * particular seed if desired.
  *
  * This global buffer can then be passed to ldppDitherFrameInitialise which
@@ -68,12 +68,12 @@ extern "C"
  * seed for that frame.
  *
  * As it is possible to apply dithering to multiple slices of the same frame
- * in paralell, a unique seed for each slice is created from the slice's vertical
- * offset and plane index via ldppDitherSliceInitialise. This seed initalises the
+ * in parallel, a unique seed for each slice is created from the slice's vertical
+ * offset and plane index via ldppDitherSliceInitialise. This seed initializes the
  * RNG used to create random offsets into the entropy buffer. This stops the dither
  * pattern repeating at slice boundaries.
  *
- * The offset into the entropy buffer for a particular slice is retrevied via
+ * The offset into the entropy buffer for a particular slice is retrieved via
  * ldppDitherGetBuffer. The entropy values can be scaled down and applied to
  * incoming pixel values using the inline helpers: ldppDitherApply(SSE/NEON)
  */
@@ -124,7 +124,7 @@ void ldppDitherGlobalRelease(LdppDitherGlobal* dither);
 
 /*! Initializes the per-frame dither module
  *
- * \param dither           The frame dither module to initialize.
+ * \param frame            The frame dither module to initialize.
  * \param global           The global dither module to retrieve entropy from.
  * \param seed             The seed for this particular frame, this should be unique
  *                         for each frame to avoid repitition, the frames timestamp is
@@ -145,8 +145,8 @@ bool ldppDitherFrameInitialise(LdppDitherFrame* frame, LdppDitherGlobal* global,
  *                         this is combined with the frame seed along the offset above
  *                         to create a unique seed per slice for buffer offsets
  */
-void ldppDitherSliceInitialise(LdppDitherSlice* slice, LdppDitherFrame* frame, uint32_t offset,
-                               uint32_t planeIndex);
+void ldppDitherSliceInitialise(LdppDitherSlice* slice, const LdppDitherFrame* frame,
+                               uint32_t offset, uint32_t planeIndex);
 
 /*! Query the local dithering module for a pointer to an array of
  *  values that contain unscaled random noise that is at least `length`
@@ -159,17 +159,6 @@ void ldppDitherSliceInitialise(LdppDitherSlice* slice, LdppDitherFrame* frame, u
  *         is greater than 16384 the function will return NULL.
  */
 const uint16_t* ldppDitherGetBuffer(LdppDitherSlice* dither, size_t length);
-
-/*! Query the bitshift required for a signed, fixed point pixel
- *
- *  If the pixel is a unsigned type the function will return zero
- *
- * \param bitDepth  The bitdepth of the pixel
- *
- * \return The number of bits to shift the dither value by
- *         depending on the bitdepth of the pixel.
- */
-int8_t ldppDitherGetShiftS16(LdpFixedPoint bitDepth);
 
 /*------------------------------------------------------------------------------*/
 

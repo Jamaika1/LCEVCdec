@@ -124,8 +124,11 @@ protected:
         const auto dstHeight = params.scalingMode == Scale1D ? kHeight : kHeight * 2;
 
         m_src.initialize(kWidth, kHeight, 256, LdpFPS8);
+        m_intermediate.initialize(kWidth, dstHeight, 256, LdpFPS8);
         m_dst.initialize(dstWidth, dstHeight, 512, LdpFPS8);
         ldpInternalPictureLayoutInitialize(&m_srcLayout, LdpColorFormatGRAY_8, kWidth, kHeight, 0);
+        ldpInternalPictureLayoutInitialize(&m_intermediateLayout, LdpColorFormatGRAY_8, kWidth,
+                                           dstHeight, 0);
         ldpInternalPictureLayoutInitialize(&m_dstLayout, LdpColorFormatGRAY_8, dstWidth, dstHeight, 0);
 
         readBinaryFile(m_src, m_srcFilePath);
@@ -133,9 +136,11 @@ protected:
         m_kernel = getUpscaleKernel(params.upscaleType);
         m_args.applyPA = params.predictedAverage;
         m_args.frameDither = NULL;
-        m_args.dstLayout = &m_dstLayout;
         m_args.srcLayout = &m_srcLayout;
+        m_args.intermediateLayout = &m_srcLayout;
+        m_args.dstLayout = &m_dstLayout;
         m_args.srcPlane = m_src.planeDesc;
+        m_args.intermediatePlane = m_intermediate.planeDesc;
         m_args.dstPlane = m_dst.planeDesc;
         m_args.forceScalar = params.forceScalar;
         m_args.mode = params.scalingMode;
@@ -147,9 +152,11 @@ protected:
     LdcMemoryAllocator* m_allocator = nullptr;
     LdcTaskPool m_taskPool = {0};
     TestPlane m_src = {};
+    TestPlane m_intermediate = {};
     TestPlane m_dst = {};
     LdpPicturePlaneDesc m_interDesc = {0};
     LdpPictureLayout m_dstLayout = {0};
+    LdpPictureLayout m_intermediateLayout = {0};
     LdpPictureLayout m_srcLayout = {0};
     LdppUpscaleArgs m_args = {0};
     LdeKernel m_kernel = {};
@@ -159,7 +166,7 @@ TEST_P(UpscaleTest, HashPlane)
 {
     const UpscaleTestParams params = GetParam();
 
-    ldppUpscale(m_allocator, &m_taskPool, NULL, &m_kernel, &m_args);
+    ldppUpscale(&m_taskPool, NULL, &m_kernel, &m_args);
 
     EXPECT_EQ(params.hash, hashActiveRegion(m_dst));
 }

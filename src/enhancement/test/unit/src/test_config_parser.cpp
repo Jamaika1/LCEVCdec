@@ -85,6 +85,12 @@ TEST_F(ConfigParserTest, checkParams)
     EXPECT_EQ(frameConfig.temporalSignallingPresent, 0);
     EXPECT_EQ(frameConfig.temporalRefresh, true);
 
+    EXPECT_EQ(globalConfig.profile, 0);
+    EXPECT_EQ(globalConfig.level, 4);
+    EXPECT_EQ(globalConfig.sublevel, 1);
+    EXPECT_EQ(globalConfig.extendedProfile, 0);
+    EXPECT_EQ(globalConfig.extendedLevel, 0);
+
     EXPECT_EQ(globalConfig.crop.left, 2);
     EXPECT_EQ(globalConfig.crop.right, 4);
     EXPECT_EQ(globalConfig.crop.top, 6);

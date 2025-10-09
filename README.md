@@ -7,9 +7,9 @@ Low Complexity Enhancement Video Codec Decoder (LCEVCdec) is the primary MPEG-5 
 ## Features
 
  * Decode LCEVC compliant bitstreams
- * Support for a range of formats including YUV, NV12 and RGBA
+ * Support for YUV and NV12 base inputs
  * Support for a range of colour formats including BT709 and BT2020
- * Support for HDR and 10-bit streams
+ * Support for bit-depths up to 14bit and HDR
  * Support for ABR ladders
  * CPU pixel processing stage
  * Extensive API

@@ -6,8 +6,8 @@ compile_commands.json
 /.clangd/
 /.cache/
 __pycache__
-test_cache
-test_outputs
+test_cache*
+test_outputs*
 dec_test_results*.json
 env
 .idea

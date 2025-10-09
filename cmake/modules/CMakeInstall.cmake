@@ -121,6 +121,11 @@ if (PC_REQUIRES_PRIVATE)
     set(PC_REQUIRES_PRIVATE "Requires.private: ${PC_REQUIRES_PRIVATE}")
 endif ()
 
+set(PC_VERSION ${PROJECT_VERSION})
+if (DEFINED GIT_SHORT_VERSION AND NOT GIT_SHORT_VERSION STREQUAL "")
+    set(PC_VERSION ${GIT_SHORT_VERSION})
+endif ()
+
 # Configure templates for install
 configure_file("cmake/templates/build_config.h.in" "generated/LCEVC/build_config.h")
 configure_file("cmake/templates/lcevc_dec.pc.in" "generated/lcevc_dec.pc" @ONLY)

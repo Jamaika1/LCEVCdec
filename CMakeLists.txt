@@ -19,6 +19,7 @@ option(BUILD_SHARED_LIBS "Build shared libraries" ON)
 option(VN_MSVC_RUNTIME_STATIC "Use static multi-threaded runtime for MSVC" ON)
 option(VN_STRIP_RELEASE "Strip any debug information from release binaries" ON)
 option(VN_SDK_SIMD "Enable SIMD for current architecture (SSE + AVX2 or NEON)" ON)
+option(VN_SDK_LTO "Enable link time optimisation in the linker" OFF)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake/modules")
 include("CMakeSetup")
@@ -26,7 +27,7 @@ include("CMakeSetup")
 project(
     LCEVCdec_SDK
     DESCRIPTION "The Open Source LCEVC Decoder SDK"
-    VERSION 4.0.1
+    VERSION 4.0.2
     LANGUAGES CXX C)
 
 # Build configuration

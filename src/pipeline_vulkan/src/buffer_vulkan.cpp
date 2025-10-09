@@ -22,7 +22,7 @@ namespace {
     extern const LdpBufferFunctions kBufferVulkanFunctions;
 }
 
-BufferVulkan::BufferVulkan(PipelineVulkan& pipeline, uint32_t size)
+BufferVulkan::BufferVulkan(BackendVulkan& pipeline, uint32_t size)
     : LdpBuffer{&kBufferVulkanFunctions}
     , m_pipeline(pipeline)
 {

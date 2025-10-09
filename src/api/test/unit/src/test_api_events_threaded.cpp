@@ -40,6 +40,11 @@ TYPED_TEST_SUITE(APIEventReporting, MyTypes);
 
 TYPED_TEST(APIEventReporting, test)
 {
+    if (std::is_same_v<TypeParam, DecoderSynchronous>) {
+        GTEST_SKIP()
+            << "DEC-933 - Synchronous API testing to be removed as the 4.x API is not synchronous";
+    }
+
     TypeParam tester(kNumFrames);
 
     // This will be fully automatic:

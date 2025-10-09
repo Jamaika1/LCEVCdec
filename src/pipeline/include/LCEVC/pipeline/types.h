@@ -301,6 +301,21 @@ typedef enum LdpColorSpace
     LdpColorSpaceForceInt32 = 0x7ffffff,
 } LdpColorSpace;
 
+// Describes pipleine capacity (curent and maximum)
+//
+typedef struct LdpPipelineCapacity
+{
+    // Number of frames that can be sent now before the pipeline will return LCEVC_Again
+    uint32_t enhancementAvailable;
+    uint32_t baseAvailable;
+    uint32_t outputAvailable;
+
+    // Upper limit for frames that can be sent before the pipeline will return LCEVC_Again
+    uint32_t enhancementMaximum;
+    uint32_t baseMaximum;
+    uint32_t outputMaximum;
+} LdpPipelineCapacity;
+
 #ifdef __cplusplus
 }
 #endif

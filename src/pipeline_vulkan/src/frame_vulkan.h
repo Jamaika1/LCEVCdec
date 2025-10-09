@@ -92,6 +92,17 @@ public:
     // Construct picture description for output
     LdpPictureDesc getOutputPictureDesc() const;
 
+    uint8_t getEnhancementBitDepth() const
+    {
+        switch (globalConfig->enhancedDepth) {
+            case LdeBitDepth::Depth8: return 8;
+            case LdeBitDepth::Depth10: return 10;
+            case LdeBitDepth::Depth12: return 12;
+            case LdeBitDepth::Depth14: return 14;
+            default: return 0;
+        }
+    }
+
     uint8_t numEnhancedPlanes() const { return globalConfig->numPlanes; }
     uint8_t numImagePlanes() const;
 

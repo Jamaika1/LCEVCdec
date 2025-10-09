@@ -228,6 +228,10 @@ class FFMpegConan(ConanFile):
     def _version_supports_vulkan(self):
         return Version(self.version) >= "4.3.0"
 
+    @property
+    def _version_supports_postproc(self):
+        return Version(self.version) < "8.0"
+
     def export_sources(self):
         export_conandata_patches(self)
 
@@ -251,6 +255,8 @@ class FFMpegConan(ConanFile):
             del self.options.with_avfoundation
         if not self._version_supports_vulkan:
             self.options.rm_safe("with_vulkan")
+        if not self._version_supports_postproc:
+            del self.options.postproc
 
     def configure(self):
         if self.options.shared:
@@ -415,7 +421,6 @@ class FFMpegConan(ConanFile):
             opt_enable_disable("avformat", self.options.avformat),
             opt_enable_disable("swresample", self.options.swresample),
             opt_enable_disable("swscale", self.options.swscale),
-            opt_enable_disable("postproc", self.options.postproc),
             opt_enable_disable("avfilter", self.options.avfilter),
 
             # Dependencies
@@ -463,9 +468,9 @@ class FFMpegConan(ConanFile):
             "--disable-cuvid",  # FIXME: CUVID support
             # Licenses
             opt_enable_disable("nonfree", self.options.with_libfdk_aac or (self.options.with_ssl and (
-                self.options.with_libx264 or self.options.with_libx265 or self.options.postproc))),
+                self.options.with_libx264 or self.options.with_libx265 or self.options.get_safe("postproc")))),
             opt_enable_disable(
-                "gpl", self.options.with_libx264 or self.options.with_libx265 or self.options.postproc)
+                "gpl", self.options.with_libx264 or self.options.with_libx265 or self.options.get_safe("postproc"))
         ]
 
         # Individual Component Options
@@ -530,6 +535,8 @@ class FFMpegConan(ConanFile):
 
         if self._version_supports_vulkan:
             args.append(opt_enable_disable("vulkan", self.options.get_safe("with_vulkan")))
+        if self._version_supports_postproc:
+            args.append(opt_enable_disable("postproc", self.options.get_safe("postproc")))
         if is_apple_os(self):
             # relocatable shared libs
             args.append("--install-name-dir=@rpath")
@@ -642,15 +649,18 @@ class FFMpegConan(ConanFile):
                         rename(self, lib, lib[3:-2] + ".lib")
 
     def _read_component_version(self, component_name):
-        version_file_name = os.path.join(
-            self.package_folder, "include", f"lib{component_name}", "version.h")
-        version_file = open(version_file_name, "r")
+        component_include_dir = os.path.join(
+            self.package_folder, "include", f"lib{component_name}")
         pattern = f"define LIB{component_name.upper()}_VERSION_(MAJOR|MINOR|MICRO)[ \t]+(\\d+)"
         version = dict()
-        for line in version_file:
-            match = re.search(pattern, line)
-            if match:
-                version[match[1]] = match[2]
+        for version_file in ("version.h", "version_major.h"):
+            version_file_path = os.path.join(component_include_dir, version_file)
+            if os.path.isfile(version_file_path):
+                with open(version_file_path, "r") as version_file:
+                    for line in version_file:
+                        match = re.search(pattern, line)
+                        if match:
+                            version[match[1]] = match[2]
         if "MAJOR" in version and "MINOR" in version and "MICRO" in version:
             return f"{version['MAJOR']}.{version['MINOR']}.{version['MICRO']}"
         return None
@@ -688,7 +698,7 @@ class FFMpegConan(ConanFile):
             if self.options.swresample:
                 self.cpp_info.components["avdevice"].requires.append(
                     "swresample")
-            if self.options.postproc:
+            if self.options.get_safe("postproc"):
                 self.cpp_info.components["avdevice"].requires.append(
                     "postproc")
             self._set_component_version("avdevice")
@@ -708,7 +718,7 @@ class FFMpegConan(ConanFile):
             if self.options.swresample:
                 self.cpp_info.components["avfilter"].requires.append(
                     "swresample")
-            if self.options.postproc:
+            if self.options.get_safe("postproc"):
                 self.cpp_info.components["avfilter"].requires.append(
                     "postproc")
             self._set_component_version("avfilter")
@@ -749,7 +759,7 @@ class FFMpegConan(ConanFile):
             self.cpp_info.components["swresample"].requires = ["avutil"]
             self._set_component_version("swresample")
 
-        if self.options.postproc:
+        if self.options.get_safe("postproc"):
             self.cpp_info.components["postproc"].set_property(
                 "pkg_config_name", "libpostproc")
             self.cpp_info.components["postproc"].libs = ["postproc"]
@@ -768,7 +778,7 @@ class FFMpegConan(ConanFile):
                 self.cpp_info.components["swresample"].system_libs = ["m"]
             if self.options.swscale:
                 self.cpp_info.components["swscale"].system_libs = ["m"]
-            if self.options.postproc:
+            if self.options.get_safe("postproc"):
                 self.cpp_info.components["postproc"].system_libs = ["m"]
             if self.options.get_safe("fPIC"):
                 if self.settings.compiler in ("gcc", "clang"):

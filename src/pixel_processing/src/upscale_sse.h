@@ -22,11 +22,10 @@
  *  \param ilv      The interleaving type being upscaled from & to.
  *  \param srcFP    The source data fixedpoint type to upscale from.
  *  \param dstFP    The destination data fixedpoint type to upscale to.
- *  \param baseFP   The base data fixedpoint type to read from for PA.
  *
  *  \return A valid function pointer on success otherwise NULL. */
 UpscaleHorizontalFunction upscaleGetHorizontalFunctionSSE(Interleaving ilv, LdpFixedPoint srcFP,
-                                                          LdpFixedPoint dstFP, LdpFixedPoint baseFP);
+                                                          LdpFixedPoint dstFP);
 
 /*! \brief Retrieves a function pointer to a vertical upscaling function using SSE.
  *

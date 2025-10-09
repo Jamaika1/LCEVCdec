@@ -102,6 +102,18 @@ endif ()
 message(
     STATUS "Target: Platform=${TARGET_PLATFORM} Arch=${TARGET_ARCH} Compiler=${TARGET_COMPILER}")
 
+# Setup LTO
+if (VN_SDK_LTO)
+    include(CheckIPOSupported)
+    check_ipo_supported(RESULT supported OUTPUT error)
+    if (supported)
+        message(STATUS "IPO/LTO enabled")
+        set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
+    else ()
+        message(WARNING "VN_SDK_LTO enabled but not supported: ${error}")
+    endif ()
+endif ()
+
 #
 include("Arch/${TARGET_ARCH}" OPTIONAL)
 include("Platform/${TARGET_PLATFORM}")

@@ -19,7 +19,9 @@ list(
     "src/picture_cpu.cpp"
     "src/picture_lock_cpu.cpp"
     "src/pipeline_builder_cpu.cpp"
-    "src/pipeline_cpu.cpp")
+    "src/pipeline_cpu.cpp"
+    "src/tasks_cpu.cpp"
+    "src/temporal_buffer_cpu.cpp")
 
 list(
     APPEND
@@ -30,7 +32,9 @@ list(
     "src/picture_lock_cpu.h"
     "src/pipeline_builder_cpu.h"
     "src/pipeline_config_cpu.h"
-    "src/pipeline_cpu.h")
+    "src/pipeline_cpu.h"
+    "src/tasks_cpu.h"
+    "src/temporal_buffer_cpu.h")
 
 list(APPEND INTERFACES "include/LCEVC/pipeline_cpu/create_pipeline.h")
 

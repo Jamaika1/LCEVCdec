@@ -662,7 +662,7 @@ bool ldcTaskWait(LdcTask* task, void** outputPtr)
     assert(task->pool);
     LdcTaskPool* pool = task->pool;
 
-    if (threadMutexLock(&pool->mutex) != 0) {
+    if (threadMutexLock(&pool->mutex) != 0 || task->detached) {
         return false;
     }
 
@@ -1125,7 +1125,7 @@ bool ldcTaskPoolAddSlicedDeferred(LdcTaskPool* pool, LdcTask* parent,
         parent->output = kTaskDependencyInvalid;
     }
 
-    /// Append Sliced argument block onto the end of the task block
+    /// Append 'slicedDefer' argument block onto the end of the task block
     uint32_t dataSize = sizeof(TaskWrapperSlicedDefer) + argumentSize;
     uint8_t* dataAllocation = alloca(dataSize);
     TaskWrapperSlicedDefer* data = (TaskWrapperSlicedDefer*)dataAllocation;
@@ -1147,7 +1147,7 @@ bool ldcTaskPoolAddSlicedDeferred(LdcTaskPool* pool, LdcTask* parent,
         return false;
     }
 
-    // It is deferred from a parent ask - don't wait
+    // It is deferred from a parent task - don't wait
     if (parent) {
         ldcTaskNoWait(task);
         return true;
@@ -1194,6 +1194,8 @@ static void taskPoolDump(LdcTaskPool* pool, const LdcTaskGroup* group)
     VNLogDebugF("  Threads: %d", pool->threadCount);
     LdcTaskThread* threads = VNAllocationPtr(pool->threads, LdcTaskThread);
     for (uint32_t id = 0; id < pool->threadCount; ++id) {
+        if (!threads[id].part.task)
+            continue;
         const char* name = threads[id].part.task
                                ? ((threads[id].part.task->name) ? threads[id].part.task->name : "")
                                : "";

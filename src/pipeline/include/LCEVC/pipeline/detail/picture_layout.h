@@ -64,8 +64,7 @@ static inline uint32_t ldpPictureLayoutPlaneWidth(const LdpPictureLayout* layout
 {
     assert(plane < ldpPictureLayoutPlanes(layout));
 
-    return (layout->width >> layout->layoutInfo->planeWidthShift[plane]) *
-           ldpPictureLayoutPlaneInterleave(layout, plane);
+    return layout->width >> layout->layoutInfo->planeWidthShift[plane];
 }
 
 static inline uint32_t ldpPictureLayoutPlaneHeight(const LdpPictureLayout* layout, uint32_t plane)

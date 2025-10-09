@@ -94,21 +94,24 @@ public:
     ~Decoder();
 
     // Send/receive
-    LdcReturnCode sendBasePicture(uint64_t timestamp, LdpPicture* baseLdpPicture,
+    LdcReturnCode sendDecoderBase(uint64_t timestamp, LdpPicture* baseLdpPicture,
                                   uint32_t timeoutUs, void* userData) override;
-    LdcReturnCode sendEnhancementData(uint64_t timestamp, const uint8_t* data, uint32_t byteSize) override;
-    LdcReturnCode sendOutputPicture(LdpPicture* outputLdpPicture) override;
+    LdcReturnCode sendDecoderEnhancementData(uint64_t timestamp, const uint8_t* data,
+                                             uint32_t byteSize) override;
+    LdcReturnCode sendDecoderPicture(LdpPicture* outputLdpPicture) override;
 
-    LdpPicture* receiveOutputPicture(LdpDecodeInformation& decodeInfoOut) override;
-    LdpPicture* receiveFinishedBasePicture() override;
+    LdpPicture* receiveDecoderPicture(LdpDecodeInformation& decodeInfoOut) override;
+    LdpPicture* receiveDecoderBase() override;
+
+    void getCapacity(LdpPipelineCapacity* capacity) override;
 
     // "Trick-play"
     LdcReturnCode flush(uint64_t timestamp) override;
-    LdcReturnCode peek(uint64_t timestamp, uint32_t& widthOut, uint32_t& heightOut) override;
+    LdcReturnCode peekDecoder(uint64_t timestamp, uint32_t& widthOut, uint32_t& heightOut) override;
     LdcReturnCode skip(uint64_t timestamp) override;
-    LdcReturnCode synchronize(bool dropPending) override;
+    LdcReturnCode synchronizeDecoder(uint64_t timestamp, bool dropPending) override;
 
-    LdpPicture* allocPictureManaged(const LdpPictureDesc& desc) override;
+    LdpPicture* allocPicture(const LdpPictureDesc& desc) override;
     LdpPicture* allocPictureExternal(const LdpPictureDesc& desc, const LdpPicturePlaneDesc* planeDescArr,
                                      const LdpPictureBufferDesc* buffer) override;
 

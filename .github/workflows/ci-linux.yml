@@ -41,7 +41,7 @@ jobs:
         run: pip3 install -r cmake/tools/lint_requirements.txt
 
       - name: Run Lint Check
-        run: python3 cmake/tools/lint.py --check-only --diff-master
+        run: python3 cmake/tools/lint.py --check-only --diff-main
 
   build:
     name: Build

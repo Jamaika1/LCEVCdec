@@ -61,14 +61,14 @@ def run_cmd(cmd):
     return subprocess.run(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
 
-def get_changed_files(diff_master=False):
-    if diff_master:
+def get_changed_files(diff_main=False):
+    if diff_main:
         if os.environ.get('SOURCE_BRANCH'):
             current_branch = os.environ.get('SOURCE_BRANCH')
         else:
             process = run_cmd(['git', 'rev-parse', '--abbrev-ref', 'HEAD'])
             current_branch = process.stdout.decode('utf-8').strip()
-        target_branch = os.environ.get('TARGET_BRANCH', 'master')
+        target_branch = os.environ.get('TARGET_BRANCH', 'main')
         print(f'Getting file diff from "{current_branch}" to "{target_branch}"')
         process = run_cmd(['git', 'diff', '--name-only',
                           f'origin/{current_branch}', f'origin/{target_branch}'])
@@ -381,15 +381,15 @@ def parse_args():
                         help="Don't fix issues in-place, return non-zero exit code if errors are found")
     parser.add_argument("--all-files", action="store_true",
                         help="Lint every file, not just git diff")
-    parser.add_argument("--diff-master", action="store_true",
-                        help="Get file diff from master branch rather than locally changed files")
+    parser.add_argument("--diff-main", action="store_true",
+                        help="Get file diff from main branch rather than locally changed files")
 
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
-    changed_files = get_changed_files(args.diff_master) if not args.all_files else False
+    changed_files = get_changed_files(args.diff_main) if not args.all_files else False
     errors = 0
 
     clang_format_exe = find_clang_format()

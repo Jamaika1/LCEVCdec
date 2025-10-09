@@ -80,10 +80,10 @@ void main()
             adjust.w = adjust.y;
         }
 
-        dst.samples[containerOffsetOut + 2 * y * containerStrideOut] = pack16bitInternals(dstRow1.xy + adjust.x);
-        dst.samples[containerOffsetOut + 1 + 2 * y * containerStrideOut] = pack16bitInternals(dstRow1.zw + adjust.y);
-        dst.samples[containerOffsetOut + (2 * y + 1) * containerStrideOut] = pack16bitInternals(dstRow2.xy + adjust.z);
-        dst.samples[containerOffsetOut + 1 + (2 * y + 1) * containerStrideOut] = pack16bitInternals(dstRow2.zw + adjust.w);
+        dst.samples[containerOffsetOut + 2 * y * containerStrideOut] = pack16bitInternals(saturateS16(dstRow1.xy + adjust.x));
+        dst.samples[containerOffsetOut + 1 + 2 * y * containerStrideOut] = pack16bitInternals(saturateS16(dstRow1.zw + adjust.y));
+        dst.samples[containerOffsetOut + (2 * y + 1) * containerStrideOut] = pack16bitInternals(saturateS16(dstRow2.xy + adjust.z));
+        dst.samples[containerOffsetOut + 1 + (2 * y + 1) * containerStrideOut] = pack16bitInternals(saturateS16(dstRow2.zw + adjust.w));
     } else if (x == containerStrideIn - 1) { // last four pixels performed for two rows
         // 1st row
         const bool srcWidthEven = (srcWidth & 1) == 0;
@@ -165,10 +165,10 @@ void main()
             adjust.w = adjust.y;
         }
 
-        dst.samples[containerOffsetOut + containerStrideOut - 2 + 2 * y * containerStrideOut] = pack16bitInternals(dstRow1.xy + adjust.x);
-        dst.samples[containerOffsetOut + containerStrideOut - 1 + 2 * y * containerStrideOut] = pack16bitInternals(dstRow1.zw + adjust.y);
-        dst.samples[containerOffsetOut + containerStrideOut - 2 + (2 * y + 1) * containerStrideOut] = pack16bitInternals(dstRow2.xy + adjust.z);
-        dst.samples[containerOffsetOut + containerStrideOut - 1 + (2 * y + 1) * containerStrideOut] = pack16bitInternals(dstRow2.zw + adjust.w);
+        dst.samples[containerOffsetOut + containerStrideOut - 2 + 2 * y * containerStrideOut] = pack16bitInternals(saturateS16(dstRow1.xy + adjust.x));
+        dst.samples[containerOffsetOut + containerStrideOut - 1 + 2 * y * containerStrideOut] = pack16bitInternals(saturateS16(dstRow1.zw + adjust.y));
+        dst.samples[containerOffsetOut + containerStrideOut - 2 + (2 * y + 1) * containerStrideOut] = pack16bitInternals(saturateS16(dstRow2.xy + adjust.z));
+        dst.samples[containerOffsetOut + containerStrideOut - 1 + (2 * y + 1) * containerStrideOut] = pack16bitInternals(saturateS16(dstRow2.zw + adjust.w));
     } else if (x < containerStrideIn - 1) { // middle pixels in fours performed for two rows.
         // 1st row
         const ivec2 firstRow1 = unpack16bitInternals(src.samples[containerOffsetIn + x - 1 + 2 * y * containerStrideIn]);
@@ -210,11 +210,11 @@ void main()
             adjust.w = adjust.y;
         }
 
-        dst.samples[containerOffsetOut + 2 * x + containerStrideOut * 2 * y] = pack16bitInternals(dstRow1.xy + adjust.x);
-        dst.samples[containerOffsetOut + 2 * x + containerStrideOut * (2 * y + 1)] = pack16bitInternals(dstRow2.xy + adjust.z);
+        dst.samples[containerOffsetOut + 2 * x + containerStrideOut * 2 * y] = pack16bitInternals(saturateS16(dstRow1.xy + adjust.x));
+        dst.samples[containerOffsetOut + 2 * x + containerStrideOut * (2 * y + 1)] = pack16bitInternals(saturateS16(dstRow2.xy + adjust.z));
         if(2 * x + 3 < srcWidth) {
-            dst.samples[containerOffsetOut + 2 * x + 1 + containerStrideOut * 2 * y] = pack16bitInternals(dstRow1.zw + adjust.y);
-            dst.samples[containerOffsetOut + 2 * x + 1 + containerStrideOut * (2 * y + 1)] = pack16bitInternals(dstRow2.zw + adjust.w);
+            dst.samples[containerOffsetOut + 2 * x + 1 + containerStrideOut * 2 * y] = pack16bitInternals(saturateS16(dstRow1.zw + adjust.y));
+            dst.samples[containerOffsetOut + 2 * x + 1 + containerStrideOut * (2 * y + 1)] = pack16bitInternals(saturateS16(dstRow2.zw + adjust.w));
         }
     }
 }

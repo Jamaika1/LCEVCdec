@@ -17,6 +17,8 @@
 
 #include <LCEVC/common/diagnostics.h>
 
+// NOLINTBEGIN(cppcoreguidelines-avoid-do-while)
+
 // Logging macros
 //
 // Normal log
@@ -118,5 +120,7 @@
 #define VNLogVerbose(msg, ...) VNUnused(msg)
 #define VNLogVerboseF(msg, ...) VNUnused(msg)
 #endif
+
+// NOLINTEND(cppcoreguidelines-avoid-do-while)
 
 #endif // VN_LCEVC_COMMON_LOG_H

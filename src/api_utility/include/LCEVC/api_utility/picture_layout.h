@@ -82,10 +82,10 @@ public:
     // Return height of plane in pixels
     uint32_t planeHeight(uint32_t plane) const;
 
-    // Return bytes offset of plane within image
+    // Return byte offset of plane within image
     uint32_t planeOffset(uint32_t plane) const;
 
-    // Return bytes offset of component within image (including plane's offset relative to 0th plane).
+    // Return byte offset of component within image (including plane's offset relative to 0th plane).
     uint32_t componentOffset(uint8_t component) const;
 
     // Return bytes in the given plane

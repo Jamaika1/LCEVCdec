@@ -33,6 +33,7 @@ target_link_libraries(
             lcevc_dec::pipeline_cpu
             lcevc_dec::utility
             lcevc_dec::gtest_main
+            lcevc_dec::api
             GTest::gtest
             fmt::fmt)
 

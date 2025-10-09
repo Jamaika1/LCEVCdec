@@ -59,6 +59,7 @@ public:
     const T* findUnordered(LdcVectorCompareFn compareFn, const void* other) const { return static_cast<const T*>(ldcVectorFindUnordered(&m_vector, compareFn, other)); }
 
     int findIndex(LdcVectorCompareFn compareFn, const void* other) const { return ldcVectorFindIdx(&m_vector, compareFn, other); }
+    int findUnorderedIndex(LdcVectorCompareFn compareFn, const void* other) const { return ldcVectorFindUnorderedIdx(&m_vector, compareFn, other); }
 
     void append(const T& element) { ldcVectorAppend(&m_vector, &element); }
     T* insert(LdcVectorCompareFn compareFn, const T& element) { return static_cast<T*>(ldcVectorInsert(&m_vector, compareFn, static_cast<const void *>(&element))); }

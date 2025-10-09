@@ -114,7 +114,7 @@ LCEVC_API LCEVC_ReturnCode LCEVC_AllocPicture(LCEVC_DecoderHandle decHandle,
     picHandle->hdl = 0;
     return withLockedDecoder(decHandle.hdl, [&ldpPictureDesc, &picHandle,
                                              functionName = __FUNCTION__](DecoderContext* context) {
-        LdpPicture* picture = context->pipeline()->allocPictureManaged(*ldpPictureDesc);
+        LdpPicture* picture = context->pipeline()->allocPicture(*ldpPictureDesc);
         if (!picture) {
             VNUnused(functionName);
             VNLogError("Unable to create a managed Picture!");
@@ -489,7 +489,7 @@ LCEVC_ReturnCode LCEVC_ConfigureDecoderStringArray(LCEVC_DecoderHandle decHandle
 LCEVC_API LCEVC_ReturnCode LCEVC_InitializeDecoder(LCEVC_DecoderHandle decHandle)
 {
     return withLockedUninitializedDecoder(decHandle.hdl, [](DecoderContext* context) {
-        return context->initialize() ? LCEVC_Success : LCEVC_Error;
+        return context->initializeDecoder() ? LCEVC_Success : LCEVC_Error;
     });
 }
 
@@ -499,7 +499,8 @@ LCEVC_API LCEVC_ReturnCode LCEVC_SendDecoderEnhancementData(LCEVC_DecoderHandle 
                                                             const uint8_t* data, uint32_t byteSize)
 {
     return withLockedDecoder(decHandle.hdl, [&timestamp, &data, &byteSize](DecoderContext* context) {
-        return fromLdcReturnCode(context->pipeline()->sendEnhancementData(timestamp, data, byteSize));
+        VNTraceInstant("SendDecoderEnhancementData", timestamp);
+        return fromLdcReturnCode(context->pipeline()->sendDecoderEnhancementData(timestamp, data, byteSize));
     });
 }
 
@@ -508,8 +509,9 @@ LCEVC_API LCEVC_ReturnCode LCEVC_SendDecoderBase(LCEVC_DecoderHandle decHandle, 
 {
     return withLockedDecoder(decHandle.hdl, [&timestamp, &base, &timeoutUs, &userData](DecoderContext* context) {
         LdpPicture* basePicture = context->picturePool().lookup(base.hdl);
+        VNTraceInstant("SendDecoderBase", timestamp);
         return fromLdcReturnCode(
-            context->pipeline()->sendBasePicture(timestamp, basePicture, timeoutUs, userData));
+            context->pipeline()->sendDecoderBase(timestamp, basePicture, timeoutUs, userData));
     });
 }
 
@@ -520,10 +522,13 @@ LCEVC_API LCEVC_ReturnCode LCEVC_ReceiveDecoderBase(LCEVC_DecoderHandle decHandl
     }
 
     return withLockedDecoder(decHandle.hdl, [&output](DecoderContext* context) {
-        const LdpPicture* const finishedBase = context->pipeline()->receiveFinishedBasePicture();
+        const LdpPicture* const finishedBase = context->pipeline()->receiveDecoderBase();
         if (finishedBase == nullptr) {
             return LCEVC_Again;
         }
+
+        VNTraceInstant("ReceiveDecoderBase", (void*)finishedBase);
+
         output->hdl = context->picturePool().reverseLookup(finishedBase).handle;
         return LCEVC_Success;
     });
@@ -537,7 +542,8 @@ LCEVC_API LCEVC_ReturnCode LCEVC_SendDecoderPicture(LCEVC_DecoderHandle decHandl
 
     return withLockedDecoder(decHandle.hdl, [&output](DecoderContext* context) {
         LdpPicture* outputPicture = context->picturePool().lookup(output.hdl);
-        return fromLdcReturnCode(context->pipeline()->sendOutputPicture(outputPicture));
+        VNTraceInstant("SendDecoderPicture", (void*)outputPicture);
+        return fromLdcReturnCode(context->pipeline()->sendDecoderPicture(outputPicture));
     });
 }
 
@@ -551,10 +557,12 @@ LCEVC_API LCEVC_ReturnCode LCEVC_ReceiveDecoderPicture(LCEVC_DecoderHandle decHa
 
     return withLockedDecoder(decHandle.hdl, [&output, &decodeInformation](DecoderContext* context) {
         LdpDecodeInformation di;
-        const LdpPicture* const outputPicture = context->pipeline()->receiveOutputPicture(di);
+        const LdpPicture* const outputPicture = context->pipeline()->receiveDecoderPicture(di);
         if (outputPicture == nullptr) {
             return LCEVC_Again;
         }
+
+        VNTraceInstant("ReceiveDecoderPicture", di.timestamp, (void*)outputPicture);
 
         // Copy DecodeInformation over to destination
         *toLdpDecodeInformationPtr(decodeInformation) = di;
@@ -573,28 +581,42 @@ LCEVC_API LCEVC_ReturnCode LCEVC_PeekDecoder(LCEVC_DecoderHandle decHandle, uint
     }
 
     return withLockedDecoder(decHandle.hdl, [&timestamp, &width, &height](DecoderContext* context) {
-        return fromLdcReturnCode(context->pipeline()->peek(timestamp, *width, *height));
+        LCEVC_ReturnCode r =
+            fromLdcReturnCode(context->pipeline()->peekDecoder(timestamp, *width, *height));
+        VNTraceInstant("PeekDecoder", timestamp, *width, *height);
+        return r;
     });
 }
 
 LCEVC_API LCEVC_ReturnCode LCEVC_SkipDecoder(LCEVC_DecoderHandle decHandle, uint64_t timestamp)
 {
     return withLockedDecoder(decHandle.hdl, [&timestamp](DecoderContext* context) {
-        return fromLdcReturnCode(context->pipeline()->skip(timestamp));
-    });
-}
-
-LCEVC_API LCEVC_ReturnCode LCEVC_SynchronizeDecoder(LCEVC_DecoderHandle decHandle, bool dropPending)
-{
-    return withLockedDecoder(decHandle.hdl, [&dropPending](DecoderContext* context) {
-        return fromLdcReturnCode(context->pipeline()->synchronize(dropPending));
+        VNTraceInstant("SkipDecoder", timestamp);
+        LCEVC_ReturnCode r = fromLdcReturnCode(context->pipeline()->skip(timestamp));
+        if (r != LCEVC_Success) {
+            return r;
+        }
+        return LCEVC_Success;
     });
 }
 
 LCEVC_API LCEVC_ReturnCode LCEVC_FlushDecoder(LCEVC_DecoderHandle decHandle)
 {
     return withLockedDecoder(decHandle.hdl, [](DecoderContext* context) {
-        return fromLdcReturnCode(context->pipeline()->flush(kInvalidTimestamp));
+        VNTraceInstant("FlushDecoder");
+        LCEVC_ReturnCode r = fromLdcReturnCode(context->pipeline()->flush(kInvalidTimestamp));
+        if (r != LCEVC_Success) {
+            return r;
+        }
+        return LCEVC_Success;
+    });
+}
+
+LCEVC_API LCEVC_ReturnCode LCEVC_SynchronizeDecoder(LCEVC_DecoderHandle decHandle, bool dropPending)
+{
+    return withLockedDecoder(decHandle.hdl, [&dropPending](DecoderContext* context) {
+        VNTraceInstant("SynchronizeDecoder", dropPending);
+        return fromLdcReturnCode(context->pipeline()->synchronizeDecoder(kInvalidTimestamp, dropPending));
     });
 }
 

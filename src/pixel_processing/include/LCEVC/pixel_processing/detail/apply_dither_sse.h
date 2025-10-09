@@ -29,7 +29,7 @@
  * \param values   The values to apply dithering to.
  * \param buffer   A double pointer to the dither buffer
  * \param shift    The left shift to apply to the dither to account for the fixed point format of
- *                 the incoming pixel values (see ldppDitherGetShiftS16)
+ *                 the incoming pixel values
  * \param strength Dithering strength to scale the random value by
  */
 static inline void ldppDitherApplySSE(__m128i values[2], const uint16_t** ditherBuffer,

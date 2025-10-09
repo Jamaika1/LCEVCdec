@@ -20,16 +20,99 @@
 static LdcAcceleration defaultAcceleration = {0};
 static const LdcAcceleration* currentAcceleration = &defaultAcceleration;
 
+#if (VN_SDK_FEATURE(SSE) || VN_SDK_FEATURE(AVX2)) && !VN_ARCH(WASM)
+#include <stdint.h>
+#if !VN_COMPILER(MSVC)
+#include <cpuid.h>
+#endif
+
+/*! \brief Helper function for loading CPUID. */
+static void loadCPUInfo(int32_t cpuInfo[4], int32_t field)
+{
+#if VN_COMPILER(MSVC)
+    __cpuid(cpuInfo, field);
+#elif VN_OS(LINUX) || VN_OS(ANDROID)
+    __cpuid_count(field, 0, cpuInfo[0], cpuInfo[1], cpuInfo[2], cpuInfo[3]);
+#elif VN_OS(APPLE)
+    __asm__ __volatile__("xchg %%ebx, %k[tempreg]\n\t"
+                         "cpuid\n\t"
+                         "xchg %%ebx, %k[tempreg]\n"
+                         : "=a"(cpuInfo[0]), [tempreg] "=&r"(cpuInfo[1]), "=c"(cpuInfo[2]),
+                           "=d"(cpuInfo[3])
+                         : "a"(field), "c"(0));
+#elif VN_COMPILER(CLANG) || VN_COMPILER(GCC)
+    __cpuid_count(field, 0, cpuInfo[0], cpuInfo[1], cpuInfo[2], cpuInfo[3]);
+#endif
+}
+
+#if VN_SDK_FEATURE(SSE)
+/*! \brief Returns true if SSE is detected at runtime. */
+static bool detectSSE(void)
+{
+    int32_t cpuInfo[4];
+    loadCPUInfo(cpuInfo, 0);
+    if (cpuInfo[0] < 1) {
+        return false;
+    }
+    loadCPUInfo(cpuInfo, 1);
+
+    static const int32_t kSSEFlag = 1 << 20;
+    return (cpuInfo[2] & kSSEFlag) == kSSEFlag;
+}
+#endif
+
+#if VN_SDK_FEATURE(AVX2)
+/*! \brief Returns true if AVX2 is detected at runtime. */
+static bool detectAVX2(void)
+{
+    int32_t cpuInfo[4];
+    loadCPUInfo(cpuInfo, 0);
+    if (nids < 7) {
+        return false;
+    }
+    loadCPUInfo(cpuInfo, 1);
+
+    // Note: clang has sse in version 8, but not xsave functions, so need >=9
+#if VN_COMPILER(GCC) && (__GNUC__ >= 9) || VN_COMPILER(CLANG) && (__clang_major__ >= 9) || \
+    VN_COMPILER(MSVC)
+    static const int32_t kAVX2Flag = 1 << 5;
+    static const int32_t kXSaveFlag = 1 << 27;
+
+    /* Check for XSAVE support on the CPU. */
+    if ((cpuInfo[2] & kXSaveFlag) != kXSaveFlag) {
+        return false;
+    }
+
+    /* Load processor extended feature bits. */
+    int32_t info[4];
+    loadCPUInfo(info, 7);
+
+    /* Check if CPU supports AVX2. */
+    if ((info[1] & kAVX2Flag) != kAVX2Flag) {
+        return false;
+    }
+
+    return true;
+#else
+    return false;
+#endif
+}
+#endif
+#elif VN_ARCH(WASM)
+static bool detectSSE(void) { return true; }
+static bool detectAVX2(void) { return false; }
+#endif
+
 void ldcAccelerationInitialize(bool enable)
 {
     if (enable) {
 #if VN_SDK_FEATURE(SSE)
-        defaultAcceleration.SSE = true;
+        defaultAcceleration.SSE = detectSSE();
 #else
         defaultAcceleration.SSE = false;
 #endif
 #if VN_SDK_FEATURE(AVX2)
-        defaultAcceleration.AVX2 = true;
+        defaultAcceleration.AVX2 = detectAVX2();
 #else
         defaultAcceleration.AVX2 = false;
 #endif

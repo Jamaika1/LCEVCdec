@@ -55,7 +55,7 @@ CheckOptions:
   - { key: readability-identifier-naming.MacroDefinitionCase, value: UPPER_CASE }
   - { key: readability-identifier-naming.MacroDefinitionIgnoredRegexp, value: VN_.*_H_ }
   - { key: readability-identifier-naming.MacroDefinitionPrefix, value: VN }
-  - { key: readability-identifier-naming.MethodCase, value: CamelCase }
+  - { key: readability-identifier-naming.MethodCase, value: camelBack }
   - { key: readability-identifier-naming.NamespaceCase, value: lower_case }
   - { key: readability-identifier-naming.ParameterCase, value: camelBack }
   - { key: readability-identifier-naming.PrivateMemberCase, value: camelBack }

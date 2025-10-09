@@ -79,23 +79,25 @@ public:
     virtual ~Pipeline() = 0;
 
     // Send/receive
-    virtual LdcReturnCode sendBasePicture(uint64_t timestamp, LdpPicture* basePicture,
+    virtual LdcReturnCode sendDecoderBase(uint64_t timestamp, LdpPicture* basePicture,
                                           uint32_t timeoutUs, void* userData) = 0;
-    virtual LdcReturnCode sendEnhancementData(uint64_t timestamp, const uint8_t* data,
-                                              uint32_t byteSize) = 0;
-    virtual LdcReturnCode sendOutputPicture(LdpPicture* outputPicture) = 0;
+    virtual LdcReturnCode sendDecoderEnhancementData(uint64_t timestamp, const uint8_t* data,
+                                                     uint32_t byteSize) = 0;
+    virtual LdcReturnCode sendDecoderPicture(LdpPicture* outputPicture) = 0;
 
-    virtual LdpPicture* receiveOutputPicture(LdpDecodeInformation& decodeInfoOut) = 0;
-    virtual LdpPicture* receiveFinishedBasePicture() = 0;
+    virtual LdpPicture* receiveDecoderPicture(LdpDecodeInformation& decodeInfoOut) = 0;
+    virtual LdpPicture* receiveDecoderBase() = 0;
+
+    virtual void getCapacity(LdpPipelineCapacity* capacity) = 0;
 
     // "Trick-play"
     virtual LdcReturnCode flush(uint64_t timestamp) = 0;
-    virtual LdcReturnCode peek(uint64_t timestamp, uint32_t& widthOut, uint32_t& heightOut) = 0;
+    virtual LdcReturnCode peekDecoder(uint64_t timestamp, uint32_t& widthOut, uint32_t& heightOut) = 0;
     virtual LdcReturnCode skip(uint64_t timestamp) = 0;
-    virtual LdcReturnCode synchronize(bool dropPending) = 0;
+    virtual LdcReturnCode synchronizeDecoder(uint64_t timestamp, bool dropPending) = 0;
 
     // Picture-handling
-    virtual LdpPicture* allocPictureManaged(const LdpPictureDesc& desc) = 0;
+    virtual LdpPicture* allocPicture(const LdpPictureDesc& desc) = 0;
     virtual LdpPicture* allocPictureExternal(const LdpPictureDesc& desc,
                                              const LdpPicturePlaneDesc* planeDescArr,
                                              const LdpPictureBufferDesc* buffer) = 0;
@@ -106,6 +108,20 @@ public:
 
 private:
 };
+
+// Compare 'close' timestamps - allows wrapping around end of uint64_t range
+// (Unlikely when starting at zero - but allows timestamps to start 'before' zero)
+static inline int compareTimestamps(uint64_t lhs, uint64_t rhs)
+{
+    const int64_t delta = (int64_t)(lhs - rhs);
+    if (delta < 0) {
+        return -1;
+    }
+    if (delta > 0) {
+        return 1;
+    }
+    return 0;
+}
 
 } // namespace lcevc_dec::pipeline
 

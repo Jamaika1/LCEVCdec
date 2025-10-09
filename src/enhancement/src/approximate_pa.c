@@ -17,6 +17,8 @@
 #include <LCEVC/enhancement/approximate_pa.h>
 #include <LCEVC/enhancement/bitstream_types.h>
 
+static const int16_t kUnity = 1 << 14;
+
 static bool approximatePA4Tap(LdeKernel* kernel)
 {
     assert(kernel->length == 4);
@@ -39,13 +41,13 @@ static bool approximatePA4Tap(LdeKernel* kernel)
     }
 
     kernel->coeffs[0][0] = (int16_t)-halfBDDiff;
-    kernel->coeffs[0][1] = 16384;
+    kernel->coeffs[0][1] = kUnity;
     kernel->coeffs[0][2] = halfBDDiff;
     kernel->coeffs[0][3] = 0;
 
     kernel->coeffs[1][0] = 0;
     kernel->coeffs[1][1] = halfBDDiff;
-    kernel->coeffs[1][2] = 16384;
+    kernel->coeffs[1][2] = kUnity;
     kernel->coeffs[1][3] = (int16_t)-halfBDDiff;
 
     kernel->approximatedPA = true;
@@ -68,7 +70,6 @@ static bool approximatePA2TapZeroPad(LdeKernel* kernel)
     kernel->coeffs[1][3] = 0;
 
     kernel->length = 4;
-    kernel->approximatedPA = true;
 
     return approximatePA4Tap(kernel);
 }

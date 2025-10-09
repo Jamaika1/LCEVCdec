@@ -179,7 +179,7 @@ pipeline::PipelineBuilder* DecoderContext::pipelineBuilder()
 }
 
 //
-bool DecoderContext::initialize()
+bool DecoderContext::initializeDecoder()
 {
     pipeline::PipelineBuilder* builder = pipelineBuilder();
     assert(builder);

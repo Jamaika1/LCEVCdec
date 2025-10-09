@@ -16,6 +16,11 @@ if (VN_SDK_SIMD AND TARGET_ARCH MATCHES "^x86")
     target_compile_options(lcevc_dec::compiler INTERFACE -msse4.1)
 endif ()
 
+if (VN_SDK_COVERAGE)
+    add_compile_options(-O0 -g --coverage -fprofile-arcs -ftest-coverage)
+    add_link_options(--coverage)
+endif ()
+
 target_compile_options(
     lcevc_dec::compiler
     INTERFACE $<$<BOOL:${VN_SDK_WARNINGS_FAIL}>:-Werror>

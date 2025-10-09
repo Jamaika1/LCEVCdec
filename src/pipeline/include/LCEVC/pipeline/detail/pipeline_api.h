@@ -15,7 +15,9 @@
 #ifndef VN_LCEVC_PIPELINE_DETAIL_PIPELINE_API_H
 #define VN_LCEVC_PIPELINE_DETAIL_PIPELINE_API_H
 
-#ifdef _WIN32
+#include <LCEVC/build_config.h>
+
+#if VN_COMPILER(MSVC)
 #ifdef VNDisablePipelineAPI
 #define VN_LCEVC_PIPELINE_API extern "C"
 #else

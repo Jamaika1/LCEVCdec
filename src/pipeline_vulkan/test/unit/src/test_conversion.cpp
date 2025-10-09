@@ -24,6 +24,7 @@
 #include <LCEVC/pipeline/pipeline.h>
 #include <LCEVC/pipeline/types.h>
 #include <LCEVC/pipeline_vulkan/create_pipeline.h>
+#include <LCEVC/pipeline_vulkan/types_vulkan.h>
 #include <picture_vulkan.h>
 #include <pipeline_vulkan.h>
 
@@ -88,20 +89,21 @@ public:
         auto* pipeline = static_cast<PipelineVulkan*>(mPipeline.get());
 
         const LdpPictureDesc srcDesc{width, height, srcColor};
-        auto* src = static_cast<PictureVulkan*>(pipeline->allocPictureManaged(srcDesc));
+        auto* src = static_cast<PictureVulkan*>(pipeline->allocPicture(srcDesc));
         auto* srcBuffer = static_cast<BufferVulkan*>(src->buffer);
         std::memcpy(srcBuffer->ptr(), data.data(), data.size() * sizeof(data[0]));
 
         const LdpPictureDesc dstDesc{width, height, dstColor};
-        auto* dst = static_cast<PictureVulkan*>(pipeline->allocPictureManaged(dstDesc));
+        auto* dst = static_cast<PictureVulkan*>(pipeline->allocPicture(dstDesc));
         auto* dstBuffer = static_cast<BufferVulkan*>(dst->buffer);
 
         VulkanConversionArgs args{};
         args.src = src;
         args.dst = dst;
         args.toInternal = toInternal;
+        args.chroma = LdeChroma::CT420;
 
-        EXPECT_TRUE(pipeline->conversion(&args));
+        EXPECT_TRUE(pipeline->getCore().conversion(&args));
 
         const std::string hash = vulkan_test_util::hashMd5(dstBuffer->ptr(), dstBuffer->size());
         EXPECT_EQ(hash, expectedHash);
@@ -154,13 +156,13 @@ INSTANTIATE_TEST_SUITE_P(
         ConversionTestParams{960, 540, LdpColorFormatI420_8, LdpColorFormatI420_16_LE, true,
                              TestType::Uint8, "634ca3ac8ef6efd65226a45a38d32fd3"}, /* Convert8bitToInternal */
         ConversionTestParams{960, 540, LdpColorFormatI420_16_LE, LdpColorFormatI420_16_LE, true,
-                             TestType::Uint16, "a72996a1bbc25a7b1393b37ab4b4674d"}, /* Convert10bitToInternal */
+                             TestType::Uint16, "a95b2d486192ce3120c8fac0c15bcfd6"}, /* Convert10bitToInternal */
         ConversionTestParams{960, 540, LdpColorFormatNV12_8, LdpColorFormatI420_16_LE, true,
                              TestType::Uint8, "88b52dbc18eb4490bb8d8033189fd557"}, /* ConvertNv12ToInternal */
         ConversionTestParams{960, 540, LdpColorFormatI420_16_LE, LdpColorFormatI420_8, false, TestType::Uint16,
                              "76ad479964c5d14c1f36625cd2dbde74"}, /* ConvertFromInternalTo8bit */
         ConversionTestParams{960, 540, LdpColorFormatI420_16_LE, LdpColorFormatI420_16_LE, false,
-                             TestType::Uint16, "01fd286216c1aaf8507a79e86d8fa972"}, /* ConvertFromInternalTo10bit */
+                             TestType::Uint16, "591aa7b8cfbb7f2a0df4e39aed363818"}, /* ConvertFromInternalTo10bit */
         ConversionTestParams{960, 540, LdpColorFormatI420_16_LE, LdpColorFormatNV12_8, false, TestType::Uint16,
                              "e1041a891fb891a7d25fea57b1452ef1"} /* ConvertFromInternalToNv12 */
         ));
