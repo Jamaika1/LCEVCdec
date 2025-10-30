@@ -551,6 +551,8 @@ bool BaseDecoderLibAV::update()
                 av_packet_unref(m_videoPacket);
                 return true;
             }
+
+            av_packet_unref(m_videoPacket);
         }
 
         // Send base packet to codec

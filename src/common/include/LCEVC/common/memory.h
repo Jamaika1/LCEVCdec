@@ -16,16 +16,20 @@
 #define VN_LCEVC_COMMON_MEMORY_H
 
 #include <LCEVC/common/platform.h>
+//
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
 
 // NOLINTBEGIN(modernize-use-using)
+// NOLINTBEGIN(cppcoreguidelines-avoid-do-while)
 
 #ifdef __cplusplus
 extern "C"
 {
 #endif
+
+typedef struct LdcDiagSite LdcDiagSite;
 
 /*! @file
  * @brief Dynamic memory functionality.
@@ -54,6 +58,10 @@ typedef struct
     size_t size;             /**< Size in bytes to allocated data, or 0 if empty  */
     size_t alignment;        /**< Alignment required for this allocation, or 0 for default  */
     uintptr_t allocatorData; /**< Opaque data for use by allocator */
+
+#if VN_SDK_FEATURE(MEMORY_DIAGNOSTICS)
+    const LdcDiagSite* site; /**< Diagnostic site where allocation was made */
+#endif
 } LdcMemoryAllocation;
 
 /*!
@@ -62,26 +70,27 @@ typedef struct
 typedef struct
 {
     /*!
-     * Allocate a block of memory of given size, using aligned from allocation.
+     * Allocate a block of memory of given size, using aligned from allocation - recored details in
+     * 'allocation'. `allocation->ptr` will set to NULL if allocation failed.
      *
      * @param[in]       allocator     The memory allocator to allocate with.
-     * @param[inout]    allocation    ADetails of allocation are written back to here.
+     * @param[inout]    allocation    Details of allocation are written back to here.
      * @param[in]       size          The number of bytes to allocate.
-     *
-     * @return          A valid pointer to some memory of at least `size` bytes, or NULL.
+     * @param[in]       site          If not null, the static diagnostic site for the allocation.
      */
-    void* (*allocate)(struct LdcMemoryAllocator* allocator, LdcMemoryAllocation* allocation,
-                      size_t size, size_t alignment);
+    void (*allocate)(struct LdcMemoryAllocator* allocator, LdcMemoryAllocation* allocation,
+                     size_t size, size_t alignment, const LdcDiagSite* site);
     /*!
      * Adjust an allocation, given a new size. Any previous data is copied to new block, up to the minimum of the old and new sizes.
+     * `allocation->ptr` will set to NULL if teh reaallocation failed.
      *
      * @param[in]       allocator     The memory allocator to allocate with.
      * @param[inout]    allocation    Details of allocation are to be adjusted.
-     * @param[in]       size          The number of bytes to allocate.
-     *
-     * @return          A valid pointer to some memory of at least `size` bytes, or NULL.
+     * @param[in]       size          The new size of the allocation.
+     * @param[in]       site          If not null, the static diagnostic site for the reallocation.
      */
-    void* (*reallocate)(struct LdcMemoryAllocator* allocator, LdcMemoryAllocation* allocation, size_t size);
+    void (*reallocate)(struct LdcMemoryAllocator* allocator, LdcMemoryAllocation* allocation,
+                       size_t size, const LdcDiagSite* site);
     /*!
      * Release an allocation
      *
@@ -89,8 +98,10 @@ typedef struct
      *
      * @param[in]       allocator     The memory allocator to free with.
      * @param[inout]    allocation    Details of allocation to be freed.
+     * @param[in]       site          If not null, the static diagnostic site for the free.
      */
-    void (*free)(struct LdcMemoryAllocator* allocator, LdcMemoryAllocation* allocation);
+    void (*free)(struct LdcMemoryAllocator* allocator, LdcMemoryAllocation* allocation,
+                 const LdcDiagSite* site);
 } LdcMemoryAllocatorFunctions;
 
 /*! MemoryAllocator
@@ -116,11 +127,11 @@ typedef struct LdcMemoryAllocator
  * @param[in]       size          The number of bytes to allocate.
  * @param[in]       alignment     The alignment for this block - must be a 0 (default) , or a power of 2
  * @param[in]       clearToZero   True if memory should be cleared to zero
- *
- * @return                        A valid pointer to some memory of at least `size` bytes, or NULL on failure.
+ * @param[in]       diagSite      If not null, a pointer to a static LdcDiagSite`
+ * @param[in]       diagId        A 64 bit id to be attached to diagnostics
  */
-void* ldcMemoryAllocate(LdcMemoryAllocator* allocator, LdcMemoryAllocation* allocation, size_t size,
-                        size_t alignment, bool clearToZero);
+void ldcMemoryAllocate(LdcMemoryAllocator* allocator, LdcMemoryAllocation* allocation, size_t size,
+                       size_t alignment, bool clearToZero, const LdcDiagSite* diagSite, uint64_t diagId);
 
 /*!
  * Perform a dynamic memory reallocation.
@@ -136,10 +147,11 @@ void* ldcMemoryAllocate(LdcMemoryAllocator* allocator, LdcMemoryAllocation* allo
  * @param[in]       allocator     The memory allocator to allocate with.
  * @param[inout]    allocation    Details of allocation are to be adjusted
  * @param[in]       size          The number of bytes to allocate.
- *
- * @return          A valid pointer to some memory of at least `size` bytes, or NULL.
+ * @param[in]       diagSite      If not null, a pointer to a static `LdcDiagSite`
+ * @param[in]       diagId        A 64 bit id to be attached to diagnostics
  */
-void* ldcMemoryReallocate(LdcMemoryAllocator* allocator, LdcMemoryAllocation* allocation, size_t size);
+void ldcMemoryReallocate(LdcMemoryAllocator* allocator, LdcMemoryAllocation* allocation,
+                         size_t size, const LdcDiagSite* diagSite, uint64_t diagId);
 
 /*!
  * Perform dynamic memory freeing.
@@ -148,8 +160,11 @@ void* ldcMemoryReallocate(LdcMemoryAllocator* allocator, LdcMemoryAllocation* al
  *
  * @param[in]       allocator     The memory allocator to free with.
  * @param[inout]    allocation    Details of allocation to be freed.
+ * @param[in]       diagSite      If not null, a pointer to a static `LdcDiagSite`
+ * @param[in]       diagId        A 64 bit id to be attached to diagnostics
  */
-void ldcMemoryFree(LdcMemoryAllocator* allocator, LdcMemoryAllocation* allocation);
+void ldcMemoryFree(LdcMemoryAllocator* allocator, LdcMemoryAllocation* allocation,
+                   const LdcDiagSite* diagSite, uint64_t diagId);
 
 /*! Get a wrapper for the standard C library heap allocator, if supported.
  *
@@ -159,58 +174,282 @@ LdcMemoryAllocator* ldcMemoryAllocatorMalloc(void);
 
 /* clang-format off */
 
-#if !defined(__cplusplus)
+#if !VN_SDK_FEATURE(MEMORY_DIAGNOSTICS)
 /** Helper for performing malloc for a single object. */
-#define VNAllocate(allocator, allocation, type) (type*)ldcMemoryAllocate(allocator, allocation, sizeof(type), VNAlignof(type), false)
+#define VNAllocate(allocator, allocation, type, debugName) do {                           \
+    ldcMemoryAllocate(allocator, allocation, sizeof(type), VNAlignof(type), false, NULL, 0); \
+    } while(false)
 
 /** Helper for performing malloc for an array of objects. */
-#define VNAllocateArray(allocator, allocation, type, count) (type*)ldcMemoryAllocate(allocator, allocation, sizeof(type) * (count), VNAlignof(type), false)
+#define VNAllocateArray(allocator, allocation, type, count, debugName) do {                             \
+        ldcMemoryAllocate(allocator, allocation, sizeof(type) * (count), VNAlignof(type), false, NULL, 0); \
+    } while(false)
 
 /** Helper for performing calloc for a single object. */
-#define VNAllocateZero(allocator, allocation, type) (type*)ldcMemoryAllocate(allocator, allocation, sizeof(type), VNAlignof(type), true)
+#define VNAllocateZero(allocator, allocation, type, debugName) do {                          \
+        ldcMemoryAllocate(allocator, allocation, sizeof(type), VNAlignof(type), true, NULL, 0); \
+    } while(false)
 
 /** Helper for performing calloc for an array of objects. */
-#define VNAllocateZeroArray(allocator, allocation, type, count) (type*)ldcMemoryAllocate(allocator, allocation, sizeof(type) * (count), VNAlignof(type), true)
+#define VNAllocateZeroArray(allocator, allocation, type, count, debugName) do {                        \
+        ldcMemoryAllocate(allocator, allocation, sizeof(type) * (count), VNAlignof(type), true, NULL, 0); \
+    } while(false)
 
 /** Helper for performing malloc for a single object. */
-#define VNAllocateAligned(allocator, allocation, type, align) (type*)ldcMemoryAllocate(allocator, allocation, sizeof(type), align, false)
+#define VNAllocateAligned(allocator, allocation, type, align, debugName) do         \
+        ldcMemoryAllocate(allocator, allocation, sizeof(type), align, false, NULL, 0); \
+    } while(false)
 
 /** Helper for performing malloc for an array of objects. */
-#define VNAllocateAlignedArray(allocator, allocation, type, align, count) (type*)ldcMemoryAllocate(allocator, allocation, sizeof(type) * (count), align, false)
+#define VNAllocateAlignedArray(allocator, allocation, type, align, count, debugName) do {     \
+        ldcMemoryAllocate(allocator, allocation, sizeof(type) * (count), align, false, NULL, 0); \
+    } while(false)
 
 /** Helper for performing calloc for a single object. */
-#define VNAllocateAlignedZero(allocator, allocation, type, align) (type*)ldcMemoryAllocate(allocator, allocation, sizeof(type), align, true)
+#define VNAllocateAlignedZero(allocator, allocation, type, align, debugName)  do { \
+    ldcMemoryAllocate(allocator, allocation, sizeof(type), align, true, NULL, 0);     \
+    } while(false)
 
 /** Helper for performing calloc for an array of objects. */
-#define VNAllocateAlignedZeroArray(allocator, allocation, type, align, count) (type*)ldcMemoryAllocate(allocator, allocation, sizeof(type) * (count), align, true)
+#define VNAllocateAlignedZeroArray(allocator, allocation, type, align, count, debugName)  do { \
+        ldcMemoryAllocate(allocator, allocation, sizeof(type) * (count), align, true, NULL, 0);  \
+    } while(false)
 
 /** Helper for performing realloc for a single object. */
-#define VNReallocate(allocator, allocation, type) (type*)ldcMemoryReallocate(allocator, allocation, (void*)(ptr), sizeof(type))
+#define VNReallocate(allocator, allocation, type, debugName)  do {                    \
+        ldcMemoryReallocate(allocator, allocation, (void*)(ptr), sizeof(type), NULL, 0); \
+    } while(false)
 
 /** Helper for performing realloc for an array of objects. */
-#define VNReallocateArray(allocator, allocation, type, count) (type*)ldcMemoryReallocate(allocator, allocation, sizeof(type) * (count))
+#define VNReallocateArray(allocator, allocation, type, count, debugName)  do {    \
+        ldcMemoryReallocate(allocator, allocation, sizeof(type) * (count), NULL, 0); \
+    } while(false)
+
+/** Helper for freeing an allocation performed with one of the above macros. */
+#define VNFree(allocator, allocation) do { \
+        ldcMemoryFree(allocator, allocation, NULL, 0); \
+    } while(false)
+
+// Versions of 'Allocate...' than can associate a 64 bit ID with the diagnostics - ignored
+// when memory diagnostics are turned off.
+//
+/** Helper for performing malloc for a single object. */
+#define VNAllocateId(allocator, allocation, type, debugName, id) do {                           \
+    ldcMemoryAllocate(allocator, allocation, sizeof(type), VNAlignof(type), false, NULL, 0); \
+    } while(false)
+
+/** Helper for performing malloc for an array of objects. */
+#define VNAllocateIdArray(allocator, allocation, type, count, debugName, id) do {                             \
+        ldcMemoryAllocate(allocator, allocation, sizeof(type) * (count), VNAlignof(type), false, NULL, 0); \
+    } while(false)
+
+/** Helper for performing calloc for a single object. */
+#define VNAllocateIdZero(allocator, allocation, type, debugName, id) do {                          \
+        ldcMemoryAllocate(allocator, allocation, sizeof(type), VNAlignof(type), true, NULL, 0); \
+    } while(false)
+
+/** Helper for performing calloc for an array of objects. */
+#define VNAllocateIdZeroArray(allocator, allocation, type, count, debugName, id) do {                        \
+        ldcMemoryAllocate(allocator, allocation, sizeof(type) * (count), VNAlignof(type), true, NULL, 0); \
+    } while(false)
+
+/** Helper for performing malloc for a single object. */
+#define VNAllocateIdAligned(allocator, allocation, type, align, debugName, id) do         \
+        ldcMemoryAllocate(allocator, allocation, sizeof(type), align, false, NULL, 0); \
+    } while(false)
+
+/** Helper for performing malloc for an array of objects. */
+#define VNAllocateIdAlignedArray(allocator, allocation, type, align, count, debugName, id) do {     \
+        ldcMemoryAllocate(allocator, allocation, sizeof(type) * (count), align, false, NULL, 0); \
+    } while(false)
+
+/** Helper for performing calloc for a single object. */
+#define VNAllocateIdAlignedZero(allocator, allocation, type, align, debugName, id)  do { \
+    ldcMemoryAllocate(allocator, allocation, sizeof(type), align, true, NULL, 0);     \
+    } while(false)
+
+/** Helper for performing calloc for an array of objects. */
+#define VNAllocateIdAlignedZeroArray(allocator, allocation, type, align, count, debugName, id)  do { \
+        ldcMemoryAllocate(allocator, allocation, sizeof(type) * (count), align, true, NULL, 0);  \
+    } while(false)
+
+/** Helper for performing realloc for a single object. */
+#define VNReallocateId(allocator, allocation, type, debugName, id)  do {                    \
+        ldcMemoryReallocate(allocator, allocation, (void*)(ptr), sizeof(type), NULL, 0); \
+    } while(false)
+
+/** Helper for performing realloc for an array of objects. */
+#define VNReallocateIdArray(allocator, allocation, type, count, debugName, id)  do {    \
+        ldcMemoryReallocate(allocator, allocation, sizeof(type) * (count), NULL, 0); \
+    } while(false)
+
+/** Helper for freeing an allocation performed with one of the above macros. */
+#define VNFreeId(allocator, allocation, id) do { \
+        ldcMemoryFree(allocator, allocation, NULL, 0); \
+    } while(false)
 #else
-#define VNAllocate(allocator, allocation, type) static_cast<type*>(ldcMemoryAllocate(allocator, allocation, sizeof(type), VNAlignof(type), false))
-#define VNAllocateArray(allocator, allocation, type, count) static_cast<type*>(ldcMemoryAllocate(allocator, allocation, sizeof(type) * (count), VNAlignof(type), false))
-#define VNAllocateZero(allocator, allocation, type) static_cast<type*>(ldcMemoryAllocate(allocator, allocation, sizeof(type), VNAlignof(type), true))
-#define VNAllocateZeroArray(allocator, allocation, type, count) static_cast<type*>(ldcMemoryAllocate(allocator, allocation, sizeof(type) * (count), VNAlignof(type), true))
 
-#define VNAllocateAligned(allocator, allocation, type, align) static_cast<type*>(ldcMemoryAllocate(allocator, allocation, sizeof(type), align, false))
-#define VNAllocateAlignedArray(allocator, allocation, type, align, count) static_cast<type*>(ldcMemoryAllocate(allocator, allocation, sizeof(type) * (count), align, false))
-#define VNAllocateAlignedZero(allocator, allocation, type, align) static_cast<type*>(ldcMemoryAllocate(allocator, allocation, sizeof(type), align, true))
-#define VNAllocateAlignedZeroArray(allocator, allocation, type, align, count) static_cast<type*>(ldcMemoryAllocate(allocator, allocation, sizeof(type) * (count), align, true))
+// Versions of above that record calls site and debug name for allocation
+//
 
-#define VNReallocate(allocator, allocation, type) static_cast<type*>(ldcMemoryReallocate(allocator, allocation, (void*)(ptr), sizeof(type)))
-#define VNReallocateArray(allocator, allocation, type, count) static_cast<type*>(ldcMemoryReallocate(allocator, allocation, sizeof(type) * (count)))
+#define _VNAllocSite(type, debugName) \
+        static const LdcDiagArg args_[] = {LdcDiagArgId, LdcDiagArgUInt32, LdcDiagArgVoidPtr}; \
+        static const LdcDiagSite site_ = {type,  __FILE__, __LINE__,                                     \
+                                          LdcLogLevelNone, debugName,      3,         \
+                                          args_, NULL,   LdcDiagArgNone};                              \
+
+#define _VNFreeSite(type) \
+        static const LdcDiagArg args_[] = {LdcDiagArgId, LdcDiagArgUInt32, LdcDiagArgVoidPtr}; \
+        static const LdcDiagSite site_ = {type,  __FILE__, __LINE__,                                     \
+                                          LdcLogLevelNone, "",      3,         \
+                                          args_, NULL,   LdcDiagArgNone};                              \
+
+#define _VNReallocSite(type, debugName) \
+        static const LdcDiagArg args_[] = {LdcDiagArgId, LdcDiagArgUInt32, LdcDiagArgVoidPtr, LdcDiagArgVoidPtr}; \
+        static const LdcDiagSite site_ = {type,  __FILE__, __LINE__,                                     \
+                                          LdcLogLevelNone, debugName,      4,         \
+                                          args_, NULL,   LdcDiagArgNone};                              \
+
+/** Helper for performing malloc for a single object. */
+#define VNAllocate(allocator, allocation, type, debugName) do {                               \
+        _VNAllocSite(LdcDiagTypeMemoryAllocate, debugName) \
+        ldcMemoryAllocate(allocator, allocation, sizeof(type), VNAlignof(type), false, &site_, 0);   \
+    } while(false)
+
+/** Helper for performing malloc for an array of objects. */
+#define VNAllocateArray(allocator, allocation, type, count, debugName) do {                               \
+        _VNAllocSite(LdcDiagTypeMemoryAllocate, debugName) \
+        ldcMemoryAllocate(allocator, allocation, sizeof(type) * (count), VNAlignof(type), false, &site_, 0); \
+    } while(false)
+
+/** Helper for performing calloc for a single object. */
+#define VNAllocateZero(allocator, allocation, type, debugName) do {                            \
+        _VNAllocSite(LdcDiagTypeMemoryAllocate, debugName) \
+        ldcMemoryAllocate(allocator, allocation, sizeof(type), VNAlignof(type), true, &site_, 0); \
+    } while(false)
+
+/** Helper for performing calloc for an array of objects. */
+#define VNAllocateZeroArray(allocator, allocation, type, count, debugName) do {                          \
+        _VNAllocSite(LdcDiagTypeMemoryAllocate, debugName) \
+        ldcMemoryAllocate(allocator, allocation, sizeof(type) * (count), VNAlignof(type), true, &site_, 0); \
+    } while(false)
+
+/** Helper for performing malloc for a single object. */
+#define VNAllocateAligned(allocator, allocation, type, align, debugName) do           \
+        _VNAllocSite(LdcDiagTypeMemoryAllocate, debugName) \
+        ldcMemoryAllocate(allocator, allocation, sizeof(type), align, false, &site_, 0); \
+    } while(false)
+
+/** Helper for performing malloc for an array of objects. */
+#define VNAllocateAlignedArray(allocator, allocation, type, align, count, debugName) do {       \
+        _VNAllocSite(LdcDiagTypeMemoryAllocate, debugName) \
+        ldcMemoryAllocate(allocator, allocation, sizeof(type) * (count), align, false, &site_, 0); \
+    } while(false)
+
+/** Helper for performing calloc for a single object. */
+#define VNAllocateAlignedZero(allocator, allocation, type, align, debugName)  do { \
+        _VNAllocSite(LdcDiagTypeMemoryAllocate, debugName) \
+    ldcMemoryAllocate(allocator, allocation, sizeof(type), align, true, &site_, 0);   \
+    } while(false)
+
+/** Helper for performing calloc for an array of objects. */
+#define VNAllocateAlignedZeroArray(allocator, allocation, type, align, count, debugName)  do { \
+        _VNAllocSite(LdcDiagTypeMemoryAllocate, debugName) \
+        ldcMemoryAllocate(allocator, allocation, sizeof(type) * (count), align, true, &site_, 0); \
+    } while(false)
+
+/** Helper for performing realloc for a single object. */
+#define VNReallocate(allocator, allocation, type, debugName)  do {                      \
+        _VNReallocSite(LdcDiagTypeMemoryReallocate, debugName) \
+        ldcMemoryReallocate(allocator, allocation, (void*)(ptr), sizeof(type), &site_, 0); \
+    } while(false)
+
+/** Helper for performing realloc for an array of objects. */
+#define VNReallocateArray(allocator, allocation, type, count, debugName)  do {      \
+        _VNReallocSite(LdcDiagTypeMemoryReallocate, debugName) \
+        ldcMemoryReallocate(allocator, allocation, sizeof(type) * (count), &site_, 0); \
+    } while(false)
+
+/** Helper for freeing an allocation performed with one of the above macros. */
+#define VNFree(allocator, allocation) do {              \
+        _VNFreeSite(LdcDiagTypeMemoryFree) \
+        ldcMemoryFree(allocator, allocation, &site_, 0);       \
+    } while(false)
+
+
+// Versions of 'Allocate...' than can associate a 64 bit ID with the diagnostics
+//
+/** Helper for performing malloc for a single object. */
+#define VNAllocateId(allocator, allocation, type, debugName, id) do {                               \
+        _VNAllocSite(LdcDiagTypeMemoryAllocate, debugName) \
+        ldcMemoryAllocate(allocator, allocation, sizeof(type), VNAlignof(type), false, &site_, id);   \
+    } while(false)
+
+/** Helper for performing malloc for an array of objects. */
+#define VNAllocateIdArray(allocator, allocation, type, count, debugName, id) do {                               \
+        _VNAllocSite(LdcDiagTypeMemoryAllocate, debugName) \
+        ldcMemoryAllocate(allocator, allocation, sizeof(type) * (count), VNAlignof(type), false, &site_, id); \
+    } while(false)
+
+/** Helper for performing calloc for a single object. */
+#define VNAllocateIdZero(allocator, allocation, type, debugName, id) do {                            \
+        _VNAllocSite(LdcDiagTypeMemoryAllocate, debugName) \
+        ldcMemoryAllocate(allocator, allocation, sizeof(type), VNAlignof(type), true, &site_, id); \
+    } while(false)
+
+/** Helper for performing calloc for an array of objects. */
+#define VNAllocateIdZeroArray(allocator, allocation, type, count, debugName, id) do {                          \
+        _VNAllocSite(LdcDiagTypeMemoryAllocate, debugName) \
+        ldcMemoryAllocate(allocator, allocation, sizeof(type) * (count), VNAlignof(type), true, &site_, id); \
+    } while(false)
+
+/** Helper for performing malloc for a single object. */
+#define VNAllocateIdAligned(allocator, allocation, type, align, debugName, id) do           \
+        _VNAllocSite(LdcDiagTypeMemoryAllocate, debugName) \
+        ldcMemoryAllocate(allocator, allocation, sizeof(type), align, false, &site_, id); \
+    } while(false)
+
+/** Helper for performing malloc for an array of objects. */
+#define VNAllocateIdAlignedArray(allocator, allocation, type, align, count, debugName, id) do {       \
+        _VNAllocSite(LdcDiagTypeMemoryAllocate, debugName) \
+        ldcMemoryAllocate(allocator, allocation, sizeof(type) * (count), align, false, &site_, id); \
+    } while(false)
+
+/** Helper for performing calloc for a single object. */
+#define VNAllocateIdAlignedZero(allocator, allocation, type, align, debugName, id)  do { \
+        _VNAllocSite(LdcDiagTypeMemoryAllocate, debugName) \
+        ldcMemoryAllocate(allocator, allocation, sizeof(type), align, true, &site_, id);   \
+    } while(false)
+
+/** Helper for performing calloc for an array of objects. */
+#define VNAllocateIdAlignedZeroArray(allocator, allocation, type, align, count, debugName, id)  do { \
+        _VNAllocSite(LdcDiagTypeMemoryAllocate, debugName) \
+        ldcMemoryAllocate(allocator, allocation, sizeof(type) * (count), align, true, &site_, id); \
+    } while(false)
+
+/** Helper for performing realloc for a single object. */
+#define VNReallocateId(allocator, allocation, type, debugName, id)  do {                      \
+        _VNReallocSite(LdcDiagTypeMemoryAllocate, debugName) \
+        ldcMemoryReallocate(allocator, allocation, (void*)(ptr), sizeof(type), &site_, id); \
+    } while(false)
+
+/** Helper for performing realloc for an array of objects. */
+#define VNReallocateIdArray(allocator, allocation, type, count, debugName, id)  do {      \
+        _VNReallocSite(LdcDiagTypeMemoryAllocate, debugName) \
+        ldcMemoryReallocate(allocator, allocation, sizeof(type) * (count), &site_, id); \
+    } while(false)
+
+/** Helper for freeing an allocation performed with one of the above macros. */
+#define VNFreeId(allocator, allocation, id) do {              \
+        _VNFreeSite(LdcDiagTypeMemoryFree) \
+        ldcMemoryFree(allocator, allocation, &site_, id);       \
+    } while(false)
+
 #endif
 
-//NOLINTBEGIN(cppcoreguidelines-avoid-do-while)
-/** Helper for freeing an allocation performed with one of the above macros. */
-#define VNFree(allocator, allocation) do { ldcMemoryFree(allocator, allocation); } while(false)
 
 /** Helper for clearing a structure */
 #define VNClear(ptr) do { memset((ptr), 0, sizeof(*(ptr))); } while(false)
-//NOLINTEND(cppcoreguidelines-avoid-do-while)
 
 /** Helper for clearing an array  structure */
 #define VNClearArray(ptr, count) do { memset(ptr, 0, sizeof(*(ptr)) * (count)); } while(false)
@@ -239,12 +478,16 @@ LdcMemoryAllocator* ldcMemoryAllocatorMalloc(void);
 /** Helper to align a size to a given multiple by rounding up if necessary */
 #define VNAlignSize(sz, align) (((sz) + ((align)-1)) & ~((align) -1))
 
+/** Helper to get from a pointer to strcuture member to the container - eg: from linked list node*/
+#define VNContainerOf(ptr, type, member) ((type*)((char*)(ptr)-offsetof(type, member)))
+
 /* clang-format on */
 
 #ifdef __cplusplus
 }
 #endif
 
+// NOLINTEND(cppcoreguidelines-avoid-do-while)
 // NOLINTEND(modernize-use-using)
 
 #endif // VN_LCEVC_COMMON_MEMORY_H

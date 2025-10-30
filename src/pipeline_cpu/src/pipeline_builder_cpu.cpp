@@ -42,6 +42,7 @@ static const ConfigMemberMap<PipelineConfigCPU> kConfigMemberMap = {
     {"passthrough_mode", makeBinding(&PipelineConfigCPU::setPassthroughMode)},
     {"s_filter_strength", makeBinding(&PipelineConfigCPU::sharpeningOverrideStrength)},
     {"threads", makeBinding(&PipelineConfigCPU::numThreads)},
+    {"use_system_allocator", makeBinding(&PipelineConfigCPU::useSystemAllocator)},
 };
 
 PipelineBuilderCPU::PipelineBuilderCPU(LdcMemoryAllocator* allocator)

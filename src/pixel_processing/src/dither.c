@@ -12,6 +12,7 @@
  * ANY ONWARD DISTRIBUTION, WHETHER STAND-ALONE OR AS PART OF ANY OTHER PROJECT, REMAINS SUBJECT TO
  * THE EXCLUSION OF PATENT LICENSES PROVISION OF THE BSD-3-CLAUSE-CLEAR LICENSE. */
 
+#include <LCEVC/common/diagnostics.h>
 #include <LCEVC/pipeline/buffer.h>
 #include <LCEVC/pixel_processing/dither.h>
 //
@@ -39,8 +40,9 @@ bool ldppDitherGlobalInitialize(LdcMemoryAllocator* memoryAllocator, LdppDitherG
     dither->allocator = memoryAllocator;
 
     /* Prepare buffer & RNG */
-    dither->buffer = VNAllocateAlignedArray(memoryAllocator, &dither->allocationBuffer, uint16_t,
-                                            kBufferRowAlignment, kDitherBufferSize);
+    VNAllocateAlignedArray(memoryAllocator, &dither->allocationBuffer, uint16_t,
+                           kBufferRowAlignment, kDitherBufferSize, "DitherBuffer");
+    dither->buffer = VNAllocationPtr(dither->allocationBuffer, uint16_t);
 
     if (!dither->buffer) {
         ldppDitherGlobalRelease(dither);

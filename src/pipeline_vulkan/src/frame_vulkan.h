@@ -22,6 +22,7 @@
 #include <LCEVC/common/task_pool.h>
 #include <LCEVC/enhancement/dimensions.h>
 #include <LCEVC/pipeline/frame.h>
+#include <LCEVC/pixel_processing/dither.h>
 
 #include <atomic>
 #include <cstdint>
@@ -37,6 +38,7 @@ enum FrameState
     FrameStateReorder,
     FrameStateProcessing,
     FrameStateDone,
+    FrameStateFlush,
 };
 
 // Extended frame structure for this pipeline
@@ -44,23 +46,50 @@ enum FrameState
 class FrameVulkan : public LdpFrame
 {
 public:
-    explicit FrameVulkan(PipelineVulkan* pipeline, uint64_t timestamp);
+    FrameVulkan(LdcMemoryAllocator* allocator, uint64_t timestamp);
     ~FrameVulkan() = default;
 
     // Allocate per frame buffers
-    bool initialize();
+    bool initialize(const PipelineConfigVulkan& configuration, LdcTaskPool* taskPool,
+                    LdppDitherGlobal* ditherBuffer);
 
-    // Generate per-frame tasks, called once base frame has valid configuration
-    void generateTasks(uint64_t previousTimestamp);
+    // Attach enhancement data
+    uint8_t* setEnhancementData(const uint8_t* data, uint32_t byteSize);
+    // Parse enhancement data into config state
+    bool parseEnhancementData(LdeConfigPool* configPool);
+
+    // Frame state
+    void setState(FrameState state) { m_state = state; }
+    bool isStateDone() const { return m_state == FrameStateDone; }
+    bool isStateProcessing() const { return m_state == FrameStateProcessing; }
+
+    void setPassthrough() { m_passthrough = true; }
+    bool isPassthrough() const { return m_passthrough; }
+
+    //
+    bool hasGoodConfig() const { return globalConfig->initialized; }
+
+    // Connect output picture to frame
+    void setOutputPicture(LdpPicture* picture);
+
+    // Wait for all runnable tasks in group to complete
+    void waitForTasks();
+    void waitForCompletableTasks();
 
     // Tidy up
-    void release();
+    void release(bool wait);
 
     bool initializeCommandBuffers();
     void releaseCommandBuffers();
 
     bool initializeIntermediateBuffers();
     void releaseIntermediateBuffers();
+
+    // Mark a dependency met if it is valid - used for unblocking skipped frames
+    void unblockDependency(LdcTaskDependency dep);
+
+    void unblockForSkip();
+    void unblockForFlush();
 
     // Find command buffer given the tile index
     LdpEnhancementTile* getEnhancementTile(uint32_t tileIdx) const
@@ -71,7 +100,7 @@ public:
     }
 
     // Attach a base picture to the frame (and mark dependency as met)
-    LdcReturnCode setBase(LdpPicture* picture, uint64_t deadline, void* userData);
+    LdcReturnCode setBasePicture(LdpPicture* picture, uint64_t deadline, void* userData);
 
     // Return true if a base picture has been set for frame, and it's description recorded
     // NB: the base picture itself may have gone by time this data is needed at output time
@@ -80,17 +109,23 @@ public:
     // Return true if frame need an intermediate buffer for given loq/plane
     bool needsIntermediateBuffer(LdeLOQIndex loq, uint8_t plane) const;
 
+    // Setup frame plane's requirements for temporal buffer, given prior frame's timestamp
+    LdcTaskDependency needsTemporalBuffer(uint64_t previousTimestamp, uint32_t plane);
+
+    // Try to connect a prior temporal buffer to this frame
+    bool tryAttachTemporalBuffer(uint32_t plane, TemporalBuffer* temporalBuffer);
+
+    // Make the allocated temporal buffer match the frame's description
+    void updateTemporalBuffer(uint32_t plane);
+
+    // Disconnect any temporal buffer from frame plane, and return it
+    TemporalBuffer* detachTemporalBuffer(uint32_t plane);
+
+    // Return true if frame need an upscale buffer for given loq/plane
+    bool needsUpscaleBuffer(LdeLOQIndex loq) const;
+
     // Return true if the frame has everything such that it will complete without further inputs
     bool canComplete() const;
-
-    // Work out color format for base
-    LdpColorFormat getBaseColorFormat() const;
-
-    // Work out color format for output
-    LdpColorFormat getOutputColorFormat() const;
-
-    // Construct picture description for output
-    LdpPictureDesc getOutputPictureDesc() const;
 
     uint8_t getEnhancementBitDepth() const
     {
@@ -103,29 +138,86 @@ public:
         }
     }
 
+    // Get the color format of base picture
+    LdpColorFormat getBaseColorFormat() const;
+
+    // Find the color format for the output picture
+    LdpColorFormat getOutputColorFormat() const;
+
+    // Find the color format for upscale planes
+    LdpColorFormat getUpscaleColorFormat() const;
+
+    // Construct picture description for output
+    LdpPictureDesc getOutputPictureDesc(PassthroughMode passthroughMode) const;
+
     uint8_t numEnhancedPlanes() const { return globalConfig->numPlanes; }
     uint8_t numImagePlanes() const;
+    std::pair<uint32_t, uint32_t> temporalDimensions(uint32_t plane) const;
 
     // Return true if the frame's plane should have enhancement applied
-    bool isEnhanced(LdeLOQIndex loq, uint32_t plane) const;
+    bool isPlaneEnhanced(LdeLOQIndex loq, uint32_t plane) const;
 
     // Get plane descriptions for each of the buffers
     void getBasePlaneDesc(uint32_t plane, LdpPicturePlaneDesc& planeDesc) const;
     void getOutputPlaneDesc(uint32_t plane, LdpPicturePlaneDesc& planeDesc) const;
     void getIntermediatePlaneDesc(uint32_t plane, LdeLOQIndex loq, LdpPicturePlaneDesc& planeDesc) const;
+    void getUpscalePlaneDesc(uint32_t plane, LdeLOQIndex loq, LdpPicturePlaneDesc& planeDesc) const;
+    void getTemporalBufferPlaneDesc(uint32_t plane, LdpPicturePlaneDesc& planeDesc) const;
+
+    const LdpPictureLayout* getIntermediateLayout(LdeLOQIndex loq) const
+    {
+        assert(loq < LOQMaxCount);
+        return &m_intermediateLayout[loq];
+    }
+
+    const LdpPictureLayout* getUpscaleLayout(LdeLOQIndex loq) const
+    {
+        assert(loq < LOQMaxCount);
+        return &m_upscaleLayout[loq];
+    }
+
+    //
+    LdcTaskDependency depBasePicture() const { return m_depBasePicture; }
+    LdcTaskDependency depOutputPicture() const { return m_depOutputPicture; }
+    LdcTaskDependency depTemporalBuffer(uint32_t plane)
+    {
+        assert(plane < RCMaxPlanes);
+        return m_depTemporalBuffer[plane];
+    }
+
+    const LdppDitherFrame* dither() const
+    {
+        return m_frameDither.strength ? &m_frameDither : nullptr;
+    }
+
+    // Get this frame's task group
+    LdcTaskGroup* taskGroup() { return &m_taskGroup; }
+
+    // Add a task to frame's task group with given inputs and return a new output dependency
+    LdcTaskDependency taskAdd(const LdcTaskDependency* inputs, uint32_t inputsCount, LdcTaskFunction task,
+                              const void* data, size_t dataSize, const char* name);
+
+    // Add a task to frame's task group that takes inputs, but does not generate an output
+    void taskAddSink(const LdcTaskDependency* inputs, uint32_t inputsCount, LdcTaskFunction task,
+                     const void* data, size_t dataSize, const char* name);
+
+    // Find the dependencies that depend on frame's base picture
+    bool findOutputSetFromBase(LdcTaskDependency* outputs, uint32_t outputsMax, uint32_t* outputsCount) const;
 
 #ifdef VN_SDK_LOG_ENABLE_DEBUG
     // Create a debug description of this frame
     size_t longDescription(char* buffer, size_t bufferSize) const;
+    void dumpTasks(LdcTaskPool* taskPool) const;
 #endif
 
     VNNoCopyNoMove(FrameVulkan);
 
-private:
-    friend PipelineVulkan;
+    // TODO - getter
+    PictureVulkan* m_intermediatePicture[LOQMaxCount]{};
 
-    // Associated pipeline
-    PipelineVulkan* m_pipeline{};
+private:
+    // The allocator to use for this frame (e.g. pipeline rolling arena)
+    LdcMemoryAllocator* m_allocator{};
 
     // Current frame state
     // This get peeked at across threads - so it is atomic
@@ -141,17 +233,21 @@ private:
     LdcMemoryAllocation m_enhancementTilesAllocation{};
 
     // Internal buffers for residual application
-    PictureVulkan* m_intermediatePicture[LOQMaxCount]{};
     LdcMemoryAllocation m_intermediateBufferAllocation[RCMaxPlanes][LOQMaxCount] = {};
     LdpPictureLayout m_intermediateLayout[LOQMaxCount] = {};
+
+    // Internal buffers for 2D upscale
+    LdcMemoryAllocation m_upscaleBufferAllocation[RCMaxPlanes][LOQEnhancedCount] = {};
+    LdpPictureLayout m_upscaleLayout[LOQEnhancedCount] = {};
 
     // Pointers to buffer to use for each LOQ - may share buffers between LoQs depending on scaling modes
     uint8_t* m_intermediateBufferPtr[RCMaxPlanes][LOQMaxCount] = {};
 
-    // Dependencies in task group
+    // Dependencies for inputs to task group
     LdcTaskDependency m_depBasePicture{kTaskDependencyInvalid};
     LdcTaskDependency m_depOutputPicture{kTaskDependencyInvalid};
-    LdcTaskDependency m_depTemporalBuffer[RCMaxPlanes] = {kTaskDependencyInvalid};
+    LdcTaskDependency m_depTemporalBuffer[RCMaxPlanes] = {kTaskDependencyInvalid, kTaskDependencyInvalid,
+                                                          kTaskDependencyInvalid};
 
     // Description of temporal buffer(s) needed for this frame
     TemporalBufferDesc m_temporalBufferDesc[RCMaxPlanes] = {};
@@ -162,21 +258,8 @@ private:
     // Dithering info for this frame
     LdppDitherFrame m_frameDither{};
 
-    // True if this frame can be moved from reorder to in-process
-    bool m_ready{false};
-
-    // True if this frame should be skipped - the output picture will not be used,
-    // but any frame to frame decode state (e.g. temporal) should still be updated.
-    bool m_skip{false};
-
     // True if this frame should be copied to output with no processing (but optionally scaled)
     bool m_passthrough{false};
-
-    // Deadline for this frame in microseconds relative to threadTimeMicroseconds()
-    uint64_t m_deadline{UINT64_MAX};
-
-    // Final decodeInfo to sent back to API
-    LdpDecodeInformation m_decodeInfo;
 };
 
 } // namespace lcevc_dec::pipeline_vulkan

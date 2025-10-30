@@ -19,6 +19,9 @@
 #include "pipeline_config_cpu.h"
 #include "tasks_cpu.h"
 
+#include <LCEVC/common/recycling_allocator.h>
+#include <LCEVC/common/simple_allocator.h>
+//
 #include <LCEVC/common/check.h>
 #include <LCEVC/common/constants.h>
 #include <LCEVC/common/diagnostics.h>
@@ -80,9 +83,11 @@ PipelineCPU::PipelineCPU(const PipelineBuilderCPU& builder, pipeline::EventSink*
     : m_configuration(builder.configuration())
     , m_eventSink(eventSink ? eventSink : pipeline::EventSink::nullSink())
     , m_allocator(builder.allocator())
-    , m_buffers(builder.configuration().maxLatency, builder.allocator())
-    , m_pictures(builder.configuration().maxLatency, builder.allocator())
-    , m_frames(builder.configuration().maxLatency, builder.allocator())
+    , m_buffersPool(builder.configuration().maxLatency * 2, builder.allocator())
+    , m_picturesPool(builder.configuration().maxLatency * 2, builder.allocator())
+    , m_framesPool(builder.configuration().maxLatency * 2, builder.allocator())
+    , m_allocatedPictures(builder.configuration().maxLatency * 2, builder.allocator())
+    , m_allocatedFrames(builder.configuration().maxLatency * 2, builder.allocator())
     , m_reorderIndex(builder.configuration().maxLatency, builder.allocator())
     , m_processingIndex(builder.configuration().maxLatency, builder.allocator())
     , m_doneIndex(builder.configuration().maxLatency, builder.allocator())
@@ -97,9 +102,18 @@ PipelineCPU::PipelineCPU(const PipelineBuilderCPU& builder, pipeline::EventSink*
     // Set up dithering
     ldppDitherGlobalInitialize(m_allocator, &m_dither, m_configuration.ditherSeed);
 
-    // Set up an allocator for per frame data
-    ldcRollingArenaInitialize(&m_rollingArena, m_allocator, m_configuration.initialArenaCount,
-                              m_configuration.initialArenaSize);
+    if (m_configuration.useSystemAllocator == false) {
+        // Special allocator for per frame enhancement data
+        m_enhancementAllocator = ldcMemorySimpleAllocatorInitialize(&m_simpleAllocator, m_allocator);
+
+        // Special allocator for per frame image buffer data
+        m_bufferAllocator = ldcRecyclingAllocatorInitialize(&m_recyclingAllocator, m_allocator,
+                                                            m_configuration.bufferRecycleCount);
+    } else {
+        // Use system allocator for all allocations
+        m_enhancementAllocator = m_allocator;
+        m_bufferAllocator = m_allocator;
+    }
 
     // Configuration pool
     LdeBitstreamVersion bitstreamVersion = BitstreamVersionUnspecified;
@@ -107,7 +121,7 @@ PipelineCPU::PipelineCPU(const PipelineBuilderCPU& builder, pipeline::EventSink*
         m_configuration.forceBitstreamVersion <= BitstreamVersionCurrent) {
         bitstreamVersion = static_cast<LdeBitstreamVersion>(m_configuration.forceBitstreamVersion);
     }
-    ldeConfigPoolInitialize(m_allocator, &m_configPool, bitstreamVersion);
+    ldeConfigPoolInitialize(m_allocator, m_allocator, &m_configPool, bitstreamVersion);
 
     // Start task pool - pool threads is 1 less than configured threads
     VNCheck(m_configuration.numThreads >= 1);
@@ -116,7 +130,7 @@ PipelineCPU::PipelineCPU(const PipelineBuilderCPU& builder, pipeline::EventSink*
 
     // Fill in empty temporal buffer anchors
     TemporalBuffer buf{};
-    buf.allocator = m_allocator;
+    buf.allocator = m_bufferAllocator;
     buf.desc.timestamp = kInvalidTimestamp;
     buf.timestampLimit = kInvalidTimestamp;
     for (uint32_t i = 0; i < m_configuration.numTemporalBuffers * RCMaxPlanes; ++i) {
@@ -135,27 +149,24 @@ PipelineCPU::~PipelineCPU()
     this->synchronizeDecoder(kInvalidTimestamp, true);
 
     // Release pictures
-    for (uint32_t i = 0; i < m_pictures.size(); ++i) {
-        PictureCPU* picture{VNAllocationPtr(m_pictures[i], PictureCPU)};
-        // Call destructor directly, as we are doing in-place construct/destruct
-        picture->~PictureCPU();
-        VNFree(m_allocator, &m_pictures[i]);
+    for (uint32_t i = 0; i < m_allocatedPictures.size(); ++i) {
+        PictureCPU* picture{m_allocatedPictures[i]};
+        m_picturesPool.destroy(picture);
     }
 
     // Release frames
-    for (uint32_t i = 0; i < m_frames.size(); ++i) {
-        FrameCPU* frame{VNAllocationPtr(m_frames[i], FrameCPU)};
+    for (uint32_t i = 0; i < m_allocatedFrames.size(); ++i) {
+        FrameCPU* frame{m_allocatedFrames[i]};
         frame->release(true);
         // Call destructor directly, as we are doing in-place construct/destruct
-        frame->~FrameCPU();
-        VNFree(m_allocator, &m_frames[i]);
+        m_framesPool.destroy(frame);
     }
 
     // Release any temporal buffers
     for (uint32_t i = 0; i < m_temporalBuffers.size(); ++i) {
         TemporalBuffer* tb = m_temporalBuffers.at(i);
         if (VNIsAllocated(tb->allocation)) {
-            VNFree(m_allocator, &tb->allocation);
+            VNFree(m_bufferAllocator, &tb->allocation);
         }
     }
     // Release dither
@@ -164,8 +175,12 @@ PipelineCPU::~PipelineCPU()
     // Release config
     ldeConfigPoolRelease(&m_configPool);
 
-    // Release frame memory arena
-    ldcRollingArenaDestroy(&m_rollingArena);
+    if (m_configuration.useSystemAllocator == false) {
+        // Release buffer cache
+        ldcRecyclingAllocatorDestroy(&m_recyclingAllocator);
+        // Release frame memory arena
+        ldcMemorySimpleAllocatorDestroy(&m_simpleAllocator);
+    }
 
     // Close down task pool
     ldcTaskPoolDestroy(&m_taskPool);
@@ -285,7 +300,7 @@ LdcReturnCode PipelineCPU::sendDecoderBase(uint64_t timestamp, LdpPicture* baseP
     passFrame->setState(FrameStateReorder);
     m_reorderIndex.insert(sortFramePtrTimestamp, passFrame);
 
-    startReadyFrames();
+    process(timestamp);
     return LdcReturnCodeSuccess;
 }
 
@@ -505,8 +520,8 @@ LdcReturnCode PipelineCPU::flush(uint64_t timestamp)
 // Make sure any skipped frames are ready to run
 void PipelineCPU::unblockSkippedFrames(uint64_t fromTimestamp)
 {
-    for (uint32_t i = 0; i < m_frames.size(); ++i) {
-        FrameCPU* const frame{VNAllocationPtr(m_frames[i], FrameCPU)};
+    for (uint32_t i = 0; i < m_allocatedFrames.size(); ++i) {
+        FrameCPU* const frame{m_allocatedFrames[i]};
         if (!frame->isStateProcessing()) {
             continue;
         }
@@ -525,8 +540,8 @@ void PipelineCPU::unblockSkippedFrames(uint64_t fromTimestamp)
 // Make sure any flushed frames are ready to run
 void PipelineCPU::unblockFlushedFrames(uint64_t fromTimestamp)
 {
-    for (uint32_t i = 0; i < m_frames.size(); ++i) {
-        FrameCPU* const frame{VNAllocationPtr(m_frames[i], FrameCPU)};
+    for (uint32_t i = 0; i < m_allocatedFrames.size(); ++i) {
+        FrameCPU* const frame{m_allocatedFrames[i]};
         if (!frame->isStateProcessing()) {
             continue;
         }
@@ -603,16 +618,12 @@ bool PipelineCPU::isFlushed(const FrameCPU* frame) const
 BufferCPU* PipelineCPU::allocateBuffer(uint32_t requiredSize)
 {
     // Allocate buffer structure
-    LdcMemoryAllocation allocation;
-    BufferCPU* const buffer{VNAllocateZero(m_allocator, &allocation, BufferCPU)};
+    BufferCPU* const buffer = m_buffersPool.make(m_bufferAllocator, requiredSize);
     if (!buffer) {
+        VNLogError("Could not allocate buffer");
         return nullptr;
     }
-    // Insert into table
-    m_buffers.append(allocation);
-
-    // In place construction
-    return new (buffer) BufferCPU(*this, requiredSize); // NOLINT(cppcoreguidelines-owning-memory)
+    return buffer;
 }
 
 void PipelineCPU::releaseBuffer(BufferCPU* buffer)
@@ -620,21 +631,7 @@ void PipelineCPU::releaseBuffer(BufferCPU* buffer)
     assert(buffer);
 
     // Release buffer structure
-    LdcMemoryAllocation* const pAlloc{m_buffers.findUnordered(ldcVectorCompareAllocationPtr, buffer)};
-
-    if (!pAlloc) {
-        // Could not find picture!
-        VNLogWarning("Could not find buffer to release: %p", (void*)buffer);
-        return;
-    }
-
-    // Call destructor directly, as we are doing in-place construct/destruct
-    buffer->~BufferCPU();
-
-    // Release memory
-    VNFree(m_allocator, pAlloc);
-
-    m_buffers.removeReorder(pAlloc);
+    m_buffersPool.destroy(buffer);
 }
 
 // Pictures
@@ -644,38 +641,41 @@ void PipelineCPU::releaseBuffer(BufferCPU* buffer)
 PictureCPU* PipelineCPU::allocatePicture()
 {
     // Allocate picture
-    LdcMemoryAllocation pictureAllocation;
-    PictureCPU* picture{VNAllocateZero(m_allocator, &pictureAllocation, PictureCPU)};
+    PictureCPU* picture{m_picturesPool.make(*this, this->m_allocator)};
     if (!picture) {
+        VNLogError("Could not allocate picture");
         return nullptr;
     }
-    // Insert into table
-    m_pictures.append(pictureAllocation);
 
-    // In place construction
-    return new (picture) PictureCPU(*this); // NOLINT(cppcoreguidelines-owning-memory)
+    // Insert into table
+    m_allocatedPictures.append(picture);
+
+    return picture;
+}
+
+uint32_t PipelineCPU::findAllocatedPicture(const PictureCPU* frame) const
+{
+    for (uint32_t i = 0; i < m_allocatedPictures.size(); ++i) {
+        if (m_allocatedPictures[i] == frame) {
+            return i;
+        }
+    }
+
+    VNLogError("Could not find picture!!");
+    return UINT32_MAX;
 }
 
 void PipelineCPU::releasePicture(PictureCPU* picture)
 {
-    picture->unbindMemory();
-
-    // Find slot
-    LdcMemoryAllocation* pAlloc{m_pictures.findUnordered(ldcVectorCompareAllocationPtr, picture)};
-
-    if (!pAlloc) {
-        // Could not find picture!
-        VNLogWarning("Could not find picture to release: %p", (void*)picture);
+    uint32_t idx = findAllocatedPicture(picture);
+    if (idx == UINT32_MAX) {
         return;
     }
 
-    // Call destructor directly, as we are doing in-place construct/destruct
-    picture->~PictureCPU();
+    m_allocatedPictures.removeReorderIndex(idx);
 
-    // Release memory
-    VNFree(m_allocator, pAlloc);
-
-    m_pictures.removeReorder(pAlloc);
+    picture->unbindMemory();
+    m_picturesPool.destroy(picture);
 }
 
 LdpPicture* PipelineCPU::allocPicture(const LdpPictureDesc& desc)
@@ -721,26 +721,24 @@ FrameCPU* PipelineCPU::allocateFrame(uint64_t timestamp)
 {
     assert(findFrame(timestamp) == nullptr);
 
-    // Allocate frame with in place construction
-    LdcMemoryAllocation frameAllocation = {};
-    FrameCPU* const frame{VNAllocateZero(m_allocator, &frameAllocation, FrameCPU)};
+    // Allocate frame
+    FrameCPU* frame = m_framesPool.make(this->m_enhancementAllocator, this->m_bufferAllocator, timestamp);
     if (!frame) {
         return nullptr;
     }
 
     // Append allocation into table
-    m_frames.append(frameAllocation);
+    m_allocatedFrames.append(frame);
 
-    // In place construction
-    return new (frame) FrameCPU(this->m_allocator, timestamp); // NOLINT(cppcoreguidelines-owning-memory)
+    return frame;
 }
 
 // Find existing Frame for a timestamp, or return nullptr if it does not exist.
 //
 FrameCPU* PipelineCPU::findFrame(uint64_t timestamp)
 {
-    for (uint32_t i = 0; i < m_frames.size(); ++i) {
-        FrameCPU* const frame{VNAllocationPtr(m_frames[i], FrameCPU)};
+    for (uint32_t i = 0; i < m_allocatedFrames.size(); ++i) {
+        FrameCPU* const frame{m_allocatedFrames[i]};
         if (isSkipped(frame)) {
             continue;
         }
@@ -753,33 +751,36 @@ FrameCPU* PipelineCPU::findFrame(uint64_t timestamp)
     return nullptr;
 }
 
+uint32_t PipelineCPU::findAllocatedFrame(const FrameCPU* frame) const
+{
+    for (uint32_t i = 0; i < m_allocatedFrames.size(); ++i) {
+        if (m_allocatedFrames[i] == frame) {
+            return i;
+        }
+    }
+
+    VNLogError("Cound not find frame!");
+    return UINT32_MAX;
+}
+
 // Release frame back to pool
 //
 void PipelineCPU::freeFrame(FrameCPU* frame)
 {
-    // Release task group and allocations
-    frame->release(true);
-
-    // Find allocation containing the frame
-    LdcMemoryAllocation* frameAllocation{m_frames.findUnordered(ldcVectorCompareAllocationPtr, frame)};
-
-    if (!frameAllocation) {
-        // Could not find frame!
-        VNLogWarning("Could not find frame allocation: %p", (void*)frame);
+    uint32_t idx = findAllocatedFrame(frame);
+    if (idx == UINT32_MAX) {
         return;
     }
 
-    // Call destructor directly, as we are doing in-place construct/destruct
-    frame->~FrameCPU();
+    m_allocatedFrames.removeReorderIndex(idx);
 
-    // Release memory
-    VNFree(m_allocator, frameAllocation);
-
-    m_frames.removeReorder(frameAllocation);
+    // Release task group and allocations
+    frame->release(true);
+    m_framesPool.destroy(frame);
 
     // If there are no remaining frames, reset limits so that we can accept 'earlier' timestamp
     // into an empty decoder.
-    if (m_frames.isEmpty()) {
+    if (m_allocatedFrames.isEmpty()) {
         VNLogDebug("Reset limits");
         m_sendLimit = kInvalidTimestamp;
         m_processingLimit = kInvalidTimestamp;
@@ -1104,9 +1105,9 @@ void PipelineCPU::logFrames()
 {
     char buffer[512];
 
-    VNLogDebug("Frames: %d", m_frames.size());
-    for (uint32_t i = 0; i < m_frames.size(); ++i) {
-        FrameCPU* const frame{VNAllocationPtr(m_frames[i], FrameCPU)};
+    VNLogDebug("Frames: %d", m_allocatedFrames.size());
+    for (uint32_t i = 0; i < m_allocatedFrames.size(); ++i) {
+        FrameCPU* const frame{m_allocatedFrames[i]};
         frame->longDescription(buffer, sizeof(buffer));
         VNLogDebugF("  %4d: %s", i, buffer);
         frame->dumpTasks(&m_taskPool);
@@ -1130,9 +1131,7 @@ void PipelineCPU::logFrameIndex(const char* indexName, const lcevc_dec::common::
     VNLogDebug("Index %s: %d", indexName, index.size());
     for (uint32_t i = 0; i < index.size(); ++i) {
         const FrameCPU* const frame{index[i]};
-        const LdcMemoryAllocation* const ptr =
-            m_frames.findUnordered(ldcVectorCompareAllocationPtr, frame);
-        const int32_t idx = static_cast<int32_t>(ptr ? (ptr - &m_frames[0]) : -1);
+        uint32_t idx = findAllocatedFrame(frame);
         VNLogDebugF("  %2d: %4d ts:%" PRIx64, i, idx, frame->timestamp);
     }
 }

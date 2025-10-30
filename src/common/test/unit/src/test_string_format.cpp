@@ -13,9 +13,10 @@
  * THE EXCLUSION OF PATENT LICENSES PROVISION OF THE BSD-3-CLAUSE-CLEAR LICENSE. */
 
 #include "string_format.h"
-
-#include <gtest/gtest.h>
+//
 #include <LCEVC/common/diagnostics.h>
+//
+#include <gtest/gtest.h>
 
 class FormatParseTest : public ::testing::Test
 {

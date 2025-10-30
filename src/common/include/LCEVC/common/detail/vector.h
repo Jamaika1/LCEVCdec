@@ -16,7 +16,6 @@
 #define VN_LCEVC_COMMON_DETAIL_VECTOR_H
 
 #include <assert.h>
-#include <LCEVC/common/memory.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -44,8 +43,9 @@ static inline void _ldcVectorGrow(LdcVector* vector)
     if (vector->size >= vector->reserved) {
         // Double size of table
         vector->reserved *= 2;
-        vector->data = VNReallocateArray(vector->allocator, &vector->dataAllocation, uint8_t,
-                                         vector->reserved * vector->elementSize);
+        VNReallocateArray(vector->allocator, &vector->dataAllocation, uint8_t,
+                          vector->reserved * vector->elementSize, "Vector");
+        vector->data = VNAllocationPtr(vector->dataAllocation, uint8_t);
     }
 }
 
@@ -68,7 +68,7 @@ static inline void* ldcVectorAt(const LdcVector* vector, uint32_t index)
     return (void*)(vector->data + (index * vector->elementSize));
 }
 
-static inline void* ldcVectorAtEnd(const LdcVector* vector, uint32_t offset)
+static inline void* ldcVectorBack(const LdcVector* vector, uint32_t offset)
 {
     if (offset >= vector->size) {
         return NULL;
@@ -255,4 +255,25 @@ static inline int ldcVectorCompareAllocationPtr(const void* element, const void*
 
     return 0;
 }
+
+static inline void* ldcVectorGrow(LdcVector* vector)
+{
+    assert(vector);
+    _ldcVectorGrow(vector);
+
+    uint32_t index = vector->size;
+
+    ++vector->size;
+
+    return (void*)(vector->data + (index * vector->elementSize));
+}
+
+static inline void ldcVectorShrink(LdcVector* vector)
+{
+    assert(vector);
+    assert(vector->size > 0);
+
+    --vector->size;
+}
+
 #endif // VN_LCEVC_COMMON_DETAIL_VECTOR_H

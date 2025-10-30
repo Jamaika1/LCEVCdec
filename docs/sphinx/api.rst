@@ -186,6 +186,9 @@ Option                      Type       Default          Description
                                                         stuttering at the cost of additional memory.
 ``log_tasks``               boolean    false            Debug parameter for logging the task pool during decoding.
                                                         This causes blocking in the pipeline and requires log_level=debug
+``use_system_allocator``    boolean    false            A debug option to make all  allocations in pipeline go through
+                                                        system malloc/free instead of to internal arenas. This is useful
+                                                        when running under valgrind or other memory checkers.
 =========================== ========== ================ ===============================================================
 
 Legacy Pipeline Options

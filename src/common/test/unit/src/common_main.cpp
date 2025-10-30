@@ -12,10 +12,11 @@
  * ANY ONWARD DISTRIBUTION, WHETHER STAND-ALONE OR AS PART OF ANY OTHER PROJECT, REMAINS SUBJECT TO
  * THE EXCLUSION OF PATENT LICENSES PROVISION OF THE BSD-3-CLAUSE-CLEAR LICENSE. */
 
-#include <gtest/gtest.h>
 #include <LCEVC/common/acceleration.h>
 #include <LCEVC/common/diagnostics.h>
 #include <LCEVC/common/log.h>
+//
+#include <gtest/gtest.h>
 
 int main(int argc, char** argv)
 {

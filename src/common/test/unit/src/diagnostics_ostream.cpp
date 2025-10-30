@@ -16,12 +16,13 @@
 //
 // This is principally aimed at testing, so does not include source coordinates
 //
+#include <LCEVC/common/diagnostics.h>
+#include <LCEVC/common/platform.h>
+//
 #include <fmt/core.h>
 #include <fmt/ostream.h>
 #include <fmt/ranges.h>
-#include <LCEVC/common/diagnostics.h>
-#include <LCEVC/common/platform.h>
-
+//
 #include <cassert>
 #include <ostream>
 

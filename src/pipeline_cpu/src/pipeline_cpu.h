@@ -20,11 +20,14 @@
 #include "temporal_buffer_cpu.h"
 
 #include <LCEVC/common/constants.h>
+#include <LCEVC/common/free_pool.hpp>
 #include <LCEVC/common/threads.h>
 //
 #include <LCEVC/common/class_utils.hpp>
+#include <LCEVC/common/recycling_allocator.h>
 #include <LCEVC/common/ring_buffer.hpp>
 #include <LCEVC/common/rolling_arena.h>
+#include <LCEVC/common/simple_allocator.h>
 #include <LCEVC/common/task_pool.h>
 #include <LCEVC/common/threads.hpp>
 #include <LCEVC/common/vector.hpp>
@@ -81,11 +84,6 @@ public:
 
     LdcReturnCode synchronizeDecoder(uint64_t timestamp, bool flushPending) override;
 
-    // Check frame against current limits
-    bool isProcessing(const FrameCPU* frame) const;
-    bool isSkipped(const FrameCPU* frame) const;
-    bool isFlushed(const FrameCPU* frame) const;
-
     // Picture-handling
     LdpPicture* allocPicture(const LdpPictureDesc& desc) override;
     LdpPicture* allocPictureExternal(const LdpPictureDesc& desc, const LdpPicturePlaneDesc* planeDescArr,
@@ -93,19 +91,22 @@ public:
 
     void freePicture(LdpPicture* picture) override;
 
+    // Check frame against current limits
+    bool isProcessing(const FrameCPU* frame) const;
+    bool isSkipped(const FrameCPU* frame) const;
+    bool isFlushed(const FrameCPU* frame) const;
+
     // Accessors for use by frames
     const PipelineConfigCPU& configuration() const { return m_configuration; }
-    LdcMemoryAllocator* allocator() const { return m_allocator; }
+    LdcMemoryAllocator* staticAllocator() const { return m_allocator; }
+    LdcMemoryAllocator* rollingAllocator() { return &m_simpleAllocator.allocator; }
+
     LdcTaskPool* taskPool() { return &m_taskPool; }
     LdppDitherGlobal* globalDitherBuffer() { return &m_dither; }
 
     // Buffer allocation
     BufferCPU* allocateBuffer(uint32_t requiredSize);
     void releaseBuffer(BufferCPU* buffer);
-
-    // Picture allocation
-    PictureCPU* allocatePicture();
-    void releasePicture(PictureCPU* picture);
 
     //// Temporal buffer management
 
@@ -132,11 +133,19 @@ public:
 private:
     friend PipelineBuilderCPU;
 
+    // Picture allocation
+    PictureCPU* allocatePicture();
+    void releasePicture(PictureCPU* picture);
+    uint32_t findAllocatedPicture(const PictureCPU* frame) const;
+
     // Given a timestamp, either find existing frame, or create a new one
     FrameCPU* allocateFrame(uint64_t timestamp);
 
     // Find the Frame associated with a timestamp, or NULL if none.
     FrameCPU* findFrame(uint64_t timestamp);
+
+    // Find the index in allocated frames
+    uint32_t findAllocatedFrame(const FrameCPU* frame) const;
 
     // Frame for given timestamp is finished - release resources
     void releaseFrame(uint64_t timestamp);
@@ -173,8 +182,20 @@ private:
     // The system allocator to use
     LdcMemoryAllocator* m_allocator{};
 
-    // A rolling memory allocator for per-frame blocks
+    // The allocator for enhancement data
+    LdcMemoryAllocator* m_enhancementAllocator{};
+
+    // The allocator for image buffer data
+    LdcMemoryAllocator* m_bufferAllocator{};
+
+    // A rolling memory allocator for per-frame enhancement data - command buffers, tiles etc.
+#if 0
     LdcMemoryAllocatorRollingArena m_rollingArena{};
+#else
+    LdcMemorySimpleAllocator m_simpleAllocator{};
+#endif
+    // A recycling buffer allocator for per-frame buffer data
+    ldcMemoryRecyclingAllocator m_recyclingAllocator{};
 
     // Enhancement configuration pool
     LdeConfigPool m_configPool{};
@@ -182,28 +203,34 @@ private:
     // Task pool
     LdcTaskPool m_taskPool{};
 
-    // Vector of Buffer allocations
-    lcevc_dec::common::Vector<LdcMemoryAllocation> m_buffers;
+    // Pool of buffers
+    common::FreePool<BufferCPU> m_buffersPool;
+
+    // Pool of pictures
+    common::FreePool<PictureCPU> m_picturesPool;
+
+    // Pool of frames
+    common::FreePool<FrameCPU> m_framesPool;
 
     // Vector of Picture allocations
-    lcevc_dec::common::Vector<LdcMemoryAllocation> m_pictures;
+    common::Vector<PictureCPU*> m_allocatedPictures;
 
     // Vector of Frames allocations
     // These frames are NOT in timestamp order.
     // The `m_...Index` vectors contain timestamp-order pointers to theFrameCPU structures.
-    lcevc_dec::common::Vector<LdcMemoryAllocation> m_frames;
+    common::Vector<FrameCPU*> m_allocatedFrames;
 
     // Vector of pending frames pointers during reorder - sorted by timestamp
-    lcevc_dec::common::Vector<FrameCPU*> m_reorderIndex;
+    common::Vector<FrameCPU*> m_reorderIndex;
 
     // Vector of pending frames pointers whilst in progress - sorted by timestamp
-    lcevc_dec::common::Vector<FrameCPU*> m_processingIndex;
+    common::Vector<FrameCPU*> m_processingIndex;
 
     // Vector of pending frames pointers when done - sorted by timestamp
-    lcevc_dec::common::Vector<FrameCPU*> m_doneIndex;
+    common::Vector<FrameCPU*> m_doneIndex;
 
     // Vector of pending frames pointers when flushed - sorted by timestamp
-    lcevc_dec::common::Vector<FrameCPU*> m_flushIndex;
+    common::Vector<FrameCPU*> m_flushIndex;
 
     // Limit for frame reordering - can be dynamically updated as enhancement data comes in
     uint32_t m_maxReorder{};

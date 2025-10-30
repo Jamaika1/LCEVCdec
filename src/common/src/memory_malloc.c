@@ -26,20 +26,20 @@ typedef struct
 {
     LdcMemoryAllocator allocator;
     atomic_size_t allocatedBytes;
-    atomic_uint_fast32_t allocations;
-    atomic_uint_fast32_t totalAllocations;
-    atomic_uint_fast32_t totalReallocations;
+    atomic_size_t allocations;
+    atomic_size_t totalAllocations;
+    atomic_size_t totalReallocations;
 } LdcMemoryAllocatorMalloc;
 
 static LdcMemoryAllocatorMalloc mallocMemoryAllocator; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 LdcMemoryAllocator* ldcMemoryAllocatorMalloc(void) { return &mallocMemoryAllocator.allocator; }
 
-static void* mallocAllocate(LdcMemoryAllocator* allocator, LdcMemoryAllocation* allocation,
-                            size_t size, size_t alignment)
+static void mallocAllocate(LdcMemoryAllocator* allocator, LdcMemoryAllocation* allocation,
+                           size_t size, size_t alignment, const LdcDiagSite* site)
 {
+    VNUnused(site);
     LdcMemoryAllocatorMalloc* ma = (LdcMemoryAllocatorMalloc*)allocator;
-
     void* ptr = NULL;
     if (alignment > sizeof(void*)) {
 #if VN_OS(WINDOWS)
@@ -47,7 +47,7 @@ static void* mallocAllocate(LdcMemoryAllocator* allocator, LdcMemoryAllocation* 
 #elif VN_OS(ANDROID) || VN_OS(APPLE)
         int r = posix_memalign(&ptr, alignment, size);
         if (r != 0) {
-            return NULL;
+            return;
         }
 #else
         ptr = aligned_alloc(alignment, size);
@@ -57,7 +57,8 @@ static void* mallocAllocate(LdcMemoryAllocator* allocator, LdcMemoryAllocation* 
     }
 
     if (ptr == NULL) {
-        return NULL;
+        allocation->ptr = NULL;
+        return;
     }
 
     allocation->ptr = ptr;
@@ -69,15 +70,15 @@ static void* mallocAllocate(LdcMemoryAllocator* allocator, LdcMemoryAllocation* 
     atomic_fetch_add(&ma->allocatedBytes, size);
     atomic_fetch_add(&ma->totalAllocations, 1);
 
-    VNMetricUInt32("mallocAllocations", atomic_load(&ma->allocations));
-    VNMetricUInt32("mallocAllocatedBytes", atomic_load(&ma->allocatedBytes));
-    VNMetricUInt32("mallocTotalAllocations", atomic_load(&ma->totalAllocations));
-
-    return ptr;
+    VNMetricUInt64("mallocAllocations", atomic_load(&ma->allocations));
+    VNMetricUInt64("mallocAllocatedBytes", atomic_load(&ma->allocatedBytes));
+    VNMetricUInt64("mallocTotalAllocations", atomic_load(&ma->totalAllocations));
 }
 
-static void mallocFree(LdcMemoryAllocator* allocator, LdcMemoryAllocation* allocation)
+static void mallocFree(LdcMemoryAllocator* allocator, LdcMemoryAllocation* allocation,
+                       const LdcDiagSite* site)
 {
+    VNUnused(site);
     LdcMemoryAllocatorMalloc* ma = (LdcMemoryAllocatorMalloc*)allocator;
 
 #if VN_OS(WINDOWS)
@@ -93,12 +94,13 @@ static void mallocFree(LdcMemoryAllocator* allocator, LdcMemoryAllocation* alloc
     atomic_fetch_sub(&ma->allocations, 1);
     atomic_fetch_sub(&ma->allocatedBytes, allocation->size);
 
-    VNMetricUInt32("mallocAllocations", atomic_load(&ma->allocations));
+    VNMetricUInt64("mallocAllocations", atomic_load(&ma->allocations));
     ;
-    VNMetricUInt32("mallocAllocatedBytes", atomic_load(&ma->allocatedBytes));
+    VNMetricUInt64("mallocAllocatedBytes", atomic_load(&ma->allocatedBytes));
 }
 
-static void* mallocReallocate(LdcMemoryAllocator* allocator, LdcMemoryAllocation* allocation, size_t size)
+static void mallocReallocate(LdcMemoryAllocator* allocator, LdcMemoryAllocation* allocation,
+                             size_t size, const LdcDiagSite* site)
 {
     LdcMemoryAllocatorMalloc* ma = (LdcMemoryAllocatorMalloc*)allocator;
 
@@ -107,19 +109,20 @@ static void* mallocReallocate(LdcMemoryAllocator* allocator, LdcMemoryAllocation
         // Actually reallocating without large alignment
         void* newPtr = realloc(allocation->ptr, size);
         if (!newPtr) {
-            return NULL;
+            allocation->ptr = NULL;
+            return;
         }
 
         allocation->ptr = newPtr;
 
-        atomic_fetch_sub(&ma->totalAllocations, (uint32_t)allocation->size);
-        atomic_fetch_add(&ma->totalAllocations, (uint32_t)size);
-        atomic_fetch_add(&ma->totalAllocations, 1);
+        atomic_fetch_sub(&ma->allocatedBytes, allocation->size);
+        atomic_fetch_add(&ma->allocatedBytes, size);
+        atomic_fetch_add(&ma->totalReallocations, 1);
 
         allocation->size = size;
 
-        VNMetricUInt32("mallocAllocatedBytes", atomic_load(&ma->allocatedBytes));
-        VNMetricUInt32("mallocTotalAllocations", atomic_load(&ma->totalAllocations));
+        VNMetricUInt64("mallocAllocatedBytes", atomic_load(&ma->allocatedBytes));
+        VNMetricUInt64("mallocTotalAllocations", atomic_load(&ma->totalAllocations));
 
     } else {
         // Large alignment, or not really a realloc() - do alloc/copy/free
@@ -127,24 +130,25 @@ static void* mallocReallocate(LdcMemoryAllocator* allocator, LdcMemoryAllocation
         *allocation = (LdcMemoryAllocation){0, 0, allocation->alignment, 0};
 
         if (size) {
-            void* newPtr = mallocAllocate(allocator, allocation, size, allocation->alignment);
+            mallocAllocate(allocator, allocation, size, allocation->alignment, site);
+            void* const newPtr = allocation->ptr;
+            if (!newPtr) {
+                return;
+            }
+
             const size_t copySize = (prev.size < size) ? prev.size : size;
             if (allocation->ptr && prev.ptr && copySize > 0) {
                 memcpy(allocation->ptr, prev.ptr, copySize);
             }
-            if (!newPtr) {
-                return NULL;
-            }
+
             allocation->ptr = newPtr;
         }
 
         if (prev.ptr) {
-            mallocFree(allocator, &prev);
+            mallocFree(allocator, &prev, site);
         }
     }
-    VNMetricUInt32("mallocTotalReallocations", atomic_load(&ma->totalReallocations));
-
-    return allocation->ptr;
+    VNMetricUInt64("mallocTotalReallocations", atomic_load(&ma->totalReallocations));
 }
 
 /*

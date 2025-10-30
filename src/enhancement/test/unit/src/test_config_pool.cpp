@@ -35,7 +35,7 @@ public:
         ldcDiagnosticsLogLevel(LdcLogLevelInfo);
         allocator = ldcMemoryAllocatorMalloc();
 
-        ldeConfigPoolInitialize(allocator, &configPool, BitstreamVersionUnspecified);
+        ldeConfigPoolInitialize(allocator, allocator, &configPool, BitstreamVersionUnspecified);
         m_binReader = createBinReader((kTestAssets / "parse_gops.bin").string());
     }
 

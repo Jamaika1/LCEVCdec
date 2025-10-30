@@ -63,7 +63,9 @@ bool setThreadName(std::wstring_view name)
 bool setThreadName(std::string_view name)
 {
     if (!name.empty()) {
-#if defined(__ANDROID__) || defined(__linux__)
+#if defined(__EMSCRIPTEN__)
+        return true; // Don't set thread name in wasms
+#elif defined(__ANDROID__) || defined(__linux__)
         const int res = pthread_setname_np(pthread_self(), name.data());
 #else // i.e. Apple
         const int res = pthread_setname_np(name.data());

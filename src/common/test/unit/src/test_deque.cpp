@@ -12,10 +12,11 @@
  * ANY ONWARD DISTRIBUTION, WHETHER STAND-ALONE OR AS PART OF ANY OTHER PROJECT, REMAINS SUBJECT TO
  * THE EXCLUSION OF PATENT LICENSES PROVISION OF THE BSD-3-CLAUSE-CLEAR LICENSE. */
 
+#include <LCEVC/common/deque.h>
+//
 #include <fmt/core.h>
 #include <gtest/gtest.h>
-#include <LCEVC/common/deque.h>
-
+//
 #include <deque>
 #include <random>
 

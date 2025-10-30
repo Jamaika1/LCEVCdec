@@ -24,6 +24,7 @@
  * it can be improved to use Lazy Binary-Splitting (https://terpconnect.umd.edu/~barua/ppopp164.pdf)
  */
 #include <LCEVC/build_config.h>
+#include <LCEVC/common/diagnostics.h>
 #include <LCEVC/common/memory.h>
 #include <LCEVC/common/platform.h>
 #include <stdbool.h>
@@ -57,7 +58,7 @@ typedef uint32_t LdcTaskDependency;
 
 /*! Maximum number of dependencies within a task group.
  */
-#define kTaskPoolMaxDependencies 16384 // NOLINT
+#define kTaskPoolMaxDependencies 64 // NOLINT
 
 /*! Task work function pointer
  */
@@ -175,12 +176,14 @@ void ldcTaskNoWait(LdcTask* task);
  *  @param[out]     taskGroup               The task group to initialize
  *  @param[in]      taskPool                The task pool that this group is will live in.
  *  @param[in]      maxDependenciesCount    The maximum number of dependencies that can exist in this group.
+ *  @param[in]      diagId                  A uint64_t used to mark dynamic allocations.
  *
  *  If the return is true the task pointer will no longer be valid - the task block will have ben cleared up.
  *
  *  @return                                 True on success
  */
-bool ldcTaskGroupInitialize(LdcTaskGroup* taskGroup, LdcTaskPool* taskPool, uint32_t maxDependenciesCount);
+bool ldcTaskGroupInitialize(LdcTaskGroup* taskGroup, LdcTaskPool* taskPool,
+                            uint32_t maxDependenciesCount, uint64_t diagId);
 
 /*! Release the task group
  *

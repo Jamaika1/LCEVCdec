@@ -33,7 +33,7 @@ typedef struct WrappedGlobalConfig
 static WrappedGlobalConfig* allocateGlobalConfig(LdeConfigPool* configPool, const LdeGlobalConfig* initial)
 {
     LdcMemoryAllocation allocation = {0};
-    VNAllocate(configPool->allocator, &allocation, WrappedGlobalConfig);
+    VNAllocate(configPool->staticAllocator, &allocation, WrappedGlobalConfig, "GlobalConfig");
     ldcVectorAppend(&configPool->globalConfigs, &allocation);
     WrappedGlobalConfig* wrapped = VNAllocationPtr(allocation, WrappedGlobalConfig);
     memcpy(&wrapped->globalConfig, initial, sizeof(LdeGlobalConfig));
@@ -62,17 +62,18 @@ static void releaseGlobalConfig(LdeConfigPool* configPool, WrappedGlobalConfig* 
     }
 
     // Release block and remove from index
-    VNFree(configPool->allocator, alloc);
+    VNFree(configPool->staticAllocator, alloc);
     ldcVectorRemoveReorder(&configPool->globalConfigs, alloc);
 }
 
-void ldeConfigPoolInitialize(LdcMemoryAllocator* allocator, LdeConfigPool* configPool,
-                             LdeBitstreamVersion bitstreamVersion)
+void ldeConfigPoolInitialize(LdcMemoryAllocator* staticAllocator, LdcMemoryAllocator* dynamicAllocator,
+                             LdeConfigPool* configPool, LdeBitstreamVersion bitstreamVersion)
 {
-    configPool->allocator = allocator;
+    configPool->staticAllocator = staticAllocator;
+    configPool->dynamicAllocator = dynamicAllocator;
 
     ldcVectorInitialize(&configPool->globalConfigs, sizeof(LdcMemoryAllocation),
-                        (uint32_t)kInitialGlobalPoolSize, allocator);
+                        (uint32_t)kInitialGlobalPoolSize, staticAllocator);
 
     // Start with empty 'latest' global config
     // Explicitly clear whole of structure so that any padding is 0
@@ -92,7 +93,7 @@ void ldeConfigPoolInitialize(LdcMemoryAllocator* allocator, LdeConfigPool* confi
 void ldeConfigPoolRelease(LdeConfigPool* configPool)
 {
     for (uint32_t i = 0; i < ldcVectorSize(&configPool->globalConfigs); ++i) {
-        VNFree(configPool->allocator, ldcVectorAt(&configPool->globalConfigs, i));
+        VNFree(configPool->staticAllocator, ldcVectorAt(&configPool->globalConfigs, i));
     }
 
     ldcVectorDestroy(&configPool->globalConfigs);
@@ -102,7 +103,8 @@ bool ldeConfigPoolFrameInsert(LdeConfigPool* configPool, uint64_t timestamp,
                               const uint8_t* serialized, size_t serializedSize,
                               LdeGlobalConfig** globalConfigPtr, LdeFrameConfig* frameConfig)
 {
-    ldeFrameConfigInitialize(configPool->allocator, frameConfig);
+    ldeFrameConfigInitialize(configPool->dynamicAllocator, frameConfig);
+    frameConfig->diagId = timestamp;
 
     // Read stateful params into the next frame config
     if (configPool->quantMatrix.set) {
@@ -156,7 +158,7 @@ bool ldeConfigPoolFrameRelease(LdeConfigPool* configPool, LdeFrameConfig* frameC
 void ldeConfigPoolFramePassthrough(LdeConfigPool* configPool, LdeGlobalConfig** globalConfigPtr,
                                    LdeFrameConfig* frameConfig)
 {
-    ldeFrameConfigInitialize(configPool->allocator, frameConfig);
+    ldeFrameConfigInitialize(configPool->dynamicAllocator, frameConfig);
 
     // Make a copy of the current global config
     // Copy using memcpy to make sure zero padding is copied over

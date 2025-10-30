@@ -42,7 +42,6 @@ def setup_tests_get_threads(test_definitions):
         assert platform.system() == 'Linux', "Valgrind option only works on Linux"
     if not herp_is_accessible():
         download_assets_externally(config.get('PLATFORM'))
-        return True
     else:
         get_bases(test_definitions)
     threads = min(config.getint('THREADS', 1), mp.cpu_count())

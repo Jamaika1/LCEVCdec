@@ -94,6 +94,7 @@ typedef struct LdeFrameConfig
     bool globalConfigSet; /**< Set if Global Config was also updated for this frame */
 
     LdcMemoryAllocator* allocator; /**< Allocator for chunks and underlying unencapsulated stream */
+    uint64_t diagId;               /**< A uint64_t id passed to memeory allocation diagnostics */
     LdcMemoryAllocation chunkAllocation;          /**< Memory allocation for chunks */
     LdcMemoryAllocation unencapsulatedAllocation; /**< Memory allocation raw LCEVC data */
     uint32_t numChunks;                           /**< Number of huffman chunks (layers) */

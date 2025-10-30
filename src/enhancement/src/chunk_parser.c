@@ -383,8 +383,9 @@ bool chunkCheckAlloc(LdeFrameConfig* frameConfig, const LdeGlobalConfig* globalC
             VNFree(frameConfig->allocator, &frameConfig->chunkAllocation);
         }
 
-        frameConfig->chunks = VNReallocateArray(frameConfig->allocator,
-                                                &frameConfig->chunkAllocation, LdeChunk, chunkCount);
+        VNReallocateIdArray(frameConfig->allocator, &frameConfig->chunkAllocation, LdeChunk,
+                            chunkCount, "FrameConfigChunks", frameConfig->diagId);
+        frameConfig->chunks = VNAllocationPtr(frameConfig->chunkAllocation, LdeChunk);
         frameConfig->numChunks = chunkCount;
     }
 

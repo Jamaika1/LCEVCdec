@@ -29,8 +29,9 @@ extern "C"
 /*! Config pool structure containing the memory for all configs in the pool */
 typedef struct LdeConfigPool
 {
-    LdcMemoryAllocator* allocator;
-    LdcVector globalConfigs;             /**< Active global configs of in-flight frames */
+    LdcMemoryAllocator* staticAllocator; /**< Allocator for data that may live for the whole decoder lifetime */
+    LdcMemoryAllocator* dynamicAllocator; /**< Allocator for data that has 'frame' lifetime */
+    LdcVector globalConfigs;              /**< Active global configs of in-flight frames */
     LdeGlobalConfig* latestGlobalConfig; /**< Most recent global config, the last element in the vector */
     LdeQuantMatrix quantMatrix; /**< State between frames in the LdeFrameConfig, this parameter is used to hold the latest */
     bool ditherEnabled; /**< State between frames in the LdeFrameConfig, holds the last dither enabled state - other dithering params are then parsed */
@@ -38,12 +39,13 @@ typedef struct LdeConfigPool
 
 /*! \brief Initializes sizes and allocations of the config pool
  *
- * \param[in]     allocator        Memory allocator
+ * \param[in]     staticAllocator  Memory allocator for data with 'decoder' lifetime
+ * \param[in]     dynamicAllocator Memory allocator for data with 'frame' lifetime (can be same as `staticAllocator`)
  * \param[in]     configPool       Fresh config pool
  * \param[in]     bitstreamVersion Initialize the global configs with a specific version, use BitstreamVersionUnspecified for auto detection
  */
-void ldeConfigPoolInitialize(LdcMemoryAllocator* allocator, LdeConfigPool* configPool,
-                             LdeBitstreamVersion bitstreamVersion);
+void ldeConfigPoolInitialize(LdcMemoryAllocator* staticAllocator, LdcMemoryAllocator* dynamicAllocator,
+                             LdeConfigPool* configPool, LdeBitstreamVersion bitstreamVersion);
 
 /*! \brief Releases all memory associated with the config pool
  *

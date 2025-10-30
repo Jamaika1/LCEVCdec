@@ -16,47 +16,43 @@
 #define VN_LCEVC_COMMON_THREADS_HPP
 
 #include <LCEVC/common/class_utils.hpp>
-#include <LCEVC/common/threads.h>
 #include <LCEVC/common/memory.h>
+#include <LCEVC/common/threads.h>
 
 namespace lcevc_dec::common {
 
 // Wrapper for LdcThread
 //
-class Thread {
+class Thread
+{
 public:
-    Thread() {
-    }
+    Thread() {}
 
-    Thread(::ThreadFunction function, void* argument) {
-        launch(function, argument);
-    }
+    Thread(::ThreadFunction function, void* argument) { launch(function, argument); }
 
-    ~Thread() {
-        ::threadJoin(&m_thread, NULL);
-    }
+    ~Thread() { ::threadJoin(&m_thread, NULL); }
 
-    void launch(::ThreadFunction function, void* argument) {
+    void launch(::ThreadFunction function, void* argument)
+    {
         ::threadCreate(&m_thread, function, argument);
     }
 
     VNNoCopyNoMove(Thread);
+
 private:
     ::Thread m_thread;
 };
 
 // Wrapper for LdcThreadMutex
 //
-class Mutex {
+class Mutex
+{
 public:
-    Mutex(){
-        threadMutexInitialize(&m_threadMutex);
-    }
-    ~Mutex() {
-        threadMutexDestroy(&m_threadMutex);
-    }
+    Mutex() { threadMutexInitialize(&m_threadMutex); }
+    ~Mutex() { threadMutexDestroy(&m_threadMutex); }
 
     VNNoCopyNoMove(Mutex);
+
 private:
     friend class ScopedLock;
 
@@ -65,17 +61,20 @@ private:
 
 // Scoped lock for LdcThreadMutex
 //
-class ScopedLock {
+class ScopedLock
+{
 public:
-    ScopedLock(Mutex & mutex) : m_threadMutex(mutex.m_threadMutex) {
+    ScopedLock(Mutex& mutex)
+        : m_threadMutex(mutex.m_threadMutex)
+    {
         threadMutexLock(&m_threadMutex);
     }
-    ScopedLock(::ThreadMutex& threadMutex) : m_threadMutex(threadMutex) {
+    ScopedLock(::ThreadMutex& threadMutex)
+        : m_threadMutex(threadMutex)
+    {
         threadMutexLock(&m_threadMutex);
     }
-    ~ScopedLock() {
-        threadMutexUnlock(&m_threadMutex);
-    }
+    ~ScopedLock() { threadMutexUnlock(&m_threadMutex); }
 
     VNNoCopyNoMove(ScopedLock);
 
@@ -86,39 +85,31 @@ private:
 
 // Wrapper for LdcThreadCondVar
 //
-class CondVar {
+class CondVar
+{
 public:
-    CondVar(){
-        threadCondVarInitialize(&m_condVar);
-    }
-    ~CondVar() {
-        threadCondVarDestroy(&m_condVar);
-    }
+    CondVar() { threadCondVarInitialize(&m_condVar); }
+    ~CondVar() { threadCondVarDestroy(&m_condVar); }
 
-    void signal() {
-        threadCondVarSignal(&m_condVar);
-    }
+    void signal() { threadCondVarSignal(&m_condVar); }
 
-    void broadcast() {
-        threadCondVarBroadcast(&m_condVar);
-    }
+    void broadcast() { threadCondVarBroadcast(&m_condVar); }
 
-    void wait(ScopedLock &lock) {
-        threadCondVarWait(&m_condVar, &lock.m_threadMutex);
-    }
+    void wait(ScopedLock& lock) { threadCondVarWait(&m_condVar, &lock.m_threadMutex); }
 
-    bool waitDeadline(ScopedLock &lock, uint64_t deadline) {
+    bool waitDeadline(ScopedLock& lock, uint64_t deadline)
+    {
         return threadCondVarWaitDeadline(&m_condVar, &lock.m_threadMutex, deadline) == 0;
     }
 
-    void wait(::ThreadMutex &mutex) {
-        threadCondVarWait(&m_condVar, &mutex);
-    }
-    bool waitDeadline(::ThreadMutex &mutex, uint64_t deadline) {
+    void wait(::ThreadMutex& mutex) { threadCondVarWait(&m_condVar, &mutex); }
+    bool waitDeadline(::ThreadMutex& mutex, uint64_t deadline)
+    {
         return threadCondVarWaitDeadline(&m_condVar, &mutex, deadline) == 0;
     }
 
     VNNoCopyNoMove(CondVar);
+
 private:
     ::ThreadCondVar m_condVar;
 };

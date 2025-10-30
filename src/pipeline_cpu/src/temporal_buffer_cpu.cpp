@@ -17,6 +17,7 @@
 #include <LCEVC/common/constants.h>
 #include <LCEVC/common/limit.h>
 #include <LCEVC/common/log.h>
+#include <LCEVC/common/memory.h>
 #include <LCEVC/pipeline/pipeline.h>
 
 namespace lcevc_dec::pipeline_cpu {
@@ -37,8 +38,9 @@ void TemporalBuffer::update(const TemporalBufferDesc& newDesc)
         }
 
         // Build PlaneDesc
-        planeDesc.firstSample = VNAllocateAlignedZeroArray(allocator, &allocation, uint8_t,
-                                                           kBufferRowAlignment, bufferSize);
+        VNAllocateAlignedZeroArray(allocator, &allocation, uint8_t, kBufferRowAlignment, bufferSize,
+                                   "TemporalBuffer_Data");
+        planeDesc.firstSample = VNAllocationPtr(allocation, uint8_t);
         planeDesc.rowByteStride = static_cast<uint32_t>(byteStride);
 
         // Clear new buffer to zero

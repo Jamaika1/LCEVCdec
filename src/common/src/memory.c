@@ -33,43 +33,62 @@ void ldcMemoryInitialize(LdcMemoryAllocator* allocator, size_t alignment, LdcMem
     allocation->alignment = alignment;
 }
 
-void* ldcMemoryAllocate(LdcMemoryAllocator* allocator, LdcMemoryAllocation* allocation, size_t size,
-                        size_t align, bool clearToZero)
+void ldcMemoryAllocate(LdcMemoryAllocator* allocator, LdcMemoryAllocation* allocation, size_t size,
+                       size_t align, bool clearToZero, const LdcDiagSite* site, uint64_t diagId)
 {
     assert(allocator);
     assert(allocator->functions);
     assert(allocator->functions->allocate);
     assert(allocation);
 
-    void* ret = allocator->functions->allocate(allocator, allocation, size, align);
+    allocator->functions->allocate(allocator, allocation, size, align, site);
 
-    if (ret && clearToZero) {
-        memset(ret, 0, size);
+#if VN_SDK_FEATURE(MEMORY_DIAGNOSTICS)
+    allocation->site = site;
+    const size_t valueSize = sizeof(diagId) + sizeof(uint32_t) + sizeof(void*);
+    ldcDiagEvent(site, valueSize, diagId, (uint32_t)size, allocation->ptr);
+#endif
+
+    if (allocation->ptr && clearToZero) {
+        memset(allocation->ptr, 0, size);
     }
-
-    return ret;
 }
 
-void* ldcMemoryReallocate(LdcMemoryAllocator* allocator, LdcMemoryAllocation* allocation, size_t size)
+void ldcMemoryReallocate(LdcMemoryAllocator* allocator, LdcMemoryAllocation* allocation,
+                         size_t size, const LdcDiagSite* site, uint64_t diagId)
 {
     assert(allocator);
     assert(allocator->functions);
     assert(allocator->functions->reallocate);
     assert(allocation);
 
-    void* ret = allocator->functions->reallocate(allocator, allocation, size);
+#if VN_SDK_FEATURE(MEMORY_DIAGNOSTICS)
+    void* const beforePtr = allocation->ptr;
+#endif
 
-    return ret;
+    allocator->functions->reallocate(allocator, allocation, size, site);
+
+#if VN_SDK_FEATURE(MEMORY_DIAGNOSTICS)
+    allocation->site = site;
+    const size_t valueSize = sizeof(diagId) + sizeof(uint32_t) + sizeof(void*) + sizeof(void*);
+    ldcDiagEvent(site, valueSize, diagId, (uint32_t)size, beforePtr, allocation->ptr);
+#endif
 }
 
-void ldcMemoryFree(LdcMemoryAllocator* allocator, LdcMemoryAllocation* allocation)
+void ldcMemoryFree(LdcMemoryAllocator* allocator, LdcMemoryAllocation* allocation,
+                   const LdcDiagSite* site, uint64_t diagId)
 {
     assert(allocator);
     assert(allocator->functions);
     assert(allocator->functions->free);
     assert(allocation);
 
-    allocator->functions->free(allocator, allocation);
+#if VN_SDK_FEATURE(MEMORY_DIAGNOSTICS)
+    const size_t valueSize = sizeof(diagId) + sizeof(uint32_t) + sizeof(void*);
+    ldcDiagEvent(site, valueSize, diagId, (uint32_t)allocation->size, allocation->ptr);
+#endif
+
+    allocator->functions->free(allocator, allocation, site);
 
     allocation->ptr = NULL;
     allocation->size = 0;

@@ -47,8 +47,8 @@ bool tiledRLEDecoderInitialize(TiledRLEDecoder* decoder, ByteStream* reader);
 
 bool tiledRLEDecoderRead(TiledRLEDecoder* decoder, uint8_t* destination);
 
-bool tiledSizeDecoderInitialize(LdcMemoryAllocator* allocator, TiledSizeDecoder* decoder,
-                                uint32_t numSizes, ByteStream* stream,
+bool tiledSizeDecoderInitialize(LdcMemoryAllocator* allocator, uint64_t diagId,
+                                TiledSizeDecoder* decoder, uint32_t numSizes, ByteStream* stream,
                                 LdeTileCompressionSizePerTile type, uint8_t bitstreamVersion);
 
 void tiledSizeDecoderRelease(TiledSizeDecoder* decoder);

@@ -71,6 +71,7 @@ typedef struct LdeCmdBufferGpu
     uint32_t residualCount; /**< Number of residuals, multiply by layer count to get the size of `residuals` */
     int16_t* residuals; /**< Residual data buffer */
     uint8_t layerCount; /**< Number of residuals 16bit values in each residual, 16 for DDS, 4 for DD. */
+    uint64_t diagId; /**< ID passed throught form memory llocation tracing */
 } LdeCmdBufferGpu;
 
 /*! \brief This 'builder' struct is required by `ldeDecodeEnhancement` during generation.

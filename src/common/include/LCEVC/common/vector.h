@@ -15,6 +15,7 @@
 #ifndef VN_LCEVC_COMMON_VECTOR_H
 #define VN_LCEVC_COMMON_VECTOR_H
 
+#include <LCEVC/common/diagnostics.h>
 #include <LCEVC/common/memory.h>
 
 #ifdef __cplusplus
@@ -130,7 +131,7 @@ static inline void* ldcVectorAt(const LdcVector* vector, uint32_t index);
  * @param[in] offset            Offset of element from end of within vector
  * @return                      Pointer to indexed element, or NULL if index .ge. size.
  */
-static inline void* ldcVectorAtEnd(const LdcVector* vector, uint32_t offset);
+static inline void* ldcVectorBack(const LdcVector* vector, uint32_t offset);
 
 /*! Get pointer to element in a sorted vector that matches a comparison function
  *

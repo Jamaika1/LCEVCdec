@@ -45,6 +45,7 @@
 
 #include <LCEVC/enhancement/bitstream_types.h>
 
+#include <cstring>
 #include <string>
 #include <vector>
 

@@ -52,8 +52,8 @@ bool tiledRLEDecoderRead(TiledRLEDecoder* decoder, uint8_t* destination)
     return true;
 }
 
-bool tiledSizeDecoderInitialize(LdcMemoryAllocator* allocator, TiledSizeDecoder* decoder,
-                                uint32_t numSizes, ByteStream* stream,
+bool tiledSizeDecoderInitialize(LdcMemoryAllocator* allocator, uint64_t diagId,
+                                TiledSizeDecoder* decoder, uint32_t numSizes, ByteStream* stream,
                                 LdeTileCompressionSizePerTile type, uint8_t bitstreamVersion)
 {
     const EntropyDecoderType decoderType = (type == TCSPTTPrefix) ? EDTSizeUnsigned : EDTSizeSigned;
@@ -65,8 +65,8 @@ bool tiledSizeDecoderInitialize(LdcMemoryAllocator* allocator, TiledSizeDecoder*
 
     /* Allocate buffer to store the decoded sizes. */
     if (decoder->numSizes < numSizes) {
-        int16_t* newSizes = VNReallocateArray(allocator, &decoder->allocation, int16_t, numSizes);
-
+        VNReallocateIdArray(allocator, &decoder->allocation, int16_t, numSizes, "TileSizes", diagId);
+        int16_t* newSizes = VNAllocationPtr(decoder->allocation, int16_t);
         if (!newSizes) {
             /* Clean up.*/
             VNFree(allocator, &decoder->allocation);

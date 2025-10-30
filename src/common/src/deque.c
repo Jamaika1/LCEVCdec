@@ -29,7 +29,7 @@ void ldcDequeInitialize(LdcDeque* deque, uint32_t reserved, uint32_t elementSize
     reserved = nextPowerOfTwoU32(reserved);
 
     VNClear(deque);
-    VNAllocateArray(allocator, &deque->dataAllocation, uint8_t, reserved * elementSize);
+    VNAllocateArray(allocator, &deque->dataAllocation, uint8_t, reserved * elementSize, "Deque");
     VNCheck(VNAllocationSucceeded(deque->dataAllocation));
 
     deque->data = VNAllocationPtr(deque->dataAllocation, uint8_t);
@@ -63,7 +63,7 @@ void ldcDequeGrow(LdcDeque* deque)
 
     // Reallocate the memory
     VNReallocateArray(deque->allocator, &deque->dataAllocation, uint8_t,
-                      deque->reserved * deque->elementSize);
+                      deque->reserved * deque->elementSize, "Deque");
     VNCheck(VNAllocationSucceeded(deque->dataAllocation));
     deque->data = VNAllocationPtr(deque->dataAllocation, uint8_t);
 

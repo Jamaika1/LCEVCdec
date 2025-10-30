@@ -67,10 +67,13 @@ static bool detectAVX2(void)
 {
     int32_t cpuInfo[4];
     loadCPUInfo(cpuInfo, 0);
-    if (nids < 7) {
+    if (cpuInfo[0] < 1) {
         return false;
     }
     loadCPUInfo(cpuInfo, 1);
+    if (cpuInfo[0] < 7) {
+        return false;
+    }
 
     // Note: clang has sse in version 8, but not xsave functions, so need >=9
 #if VN_COMPILER(GCC) && (__GNUC__ >= 9) || VN_COMPILER(CLANG) && (__clang_major__ >= 9) || \
@@ -84,11 +87,10 @@ static bool detectAVX2(void)
     }
 
     /* Load processor extended feature bits. */
-    int32_t info[4];
-    loadCPUInfo(info, 7);
+    loadCPUInfo(cpuInfo, 7);
 
     /* Check if CPU supports AVX2. */
-    if ((info[1] & kAVX2Flag) != kAVX2Flag) {
+    if ((cpuInfo[1] & kAVX2Flag) != kAVX2Flag) {
         return false;
     }
 

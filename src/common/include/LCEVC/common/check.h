@@ -20,6 +20,7 @@
 
 // Check and return macros
 //
+// NOLINTBEGIN(cppcoreguidelines-avoid-do-while)
 #define VNCheck(op)                             \
     do {                                        \
         if (!(op)) {                            \
@@ -50,5 +51,6 @@
             return -1;                          \
         }                                       \
     } while (0)
+// NOLINTEND(cppcoreguidelines-avoid-do-while)
 
 #endif // VN_LCEVC_COMMON_CHECK_H

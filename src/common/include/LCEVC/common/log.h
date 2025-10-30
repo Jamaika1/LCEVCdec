@@ -30,7 +30,7 @@
         static const LdcDiagSite site = {                                            \
             LdcDiagTypeLogFormatted, __FILE__, __LINE__, level, NULL, 0, NULL, NULL, \
             LdcDiagArgConstCharPtr};                                                 \
-        ldcLogEventFormatted(&site, fmt, ##__VA_ARGS__);                             \
+        ldcDiagEventFormatted(&site, fmt, ##__VA_ARGS__);                            \
     } while (0)
 
 // Level specific macros - enabled by top level build option.

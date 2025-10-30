@@ -218,7 +218,7 @@ def download_assets_externally(platform):
         existing_version, existing_platform = existing.split('-')
 
     # If external URL exists and the correct assets are not already downloaded
-    if external_url and (not existing or existing_version != version
+    if external_url and (not existing or existing_version != str(version)
                          or (existing_platform == 'External' and platform != 'External')):
         req = requests.head(external_url)
         if not req.ok:

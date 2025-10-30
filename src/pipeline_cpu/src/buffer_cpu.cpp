@@ -24,20 +24,21 @@ namespace {
     extern const LdpBufferFunctions kBufferCPUFunctions;
 }
 
-BufferCPU::BufferCPU(PipelineCPU& pipeline, uint32_t size)
+BufferCPU::BufferCPU(LdcMemoryAllocator* allocator, uint32_t size)
     : LdpBuffer{&kBufferCPUFunctions}
-    , m_pipeline(pipeline)
+    , m_allocator(allocator)
 {
     // Allocate the bytes
     if (size > 0) {
-        VNAllocateAlignedArray(m_pipeline.allocator(), &m_allocation, uint8_t, kBufferRowAlignment, size);
+        VNAllocateAlignedArray(m_allocator, &m_allocation, uint8_t, kBufferRowAlignment, size,
+                               "BufferCPU_Data");
     }
 }
 
 BufferCPU::~BufferCPU()
 {
     if (VNIsAllocated(m_allocation)) {
-        VNFree(m_pipeline.allocator(), &m_allocation);
+        VNFree(m_allocator, &m_allocation);
     }
 }
 
@@ -91,8 +92,8 @@ uint32_t BufferCPU::size() const
 
 bool BufferCPU::resize(uint32_t size)
 {
-    const uint8_t* ptr = VNReallocateArray(m_pipeline.allocator(), &m_allocation, uint8_t, size);
-    return ptr != nullptr;
+    VNReallocateArray(m_allocator, &m_allocation, uint8_t, size, "BufferCPU_Data");
+    return VNIsAllocated(m_allocation);
 }
 
 // C function table to connect to C++ class

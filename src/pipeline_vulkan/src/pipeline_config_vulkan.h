@@ -43,10 +43,13 @@ struct PipelineConfigVulkan
     // Maximum number of frames to buffer
     uint32_t maxLatency = 32;
 
-    // Number of threads in task pool - defaults is filled in from number of platform cores.
+    // Minimum frames that can be held for batching
+    uint32_t minLatency = 0;
+
+    // Number of threads - thread pool plus main thread - defaults is filled in from number of platform cores plus 1
     uint32_t numThreads = 1;
 
-    // Number slots reserved in task pool
+    // Initial Number of slots reserved in task pool
     uint32_t numReservedTasks = 32;
 
     // Default maximum reorder
@@ -55,13 +58,13 @@ struct PipelineConfigVulkan
     // Number of frames late that enhancement can arrive late (non-standard)
     uint32_t enhancementDelay = 0;
 
-    // Force scalar pixel ops
+    // Force scalar pixel operations
     bool forceScalar = false;
 
     // Show residuals for debugging
     bool highlightResiduals = false;
 
-    // Number of temporal buffers
+    // Number of temporal buffers per channel
     uint32_t numTemporalBuffers = 1;
 
     // How passthrough is handled by pipeline
@@ -81,6 +84,8 @@ struct PipelineConfigVulkan
     // Describe generated frame tasks in log
     bool showTasks = false;
 
+    // 'set' methods to adapt config types to internal values
+    //
     bool setDitherSeed(const int32_t& val)
     {
         ditherSeed = val;

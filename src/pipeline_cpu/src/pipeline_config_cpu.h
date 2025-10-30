@@ -36,10 +36,6 @@ enum class PassthroughMode : int32_t
 //`
 struct PipelineConfigCPU
 {
-    // Memory arena defaults
-    uint32_t initialArenaCount = 1024;
-    uint32_t initialArenaSize = 65536;
-
     // Maximum number of frames to buffer
     uint32_t maxLatency = 32;
 
@@ -83,6 +79,12 @@ struct PipelineConfigCPU
 
     // Describe generated frame tasks in log
     bool showTasks = false;
+
+    // Directly use system allocator (malloc/free) for pipeline allocations
+    bool useSystemAllocator = false;
+
+    // Number of buffer allocations to recycle
+    uint32_t bufferRecycleCount = 16;
 
     // 'set' methods to adapt config types to internal values
     //

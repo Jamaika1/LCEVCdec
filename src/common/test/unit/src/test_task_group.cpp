@@ -12,10 +12,11 @@
  * ANY ONWARD DISTRIBUTION, WHETHER STAND-ALONE OR AS PART OF ANY OTHER PROJECT, REMAINS SUBJECT TO
  * THE EXCLUSION OF PATENT LICENSES PROVISION OF THE BSD-3-CLAUSE-CLEAR LICENSE. */
 
-#include <gtest/gtest.h>
 #include <LCEVC/common/memory.h>
 #include <LCEVC/common/task_pool.h>
 #include <LCEVC/common/threads.h>
+//
+#include <gtest/gtest.h>
 
 namespace {
 
@@ -46,7 +47,7 @@ TEST(TaskGroup, DependencyReserveGrowth)
     ASSERT_TRUE(ldcTaskPoolInitialize(&pool, ldcMemoryAllocatorMalloc(), ldcMemoryAllocatorMalloc(), 1, 8));
 
     LdcTaskGroup group;
-    ASSERT_TRUE(ldcTaskGroupInitialize(&group, &pool, kStartCount));
+    ASSERT_TRUE(ldcTaskGroupInitialize(&group, &pool, kStartCount, 0));
 
     EXPECT_EQ(group.dependenciesReserved, kStartCount);
     EXPECT_EQ(group.dependenciesCount, 0);

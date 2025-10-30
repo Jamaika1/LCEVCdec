@@ -172,6 +172,9 @@ typedef struct LdcTaskGroup
     // Name used in debug dumps
     const char* name;
 
+    // Memory diagnostics id
+    uint64_t diagId;
+
     // Tasks remaining in this group
     uint32_t tasksCount;
 

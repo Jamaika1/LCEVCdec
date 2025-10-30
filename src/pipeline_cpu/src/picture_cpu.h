@@ -27,7 +27,7 @@ namespace lcevc_dec::pipeline_cpu {
 class PictureCPU : public LdpPicture
 {
 public:
-    explicit PictureCPU(PipelineCPU& pipeline);
+    PictureCPU(PipelineCPU& m_pipeline, LdcMemoryAllocator* allocator);
     ~PictureCPU();
 
     bool isValid() const;
@@ -83,6 +83,9 @@ private:
 
     // Owning pipeline
     PipelineCPU& m_pipeline;
+
+    // Allocator to use for locks
+    LdcMemoryAllocator* m_allocator;
 
     // Any current lock
     LdcMemoryAllocation m_lockAllocation = {};

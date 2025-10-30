@@ -19,12 +19,12 @@ extern "C" void TestTraceBegin()
 {
     static const LdcDiagSiteWrapper site(__FILE__, __LINE__, "testFunc");
 
-    ldcTracingScopedBegin(&site);
+    ldcTracingScoped(&site, 1);
 }
 
 extern "C" void TestTraceEnd()
 {
     static const LdcDiagSiteWrapper site(__FILE__, __LINE__, "testFunc");
 
-    ldcTracingScopedEnd(&site);
+    ldcTracingScoped(&site, 0);
 }

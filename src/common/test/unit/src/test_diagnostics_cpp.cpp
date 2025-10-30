@@ -12,11 +12,12 @@
  * ANY ONWARD DISTRIBUTION, WHETHER STAND-ALONE OR AS PART OF ANY OTHER PROJECT, REMAINS SUBJECT TO
  * THE EXCLUSION OF PATENT LICENSES PROVISION OF THE BSD-3-CLAUSE-CLEAR LICENSE. */
 
-#include <fmt/core.h>
-#include <gtest/gtest.h>
 #include <LCEVC/common/diagnostics.h>
 #include <LCEVC/common/log.h>
-
+//
+#include <fmt/core.h>
+#include <gtest/gtest.h>
+//
 #include <climits>
 
 extern "C" bool LCEVC_DiagHandlerOStream(void* user, const LdcDiagSite* site,

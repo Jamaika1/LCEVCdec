@@ -12,12 +12,13 @@
  * ANY ONWARD DISTRIBUTION, WHETHER STAND-ALONE OR AS PART OF ANY OTHER PROJECT, REMAINS SUBJECT TO
  * THE EXCLUSION OF PATENT LICENSES PROVISION OF THE BSD-3-CLAUSE-CLEAR LICENSE. */
 
-#include <fmt/core.h>
-#include <gtest/gtest.h>
 #include <LCEVC/common/diagnostics.h>
 #include <LCEVC/common/memory.h>
 #include <LCEVC/common/vector.h>
-
+//
+#include <fmt/core.h>
+#include <gtest/gtest.h>
+//
 #include <algorithm>
 #include <cstdint>
 #include <random>

@@ -14,9 +14,9 @@
 
 #include <LCEVC/common/diagnostics.h>
 #include <LCEVC/common/log.h>
+//
 #include <limits.h>
 #include <stdbool.h>
-#include <stdio.h>
 
 bool diagnosticsTestCLog(void)
 {

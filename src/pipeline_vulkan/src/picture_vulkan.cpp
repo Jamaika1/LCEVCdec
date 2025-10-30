@@ -155,7 +155,8 @@ bool PictureVulkan::lock(LdpAccess access, PictureLock*& lockOut)
     }
 
     // Allocate lock object, and in-place construct
-    PictureLock* pictureLock = VNAllocate(m_pipeline.allocator(), &m_lockAllocation, PictureLock);
+    VNAllocate(m_pipeline.allocator(), &m_lockAllocation, PictureLock, "PictureLock");
+    PictureLock* pictureLock = VNAllocationPtr(m_lockAllocation, PictureLock);
     lockOut = new (pictureLock) PictureLock(this, access); // NOLINT(cppcoreguidelines-owning-memory)
 
     return true;

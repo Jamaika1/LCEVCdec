@@ -28,6 +28,9 @@ struct LdcRollingArenaSlot
     uint32_t beginOffset; // First offset in chunk covered by slot - NB: returned pointer may be further along to account for alignment and wrapping
     uint32_t endOffset; // Where this chunk ends (exclusive) - the start of any next allocated chunk
     uint32_t bufferIndex; // The containing buffer
+#if VN_SDK_FEATURE(MEMORY_DIAGNOSTICS)
+    const LdcDiagSite* site;
+#endif
 };
 
 struct LdcRollingArenaBuffer
@@ -43,7 +46,7 @@ struct LdcMemoryAllocatorRollingArena
     // Allocator is thread safe
     ThreadMutex mutex;
 
-    // Where to allocate chunks from
+    // Where to allocate buffers from
     LdcMemoryAllocator* parentAllocator;
 
     // Incrementing index for allocations
@@ -79,8 +82,13 @@ struct LdcMemoryAllocatorRollingArena
 
     // Buffers
     struct LdcRollingArenaBuffer buffers[kRollingArenaMaxBuffers];
-
     uint32_t bufferCount;
+
+    // Metrics
+    uint32_t allocatedBytes;
+    uint32_t allocations;
+    uint32_t allocatedBufferSize;
+    uint32_t allocatedBufferCount;
 };
 
 #endif // VN_LCEVC_COMMON_DETAIL_ROLLING_ARENA_H

@@ -817,8 +817,9 @@ static bool parseEncodedDataTiled(ByteStream* stream, LdeFrameConfig* frameConfi
                             }
 
                             VNCheckB(tiledSizeDecoderInitialize(
-                                frameConfig->allocator, &sizeDecoder, numChunksEnabled, stream,
-                                globalConfig->tileSizeCompression, globalConfig->bitstreamVersion));
+                                frameConfig->allocator, frameConfig->diagId, &sizeDecoder,
+                                numChunksEnabled, stream, globalConfig->tileSizeCompression,
+                                globalConfig->bitstreamVersion));
                         }
 
                         for (uint32_t tile = 0; tile < currentTileCount; ++tile) {
@@ -850,8 +851,8 @@ static bool parseEncodedDataTiled(ByteStream* stream, LdeFrameConfig* frameConfi
                     }
 
                     VNCheckB(tiledSizeDecoderInitialize(
-                        frameConfig->allocator, &sizeDecoder, numChunksEnabled, stream,
-                        globalConfig->tileSizeCompression, globalConfig->bitstreamVersion));
+                        frameConfig->allocator, frameConfig->diagId, &sizeDecoder, numChunksEnabled,
+                        stream, globalConfig->tileSizeCompression, globalConfig->bitstreamVersion));
                 }
                 for (uint32_t tile = 0; tile < currentTileCount; ++tile) {
                     VNLogVerbose("    temporal: [%d, %3u]: ", plane, tile);
@@ -1425,8 +1426,9 @@ bool ldeConfigsParse(const uint8_t* serialized, const size_t serializedSize, Lde
     if (VNIsAllocated(frameConfig->unencapsulatedAllocation)) {
         VNFree(frameConfig->allocator, &frameConfig->unencapsulatedAllocation);
     }
-    uint8_t* unencapsulated = VNAllocateZeroArray(
-        frameConfig->allocator, &frameConfig->unencapsulatedAllocation, uint8_t, serializedSize);
+    VNAllocateIdZeroArray(frameConfig->allocator, &frameConfig->unencapsulatedAllocation, uint8_t,
+                          serializedSize, "FrameConfigUnencapsulated", frameConfig->diagId);
+    uint8_t* unencapsulated = VNAllocationPtr(frameConfig->unencapsulatedAllocation, uint8_t);
 
     if (!unencapsulate(serialized, serializedSize, unencapsulated, &unencapsulatedSize, &idr)) {
         VNLogError("Unencapsulation failed during NAL unit parsing");

@@ -13,6 +13,8 @@
  * THE EXCLUSION OF PATENT LICENSES PROVISION OF THE BSD-3-CLAUSE-CLEAR LICENSE. */
 
 #include <assert.h>
+#include <LCEVC/common/diagnostics.h>
+#include <LCEVC/common/memory.h>
 #include <LCEVC/enhancement/cmdbuffer_cpu.h>
 #include <memory.h>
 
@@ -43,7 +45,7 @@ enum CmdBufferCpuConfig
  *
  *  \return true on success, otherwise false.
  */
-static bool cmdBufferStorageResize(LdeCmdBufferCpuStorage* store, uint32_t capacity)
+static bool cmdBufferStorageResize(LdeCmdBufferCpuStorage* store, uint32_t capacity, uint64_t diagId)
 {
     assert(store);
 
@@ -56,7 +58,9 @@ static bool cmdBufferStorageResize(LdeCmdBufferCpuStorage* store, uint32_t capac
         const size_t dataOffset = (size_t)(store->end - store->currentResidual);
         const size_t commandOffset = (size_t)(store->currentCommand - store->start);
 
-        store->start = VNReallocateArray(store->allocator, &store->allocation, uint8_t, capacity);
+        VNReallocateIdArray(store->allocator, &store->allocation, uint8_t, capacity,
+                            "CmdBufferCPU_Storage", diagId);
+        store->start = VNAllocationPtr(store->allocation, uint8_t);
         if (!store->start) {
             return false;
         }
@@ -70,8 +74,9 @@ static bool cmdBufferStorageResize(LdeCmdBufferCpuStorage* store, uint32_t capac
         memmove((void* const)(newEnd - dataOffset), store->currentResidual, dataOffset);
         store->currentResidual = newEnd - dataOffset;
     } else {
-        store->start = VNAllocateArray(store->allocator, &store->allocation, uint8_t, capacity);
-
+        VNAllocateIdArray(store->allocator, &store->allocation, uint8_t, capacity,
+                          "CmdBufferCPU_Storage", diagId);
+        store->start = VNAllocationPtr(store->allocation, uint8_t);
         if (!store->start) {
             return false;
         }
@@ -95,7 +100,7 @@ static bool cmdBufferStorageResize(LdeCmdBufferCpuStorage* store, uint32_t capac
  *  \return true on success, otherwise false.
  */
 static bool cmdBufferStorageInitialize(LdcMemoryAllocator* allocator, LdeCmdBufferCpuStorage* store,
-                                       int32_t initialCapacity)
+                                       int32_t initialCapacity, uint64_t diagId)
 {
     assert(store);
     assert(initialCapacity >= 1);
@@ -104,20 +109,20 @@ static bool cmdBufferStorageInitialize(LdcMemoryAllocator* allocator, LdeCmdBuff
 
     store->allocator = allocator;
 
-    return cmdBufferStorageResize(store, initialCapacity);
+    return cmdBufferStorageResize(store, initialCapacity, diagId);
 }
 
 /*! \brief Releases all the memory associated with a store object.
  *
  *  \param store   The store to free.
  */
-static void cmdBufferStorageFree(LdeCmdBufferCpuStorage* store)
+static void cmdBufferStorageFree(LdeCmdBufferCpuStorage* store, uint64_t diagId)
 {
     assert(store);
 
     if (store->allocator && store->start) {
         LdcMemoryAllocation storeAllocation = store->allocation;
-        VNFree(store->allocator, &storeAllocation);
+        VNFreeId(store->allocator, &storeAllocation, diagId);
     }
     memset(store, 0, sizeof(LdeCmdBufferCpuStorage));
 }
@@ -136,12 +141,13 @@ static void cmdBufferStorageReset(LdeCmdBufferCpuStorage* store)
 
 /*------------------------------------------------------------------------------*/
 
-bool ldeCmdBufferCpuInitialize(LdcMemoryAllocator* allocator, LdeCmdBufferCpu* cmdBuffer,
-                               uint16_t const numEntryPoints)
+bool ldeCmdBufferCpuInitializeId(LdcMemoryAllocator* allocator, LdeCmdBufferCpu* cmdBuffer,
+                                 uint16_t const numEntryPoints, uint64_t diagId)
 {
     cmdBuffer->allocator = allocator;
+    cmdBuffer->diagId = diagId;
 
-    if (!cmdBufferStorageInitialize(allocator, &cmdBuffer->data, CBCKInitialCapacity)) {
+    if (!cmdBufferStorageInitialize(allocator, &cmdBuffer->data, CBCKInitialCapacity, diagId)) {
         ldeCmdBufferCpuFree(cmdBuffer);
         return false;
     }
@@ -151,11 +157,19 @@ bool ldeCmdBufferCpuInitialize(LdcMemoryAllocator* allocator, LdeCmdBufferCpu* c
     }
     cmdBuffer->numEntryPoints = numEntryPoints;
     if (numEntryPoints > 0) {
-        cmdBuffer->entryPoints = VNAllocateZeroArray(allocator, &cmdBuffer->entryPointsAllocation,
-                                                     LdeCmdBufferCpuEntryPoint, numEntryPoints);
+        VNAllocateIdZeroArray(allocator, &cmdBuffer->entryPointsAllocation, LdeCmdBufferCpuEntryPoint,
+                              numEntryPoints, "CmdBufferCPU_EntryPoints", diagId);
+        cmdBuffer->entryPoints =
+            VNAllocationPtr(cmdBuffer->entryPointsAllocation, LdeCmdBufferCpuEntryPoint);
     }
 
     return true;
+}
+
+bool ldeCmdBufferCpuInitialize(LdcMemoryAllocator* allocator, LdeCmdBufferCpu* cmdBuffer,
+                               uint16_t const numEntryPoints)
+{
+    return ldeCmdBufferCpuInitializeId(allocator, cmdBuffer, numEntryPoints, 0);
 }
 
 void ldeCmdBufferCpuFree(LdeCmdBufferCpu* cmdBuffer)
@@ -165,11 +179,11 @@ void ldeCmdBufferCpuFree(LdeCmdBufferCpu* cmdBuffer)
     }
 
     if (cmdBuffer->numEntryPoints > 0) {
-        VNFree(cmdBuffer->allocator, &cmdBuffer->entryPointsAllocation);
+        VNFreeId(cmdBuffer->allocator, &cmdBuffer->entryPointsAllocation, cmdBuffer->diagId);
         cmdBuffer->numEntryPoints = 0;
     }
 
-    cmdBufferStorageFree(&cmdBuffer->data);
+    cmdBufferStorageFree(&cmdBuffer->data, cmdBuffer->diagId);
 }
 
 bool ldeCmdBufferCpuReset(LdeCmdBufferCpu* cmdBuffer, uint8_t transformSize)
@@ -188,7 +202,7 @@ bool ldeCmdBufferCpuReset(LdeCmdBufferCpu* cmdBuffer, uint8_t transformSize)
         return true;
     }
 
-    if (!cmdBufferStorageResize(&cmdBuffer->data, cmdBuffer->data.allocatedCapacity)) {
+    if (!cmdBufferStorageResize(&cmdBuffer->data, cmdBuffer->data.allocatedCapacity, cmdBuffer->diagId)) {
         return false;
     }
 
@@ -254,7 +268,8 @@ bool ldeCmdBufferCpuAppend(LdeCmdBufferCpu* cmdBuffer, LdeCmdBufferCpuCmd comman
     cmdBuffer->count++;
 
     if ((size_t)(dataStore->currentResidual - dataStore->currentCommand) < layerSize + sizeof(int32_t) + 1 &&
-        !cmdBufferStorageResize(dataStore, dataStore->allocatedCapacity * CBCKStoreGrowFactor)) {
+        !cmdBufferStorageResize(dataStore, dataStore->allocatedCapacity * CBCKStoreGrowFactor,
+                                cmdBuffer->diagId)) {
         return false;
     }
 

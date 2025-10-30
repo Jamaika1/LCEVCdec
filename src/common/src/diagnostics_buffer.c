@@ -27,10 +27,12 @@ void ldcDiagnosticsBufferInitialize(LdcDiagnosticsBuffer* diagnosticsBuffer, uin
 
     VNClear(diagnosticsBuffer);
 
-    VNAllocateArray(allocator, &diagnosticsBuffer->ringAllocation, LdcDiagRecord, capacity);
+    VNAllocateArray(allocator, &diagnosticsBuffer->ringAllocation, LdcDiagRecord, capacity,
+                    "DiagnosticsBuffer_ring");
     VNCheck(VNAllocationSucceeded(diagnosticsBuffer->ringAllocation));
 
-    VNAllocateArray(allocator, &diagnosticsBuffer->varDataAllocation, uint8_t, varDataCapacity);
+    VNAllocateArray(allocator, &diagnosticsBuffer->varDataAllocation, uint8_t, varDataCapacity,
+                    "DiagnosticsBuffer_data");
     VNCheck(VNAllocationSucceeded(diagnosticsBuffer->varDataAllocation));
 
     diagnosticsBuffer->ring = VNAllocationPtr(diagnosticsBuffer->ringAllocation, LdcDiagRecord);

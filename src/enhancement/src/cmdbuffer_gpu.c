@@ -14,6 +14,7 @@
 
 #include <assert.h>
 #include <LCEVC/common/bitutils.h>
+#include <LCEVC/common/diagnostics.h>
 #include <LCEVC/enhancement/cmdbuffer_gpu.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -36,7 +37,8 @@ enum CmdBufferGpuConstants
 /*------------------------------------------------------------------------------*/
 
 static bool cmdBufferResidualsResize(LdcMemoryAllocator* allocator, LdeCmdBufferGpuBuilder* cmdBufferBuilder,
-                                     LdeCmdBufferGpuOperation operation, uint32_t newCapacity)
+                                     LdeCmdBufferGpuOperation operation, uint32_t newCapacity,
+                                     uint64_t diagId)
 {
     assert(cmdBufferBuilder);
 
@@ -66,10 +68,11 @@ static bool cmdBufferResidualsResize(LdcMemoryAllocator* allocator, LdeCmdBuffer
     }
 
     if (*residualBuffer) {
-        *residualBuffer = VNReallocateArray(allocator, allocation, int16_t, newCapacity);
+        VNReallocateIdArray(allocator, allocation, int16_t, newCapacity, "CmdBufferGPU_Residuals", diagId);
     } else {
-        *residualBuffer = VNAllocateArray(allocator, allocation, int16_t, newCapacity);
+        VNAllocateIdArray(allocator, allocation, int16_t, newCapacity, "CmdBufferGPU_Residuals", diagId);
     }
+    *residualBuffer = VNAllocationPtr(*allocation, int16_t);
     if (!*residualBuffer) {
         return false;
     }
@@ -90,8 +93,9 @@ static bool cmdBufferCommandsResize(LdeCmdBufferGpu* cmdBuffer,
     uint32_t lastCmd = newCapacity - 1;
     LdeCmdBufferGpuCmd* commandBuffer = NULL;
     if (cmdBuffer->commands) {
-        commandBuffer = VNReallocateArray(cmdBuffer->allocator, &cmdBuffer->allocationCommands,
-                                          LdeCmdBufferGpuCmd, newCapacity);
+        VNReallocateIdArray(cmdBuffer->allocator, &cmdBuffer->allocationCommands, LdeCmdBufferGpuCmd,
+                            newCapacity, "CmdBufferGPU_Commands", cmdBuffer->diagId);
+        commandBuffer = VNAllocationPtr(cmdBuffer->allocationCommands, LdeCmdBufferGpuCmd);
         if (!commandBuffer) {
             return false;
         }
@@ -110,8 +114,9 @@ static bool cmdBufferCommandsResize(LdeCmdBufferGpu* cmdBuffer,
             cmdBufferBuilder->currentClearAndSetCmd = lastCmd;
         }
     } else {
-        commandBuffer = VNAllocateZeroArray(cmdBuffer->allocator, &cmdBuffer->allocationCommands,
-                                            LdeCmdBufferGpuCmd, newCapacity);
+        VNAllocateIdZeroArray(cmdBuffer->allocator, &cmdBuffer->allocationCommands, LdeCmdBufferGpuCmd,
+                              newCapacity, "CmdBufferGPU_Commands", cmdBuffer->diagId);
+        commandBuffer = VNAllocationPtr(cmdBuffer->allocationCommands, LdeCmdBufferGpuCmd);
         if (!commandBuffer) {
             return false;
         }
@@ -156,7 +161,7 @@ void cmdBufferAppendResiduals(LdeCmdBufferGpu* cmdBuffer, LdeCmdBufferGpuBuilder
     if (residualBuffer) {
         if (*residualCount >= *residualCapacity - cmdBuffer->layerCount) {
             cmdBufferResidualsResize(cmdBuffer->allocator, cmdBufferBuilder, cmd->operation,
-                                     *residualCapacity * CBGKStoreGrowFactor);
+                                     *residualCapacity * CBGKStoreGrowFactor, cmdBuffer->diagId);
             switch (cmd->operation) {
                 case CBGOAdd: residualBuffer = cmdBufferBuilder->residualsAdd; break;
                 case CBGOSet: residualBuffer = cmdBufferBuilder->residualsSet; break;
@@ -327,15 +332,15 @@ bool ldeCmdBufferGpuReset(LdeCmdBufferGpu* cmdBuffer, LdeCmdBufferGpuBuilder* cm
     /* Already with the right number of layers. */
     if (layerCount != cmdBuffer->layerCount) {
         if (!cmdBufferResidualsResize(cmdBuffer->allocator, cmdBufferBuilder, CBGOAdd,
-                                      cmdBufferBuilder->residualAddCapacity)) {
+                                      cmdBufferBuilder->residualAddCapacity, cmdBuffer->diagId)) {
             return false;
         }
         if (!cmdBufferResidualsResize(cmdBuffer->allocator, cmdBufferBuilder, CBGOSet,
-                                      cmdBufferBuilder->residualSetCapacity)) {
+                                      cmdBufferBuilder->residualSetCapacity, cmdBuffer->diagId)) {
             return false;
         }
         if (!cmdBufferResidualsResize(cmdBuffer->allocator, cmdBufferBuilder, CBGOClearAndSet,
-                                      cmdBufferBuilder->residualClearAndSetCapacity)) {
+                                      cmdBufferBuilder->residualClearAndSetCapacity, cmdBuffer->diagId)) {
             return false;
         }
         if (!cmdBufferCommandsResize(cmdBuffer, cmdBufferBuilder, cmdBufferBuilder->commandCapacity)) {
@@ -361,12 +366,14 @@ bool ldeCmdBufferGpuBuild(LdeCmdBufferGpu* cmdBuffer, LdeCmdBufferGpuBuilder* cm
     cmdBuffer->residualCount = newResidualCount;
 
     if (!cmdBuffer->residuals) {
-        cmdBuffer->residuals = VNAllocateArray(cmdBuffer->allocator, &cmdBuffer->allocationResiduals,
-                                               int16_t, newResidualCount);
+        VNAllocateIdArray(cmdBuffer->allocator, &cmdBuffer->allocationResiduals, int16_t,
+                          newResidualCount, "CmdBufferGPU_Residuals", cmdBuffer->diagId);
+        cmdBuffer->residuals = VNAllocationPtr(cmdBuffer->allocationResiduals, int16_t);
         cmdBufferBuilder->residualCapacity = newResidualCount;
     } else if (newResidualCount > cmdBufferBuilder->residualCapacity) {
-        cmdBuffer->residuals = VNReallocateArray(cmdBuffer->allocator, &cmdBuffer->allocationResiduals,
-                                                 int16_t, newResidualCount);
+        VNReallocateIdArray(cmdBuffer->allocator, &cmdBuffer->allocationResiduals, int16_t,
+                            newResidualCount, "CmdBufferGPU_Residuals", cmdBuffer->diagId);
+        cmdBuffer->residuals = VNAllocationPtr(cmdBuffer->allocationResiduals, int16_t);
         cmdBufferBuilder->residualCapacity = newResidualCount;
     }
     if (!cmdBuffer->residuals) {

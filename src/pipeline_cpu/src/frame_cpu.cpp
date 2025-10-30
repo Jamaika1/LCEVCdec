@@ -37,9 +37,11 @@
 
 namespace lcevc_dec::pipeline_cpu {
 
-FrameCPU::FrameCPU(LdcMemoryAllocator* allocator, uint64_t timestamp)
+FrameCPU::FrameCPU(LdcMemoryAllocator* enhancementAllocator, LdcMemoryAllocator* bufferAllocator,
+                   uint64_t timestamp)
     : LdpFrame{}
-    , m_allocator(allocator)
+    , m_enhancementAllocator(enhancementAllocator)
+    , m_bufferAllocator(bufferAllocator)
 {
     // Only fill in timestamp at this point - full initialization happens after a good config is seen
     this->timestamp = timestamp;
@@ -53,11 +55,14 @@ bool FrameCPU::initialize(const PipelineConfigCPU& configuration, LdcTaskPool* t
 {
     // Set up the task group
     unsigned maxDependencies = kTaskPoolMaxDependencies;
-    ldcTaskGroupInitialize(&m_taskGroup, taskPool, maxDependencies);
+    ldcTaskGroupInitialize(&m_taskGroup, taskPool, maxDependencies, timestamp);
 
     // Generate task dependencies for inputs
     m_depBasePicture = ldcTaskDependencyAdd(&m_taskGroup); // NOLINT(cppcoreguidelines-prefer-member-initializer)
     if (basePicture) {
+        if (!m_intermediateInitialized) {
+            initializeIntermediateBuffers();
+        }
         ldcTaskDependencyMet(&m_taskGroup, m_depBasePicture, basePicture);
     }
 
@@ -66,7 +71,7 @@ bool FrameCPU::initialize(const PipelineConfigCPU& configuration, LdcTaskPool* t
         ldcTaskDependencyMet(&m_taskGroup, m_depOutputPicture, outputPicture);
     }
 
-    if (!initializeCommandBuffers() || !initializeIntermediateBuffers()) {
+    if (!initializeCommandBuffers()) {
         return false;
     }
 
@@ -98,7 +103,7 @@ void FrameCPU::release(bool wait)
     }
 
     if (VNIsAllocated(m_enhancementData)) {
-        VNFree(m_allocator, &m_enhancementData);
+        VNFree(m_enhancementAllocator, &m_enhancementData);
     }
 
     ldeConfigsReleaseFrame(&config);
@@ -132,7 +137,9 @@ void FrameCPU::unblockForFlush()
 
 uint8_t* FrameCPU::setEnhancementData(const uint8_t* data, uint32_t byteSize)
 {
-    uint8_t* const enhancement{VNAllocateArray(m_allocator, &m_enhancementData, uint8_t, byteSize)};
+    VNAllocateIdArray(m_enhancementAllocator, &m_enhancementData, uint8_t, byteSize,
+                      "FrameCPU_EnhancementData", timestamp);
+    uint8_t* const enhancement{VNAllocationPtr(m_enhancementData, uint8_t)};
 
     if (!enhancement) {
         return nullptr;
@@ -221,8 +228,9 @@ bool FrameCPU::initializeCommandBuffers()
         return true;
     }
 
-    enhancementTiles = VNAllocateArray(m_allocator, &m_enhancementTilesAllocation,
-                                       LdpEnhancementTile, enhancementTileCount);
+    VNAllocateIdArray(m_enhancementAllocator, &m_enhancementTilesAllocation, LdpEnhancementTile,
+                      enhancementTileCount, "FrameCPU_EnhancementTiles", timestamp);
+    enhancementTiles = VNAllocationPtr(m_enhancementTilesAllocation, LdpEnhancementTile);
     if (!enhancementTiles) {
         return false;
     }
@@ -253,7 +261,7 @@ bool FrameCPU::initializeCommandBuffers()
                 et->planeWidth = planeWidth;
                 et->planeHeight = planeHeight;
 
-                if (!ldeCmdBufferCpuInitialize(m_allocator, &et->buffer, 0)) {
+                if (!ldeCmdBufferCpuInitializeId(m_enhancementAllocator, &et->buffer, 0, timestamp)) {
                     return false;
                 }
                 if (!ldeCmdBufferCpuReset(&et->buffer, globalConfig->numLayers)) {
@@ -277,7 +285,7 @@ void FrameCPU::releaseCommandBuffers()
     enhancementTileCount = 0;
 
     if (VNIsAllocated(m_enhancementTilesAllocation)) {
-        VNFree(m_allocator, &m_enhancementTilesAllocation);
+        VNFree(m_enhancementAllocator, &m_enhancementTilesAllocation);
     }
 }
 
@@ -287,6 +295,10 @@ void FrameCPU::releaseCommandBuffers()
 //
 bool FrameCPU::initializeIntermediateBuffers()
 {
+    if (!hasGoodConfig()) {
+        return false;
+    }
+
     const LdpColorFormat format = getBaseColorFormat();
 
     // Allocate buffers starting at LOQ0, down to LOQ2 - As we go down, if there is no scaling
@@ -297,6 +309,7 @@ bool FrameCPU::initializeIntermediateBuffers()
         if (globalConfig->initialized) {
             ldePlaneDimensionsFromConfig(globalConfig, static_cast<LdeLOQIndex>(loq), 0, &width, &height);
         } else {
+            // SOme sort of passthrough - use base size
             width = static_cast<uint16_t>(baseWidth);
             height = static_cast<uint16_t>(baseHeight);
         }
@@ -317,8 +330,10 @@ bool FrameCPU::initializeIntermediateBuffers()
             if (needsIntermediateBuffer(static_cast<LdeLOQIndex>(loq), plane)) {
                 // Create an internal buffer for this LoQ/plane
                 const uint32_t loqSize = ldpPictureLayoutPlaneSize(&m_intermediateLayout[loq], plane);
-                if (!VNAllocateAlignedArray(m_allocator, &m_intermediateBufferAllocation[plane][loq],
-                                            uint8_t, kBufferRowAlignment, loqSize)) {
+                VNAllocateIdAlignedArray(m_bufferAllocator, &m_intermediateBufferAllocation[plane][loq],
+                                         uint8_t, kBufferRowAlignment, loqSize,
+                                         "FrameCPU_IntermediateBuffer", timestamp);
+                if (!VNIsAllocated(m_intermediateBufferAllocation[plane][loq])) {
                     return false;
                 }
                 m_intermediateBufferPtr[plane][loq] =
@@ -343,14 +358,17 @@ bool FrameCPU::initializeIntermediateBuffers()
             for (uint8_t plane = 0; plane < ldpPictureLayoutPlanes(&m_upscaleLayout[loq]); plane++) {
                 // Add 16 bytes padding to stop upsampler SIMD loads falling off end of page
                 const uint32_t loqSize = ldpPictureLayoutPlaneSize(&m_upscaleLayout[loq], plane) + 16;
-                if (!VNAllocateAlignedArray(m_allocator, &m_upscaleBufferAllocation[plane][loq],
-                                            uint8_t, kBufferRowAlignment, loqSize)) {
+                VNAllocateIdAlignedArray(m_bufferAllocator, &m_upscaleBufferAllocation[plane][loq],
+                                         uint8_t, kBufferRowAlignment, loqSize,
+                                         "FrameCPU_UpscaleBuffer", timestamp);
+                if (!VNIsAllocated(m_upscaleBufferAllocation[plane][loq])) {
                     return false;
                 }
             }
         }
     }
 
+    m_intermediateInitialized = true;
     return true;
 }
 
@@ -360,13 +378,15 @@ void FrameCPU::releaseIntermediateBuffers()
     for (uint8_t plane = 0; plane < RCMaxPlanes; plane++) {
         for (int8_t loq = LOQ0; loq <= LOQ2; loq++) {
             if (VNIsAllocated(m_intermediateBufferAllocation[plane][loq])) {
-                VNFree(m_allocator, &m_intermediateBufferAllocation[plane][loq]);
+                VNFree(m_bufferAllocator, &m_intermediateBufferAllocation[plane][loq]);
             }
             if (loq < LOQ2 && VNIsAllocated(m_upscaleBufferAllocation[plane][loq])) {
-                VNFree(m_allocator, &m_upscaleBufferAllocation[plane][loq]);
+                VNFree(m_bufferAllocator, &m_upscaleBufferAllocation[plane][loq]);
             }
         }
     }
+
+    m_intermediateInitialized = false;
 }
 
 // Return true if frame needs an intermediate buffer for given loq/plane
@@ -424,6 +444,10 @@ LdcReturnCode FrameCPU::setBasePicture(LdpPicture* picture, uint64_t frameDeadli
         baseFormat = ldpPictureLayoutFormat(&basePicture->layout);
     }
     deadline = frameDeadline;
+
+    if (m_state != FrameStateReorder && !m_intermediateInitialized) {
+        initializeIntermediateBuffers();
+    }
 
     // Mark dependency as met if task group is initialised
     if (m_depBasePicture != kTaskDependencyInvalid) {
@@ -726,19 +750,22 @@ std::pair<uint32_t, uint32_t> FrameCPU::temporalDimensions(uint32_t plane) const
 #ifdef VN_SDK_LOG_ENABLE_DEBUG
 // Write description of frame into string buffer
 // Return number of characters written to buffer
-static const char* frameStateName(FrameState state)
-{
-    switch (state) {
-        case FrameStateUnknown: return "Unkwn";
-        case FrameStateReorder: return "ReOrd";
-        case FrameStateProcessing: return "Prcss";
-        case FrameStateDone: return "Done ";
-        case FrameStateFlush:
-            return "Flush";
-            //    default:
+
+namespace {
+    const char* frameStateName(FrameState state)
+    {
+        switch (state) {
+            case FrameStateUnknown: return "Unkwn";
+            case FrameStateReorder: return "ReOrd";
+            case FrameStateProcessing: return "Prcss";
+            case FrameStateDone: return "Done ";
+            case FrameStateFlush:
+                return "Flush";
+                //    default:
+        }
+        return "Unknown";
     }
-    return "Unknown";
-}
+} // namespace
 
 size_t FrameCPU::longDescription(char* buffer, size_t bufferSize) const
 {

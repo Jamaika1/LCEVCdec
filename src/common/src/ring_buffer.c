@@ -29,7 +29,7 @@ void ldcRingBufferInitialize(LdcRingBuffer* ringBuffer, uint32_t capacity, uint3
 
     VNClear(ringBuffer);
 
-    VNAllocateArray(allocator, &ringBuffer->dataAllocation, uint8_t, capacity * elementSize);
+    VNAllocateArray(allocator, &ringBuffer->dataAllocation, uint8_t, capacity * elementSize, "RingBuffer");
     VNCheck(VNAllocationSucceeded(ringBuffer->dataAllocation));
 
     ringBuffer->data = VNAllocationPtr(ringBuffer->dataAllocation, uint8_t);

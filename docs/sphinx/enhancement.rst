@@ -254,6 +254,8 @@ Functions and Enums
 
 .. doxygenenum:: LdcLogLevel
 
+.. doxygenstruct:: LdcDiagSite
+
 Macros
 ------
 

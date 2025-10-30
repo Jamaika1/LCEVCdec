@@ -21,7 +21,8 @@ list(
     "src/picture_lock_vulkan.cpp"
     "src/picture_vulkan.cpp"
     "src/pipeline_builder_vulkan.cpp"
-    "src/pipeline_vulkan.cpp")
+    "src/pipeline_vulkan.cpp"
+    "src/tasks_vulkan.cpp")
 
 list(
     APPEND
@@ -34,6 +35,7 @@ list(
     "src/pipeline_builder_vulkan.h"
     "src/pipeline_config_vulkan.h"
     "src/pipeline_vulkan.h"
+    "src/tasks_vulkan.h"
     "${CMAKE_BINARY_DIR}/src/pipeline_vulkan/src/hpp/apply.h"
     "${CMAKE_BINARY_DIR}/src/pipeline_vulkan/src/hpp/blit.h"
     "${CMAKE_BINARY_DIR}/src/pipeline_vulkan/src/hpp/conversion.h"

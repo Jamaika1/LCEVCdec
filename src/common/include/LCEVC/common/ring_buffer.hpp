@@ -16,25 +16,26 @@
 #define VN_LCEVC_COMMON_RING_BUFFER_HPP
 
 #include <LCEVC/common/class_utils.hpp>
-#include <LCEVC/common/ring_buffer.h>
 #include <LCEVC/common/memory.h>
+#include <LCEVC/common/ring_buffer.h>
 
 namespace lcevc_dec::common {
 
 // Type templated C++ wrapper for the LdcRingBuffer
 //
-template<typename T>
-class RingBuffer {
+template <typename T>
+class RingBuffer
+{
 public:
-    explicit RingBuffer(uint32_t capacity, LdcMemoryAllocator* allocator) {
+    explicit RingBuffer(uint32_t capacity, LdcMemoryAllocator* allocator)
+    {
         ldcRingBufferInitialize(&m_ringBuffer, capacity, sizeof(T), allocator);
     }
-    explicit RingBuffer(uint32_t capacity) {
+    explicit RingBuffer(uint32_t capacity)
+    {
         ldcRingBufferInitialize(&m_ringBuffer, capacity, sizeof(T), ldcMemoryAllocatorMalloc());
     }
-    ~RingBuffer() {
-        ldcRingBufferDestroy(&m_ringBuffer);
-    }
+    ~RingBuffer() { ldcRingBufferDestroy(&m_ringBuffer); }
 
     void push(const T& element) { ldcRingBufferPush(&m_ringBuffer, &element); }
     bool tryPush(const T& element) { return ldcRingBufferTryPush(&m_ringBuffer, &element); }
@@ -46,6 +47,7 @@ public:
     bool isEmpty() const { return ldcRingBufferIsEmpty(&m_ringBuffer); }
 
     VNNoCopyNoMove(RingBuffer);
+
 private:
     // this contains a mutex, so make it mutable to make the query functions appear const.
     mutable LdcRingBuffer m_ringBuffer{};

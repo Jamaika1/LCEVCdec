@@ -29,12 +29,16 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+// do { ... } while(0) is used to make macros work with if/else correctly
+//
+// NOLINTBEGIN(cppcoreguidelines-avoid-do-while)
+
 // Maximum number of handlers that can be registered
 //
 #define VNDiagnosticsMaxHandlers 16
 
-// Severity level of log messages
-//
+/*! Severity level of log messages
+ */
 typedef enum LdcLogLevel
 {
     LdcLogLevelNone,
@@ -49,8 +53,8 @@ typedef enum LdcLogLevel
     LdcLogLevelCount
 } LdcLogLevel;
 
-// Type of tracing event
-//
+/*! Type of tracing event
+ */
 typedef enum LdcDiagType
 {
     LdcDiagTypeNone,
@@ -72,6 +76,11 @@ typedef enum LdcDiagType
 
     // Metrics
     LdcDiagTypeMetric, // Record a sample of some named data
+
+    // Memory
+    LdcDiagTypeMemoryAllocate,   // Allocate a block memory
+    LdcDiagTypeMemoryReallocate, // Reallocate a block memory
+    LdcDiagTypeMemoryFree,       // Free a block of memory
 
     //
     LdcDiagTypeFlush, // Mark a 'flush' in buffer
@@ -106,8 +115,10 @@ typedef enum LdcDiagArg
     LdcDiagArgCount
 } LdcDiagArg;
 
-// Static data used to describe a diagnostic site
-//
+/*! Describes a diagnostic's source location details, level, and associated values.
+ *
+ * This is usually created as a static constant by the various diagnostic macros.
+ */
 typedef struct LdcDiagSite
 {
     LdcDiagType type;       // Type of associated event
@@ -121,7 +132,8 @@ typedef struct LdcDiagSite
     LdcDiagArg valueType;              // Type of any value in record
 } LdcDiagSite;
 
-// Type specific values
+/*! Type specific values
+ */
 typedef union LdcDiagValue
 {
     uint64_t id;
@@ -146,8 +158,8 @@ typedef union LdcDiagValue
     uint64_t varDataOffset;
 } LdcDiagValue;
 
-// Record in diagnostic ring buffer - 32 bytes
-//
+/*! Record in diagnostic ring buffer - 32 bytes
+ */
 typedef struct DiagRecord
 {
     const LdcDiagSite* site; // Where the diagnostic was raised
@@ -157,10 +169,10 @@ typedef struct DiagRecord
     LdcDiagValue value; // Type dependant value associated with diagnostic - e.g. a metric or id
 } LdcDiagRecord;
 
-// Function to connect diagnostics to some output mechanisms (stdout, trace file etc.)
-//
-// Return true if no further handlers should process the event
-//
+/*! Function to connect diagnostics to some output mechanisms (stdout, trace file etc.)
+ *
+ * Return true if no further handlers should process the event
+ */
 typedef bool LdcDiagHandler(void* user, const LdcDiagSite* site, const LdcDiagRecord* record,
                             const LdcDiagValue* values);
 
@@ -196,13 +208,10 @@ bool ldcDiagTraceFileRelease(void);
 //
 
 #if VN_SDK_FEATURE(DIAGNOSTICS_ASYNC)
-static inline void ldcLogEvent(const LdcDiagSite* site, size_t valuesSize, ...);
-static inline void ldcLogEventFormatted(const LdcDiagSite* site, const char* fmt, ...);
+static inline void ldcDiagEvent(const LdcDiagSite* site, size_t valuesSize, ...);
+static inline void ldcDiagEventFormatted(const LdcDiagSite* site, const char* fmt, ...);
 
-static inline void ldcTracingEvent(const LdcDiagSite* site, size_t valuesSize, ...);
-
-static inline void ldcTracingScopedBegin(const LdcDiagSite* site);
-static inline void ldcTracingScopedEnd(const LdcDiagSite* site);
+static inline void ldcTracingScoped(const LdcDiagSite* site, uint64_t id);
 
 static inline void ldcMetricInt32(const LdcDiagSite* site, int32_t value);
 static inline void ldcMetricUInt32(const LdcDiagSite* site, uint32_t value);
@@ -211,11 +220,9 @@ static inline void ldcMetricUInt64(const LdcDiagSite* site, uint64_t value);
 static inline void ldcMetricFloat32(const LdcDiagSite* site, float value);
 static inline void ldcMetricFloat64(const LdcDiagSite* site, double value);
 #else
-void ldcLogEvent(const LdcDiagSite* site, size_t valuesSize, ...);
-void ldcLogEventFormatted(const LdcDiagSite* site, const char* fmt, ...);
-void ldcTracingEvent(const LdcDiagSite* site, size_t valuesSize, ...);
-void ldcTracingScopedBegin(const LdcDiagSite* site);
-void ldcTracingScopedEnd(const LdcDiagSite* site);
+void ldcDiagEvent(const LdcDiagSite* site, size_t valuesSize, ...);
+void ldcDiagEventFormatted(const LdcDiagSite* site, const char* fmt, ...);
+void ldcTracingScoped(const LdcDiagSite* site, uint64_t id);
 void ldcMetricInt32(const LdcDiagSite* site, int32_t value);
 void ldcMetricUInt32(const LdcDiagSite* site, uint32_t value);
 void ldcMetricInt64(const LdcDiagSite* site, int64_t value);
@@ -419,8 +426,8 @@ struct LdcDiagArgumentTraits<unsigned long>
             type,      __FILE__, __LINE__,                                                                 \
             level,     str,      (sizeof(args_) / sizeof(LdcDiagArg)) - 1,                                 \
             args_ + 1, NULL,     LdcDiagArgNone};                                                          \
-        ldcLogEvent(&site_, sizeof(LdcDiagValue) * ((sizeof(args_) / sizeof(LdcDiagArg)) - 1),             \
-                    ##__VA_ARGS__);                                                                        \
+        ldcDiagEvent(&site_, sizeof(LdcDiagValue) * ((sizeof(args_) / sizeof(LdcDiagArg)) - 1),            \
+                     ##__VA_ARGS__);                                                                       \
     } while (0)
 
 // Version that records argument strings
@@ -432,8 +439,8 @@ struct LdcDiagArgumentTraits<unsigned long>
             type,      __FILE__,   __LINE__,                                                               \
             level,     str,        (sizeof(args_) / sizeof(LdcDiagArg)) - 1,                               \
             args_ + 1, names_ + 1, LdcDiagArgNone};                                                        \
-        ldcLogEvent(&site_, sizeof(LdcDiagValue) * ((sizeof(args_) / sizeof(LdcDiagArg)) - 1),             \
-                    ##__VA_ARGS__);                                                                        \
+        ldcDiagEvent(&site_, sizeof(LdcDiagValue) * ((sizeof(args_) / sizeof(LdcDiagArg)) - 1),            \
+                     ##__VA_ARGS__);                                                                       \
     } while (0)
 
 // Version of above with extra event id and names
@@ -444,8 +451,8 @@ struct LdcDiagArgumentTraits<unsigned long>
         static const LdcDiagSite site_ = {type,  __FILE__, __LINE__,                                     \
                                           level, str,      (sizeof(args_) / sizeof(LdcDiagArg)),         \
                                           args_, names_,   LdcDiagArgNone};                              \
-        ldcLogEvent(&site_, sizeof(LdcDiagValue) * ((sizeof(args_) / sizeof(LdcDiagArg))), id,           \
-                    ##__VA_ARGS__);                                                                      \
+        ldcDiagEvent(&site_, sizeof(LdcDiagValue) * ((sizeof(args_) / sizeof(LdcDiagArg))), id,          \
+                     ##__VA_ARGS__);                                                                     \
     } while (0)
 
 // Tracing macros - C
@@ -468,8 +475,8 @@ struct LdcDiagArgumentTraits<unsigned long>
                                            NULL,                   \
                                            NULL,                   \
                                            LdcDiagArgId};          \
-    ldcTracingScopedBegin(&_traceSite)
-#define VNTraceScopedEnd() ldcTracingScopedEnd(&_traceSite)
+    ldcTracingScoped(&_traceSite, 1)
+#define VNTraceScopedEnd() ldcTracingScoped(&_traceSite, 0)
 
 #define VNTraceAsyncBegin(msg, id, ...) \
     _VNDiagEventIdNames(LdcDiagTypeTraceAsyncBegin, LdcLogLevelNone, id, msg, ...)
@@ -513,9 +520,9 @@ public:
     LdcTraceScoped(const LdcDiagSite* site)
         : m_site(site)
     {
-        ldcTracingScopedBegin(site);
+        ldcTracingScoped(site, 1);
     }
-    ~LdcTraceScoped() { ldcTracingScopedEnd(m_site); }
+    ~LdcTraceScoped() { ldcTracingScoped(m_site, 0); }
 
     VNNoCopyNoMove(LdcTraceScoped);
 
@@ -528,8 +535,8 @@ private:
 // Scoped object to generate begin/end events
 // NB: Trailing semicolon is missing
 #define VNTraceScoped()                                                 \
-    static LdcDiagSiteWrapper _traceSite(__FILE__, __LINE__, __func__); \
-    LdcTraceScoped _traceScoped(&_traceSite)
+    static LdcDiagSiteWrapper traceSite_(__FILE__, __LINE__, __func__); \
+    LdcTraceScoped _traceScoped(&traceSite_)
 
 #else
 #define VNTraceScoped() (void)(0)
@@ -542,10 +549,10 @@ private:
 
 #define _VNTraceMetric(type, name, value)                                                \
     do {                                                                                 \
-        static const LdcDiagSite site = {                                                \
+        static const LdcDiagSite site_ = {                                               \
             LdcDiagTypeMetric, __FILE__, __LINE__, LdcLogLevelNone, name, 0, NULL, NULL, \
             LdcDiagArg##type};                                                           \
-        ldcMetric##type(&site, value);                                                   \
+        ldcMetric##type(&site_, value);                                                  \
     } while (0)
 
 #define VNMetricInt32(name, value) _VNTraceMetric(Int32, name, (int32_t)(value))
@@ -563,6 +570,8 @@ private:
 #define VNMetricFloat32(name, value) (void)(VNUnused(value))
 #define VNMetricFloat64(name, value) (void)(VNUnused(value))
 #endif
+
+// NOLINTEND(cppcoreguidelines-avoid-do-while)
 
 // Implementations detail
 #include "detail/diagnostics.h"

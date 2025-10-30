@@ -14,6 +14,7 @@
 
 #include "picture_cpu.h"
 
+#include <LCEVC/common/memory.h>
 #include <LCEVC/pipeline/buffer.h>
 #include <LCEVC/pipeline/picture_layout.h>
 //
@@ -25,9 +26,10 @@ namespace {
     extern const LdpPictureFunctions kPictureFunctions;
 }
 
-PictureCPU::PictureCPU(PipelineCPU& pipeline)
+PictureCPU::PictureCPU(PipelineCPU& pipeline, LdcMemoryAllocator* allocator)
     : LdpPicture{&kPictureFunctions}
     , m_pipeline(pipeline)
+    , m_allocator(allocator)
 {
     ldpPictureLayoutInitialize(&layout, LdpColorFormatUnknown, 0, 0, 0);
 
@@ -155,7 +157,9 @@ bool PictureCPU::lock(LdpAccess access, PictureLock*& lockOut)
     }
 
     // Allocate lock object, and in-place construct
-    PictureLock* pictureLock = VNAllocate(m_pipeline.allocator(), &m_lockAllocation, PictureLock);
+    VNAllocate(m_allocator, &m_lockAllocation, PictureLock, "PictureCPU_Lock");
+    PictureLock* pictureLock = VNAllocationPtr(m_lockAllocation, PictureLock);
+
     lockOut = new (pictureLock) PictureLock(this, access); // NOLINT(cppcoreguidelines-owning-memory)
 
     return true;
@@ -173,7 +177,7 @@ bool PictureCPU::unlock(const PictureLock* lock)
 
     // Release the lock object
     if (VNIsAllocated(m_lockAllocation)) {
-        VNFree(m_pipeline.allocator(), &m_lockAllocation);
+        VNFree(m_allocator, &m_lockAllocation);
     }
 
     return true;

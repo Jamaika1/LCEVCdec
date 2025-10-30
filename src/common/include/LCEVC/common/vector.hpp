@@ -16,55 +16,95 @@
 #define VN_LCEVC_COMMON_VECTOR_HPP
 
 #include <LCEVC/common/class_utils.hpp>
-#include <LCEVC/common/vector.h>
 #include <LCEVC/common/memory.h>
+#include <LCEVC/common/vector.h>
 
 namespace lcevc_dec::common {
 
 // Type templated C++ wrapper for LdcVector
 //
-template<typename T>
-class Vector {
+template <typename T>
+class Vector
+{
 public:
-    explicit Vector(uint32_t reserved, LdcMemoryAllocator* allocator) {
+    explicit Vector(uint32_t reserved, LdcMemoryAllocator* allocator)
+    {
         ldcVectorInitialize(&m_vector, sizeof(T), reserved, allocator);
     }
-    explicit Vector(uint32_t reserved) {
+    explicit Vector(uint32_t reserved)
+    {
         ldcVectorInitialize(&m_vector, sizeof(T), reserved, ldcMemoryAllocatorMalloc());
     }
-    ~Vector() {
-        ldcVectorDestroy(&m_vector);
-    }
+    ~Vector() { ldcVectorDestroy(&m_vector); }
 
     uint32_t reserved() const { return ldcVectorReserved(&m_vector); }
     uint32_t size() const { return ldcVectorSize(&m_vector); }
     bool isEmpty() const { return ldcVectorIsEmpty(&m_vector); }
 
-    void remove(T* element) { ldcVectorRemove(&m_vector, static_cast<void *>(element)); }
+    void remove(T* element) { ldcVectorRemove(&m_vector, static_cast<void*>(element)); }
     void removeIndex(uint32_t idx) { ldcVectorRemoveIdx(&m_vector, idx); }
 
-    void removeReorder(T* element) { ldcVectorRemoveReorder(&m_vector, static_cast<void *>(element)); }
+    void removeReorder(T* element)
+    {
+        ldcVectorRemoveReorder(&m_vector, static_cast<void*>(element));
+    }
     void removeReorderIndex(uint32_t idx) { ldcVectorRemoveReorderIdx(&m_vector, idx); }
 
     T* at(uint32_t idx) { return static_cast<T*>(ldcVectorAt(&m_vector, idx)); }
     const T* at(uint32_t idx) const { return static_cast<const T*>(ldcVectorAt(&m_vector, idx)); }
 
-    T& operator[](uint32_t idx) { assert(idx < size()); return *(static_cast<T*>(ldcVectorAt(&m_vector, idx))); }
-    const T& operator[](uint32_t idx) const { assert(idx < size()); return *(static_cast<const T*>(ldcVectorAt(&m_vector, idx))); }
+    T& back() { return *static_cast<T*>(ldcVectorBack(&m_vector, 0)); }
+    const T& back() const { return *static_cast<const T*>(ldcVectorBack(&m_vector, 0)); }
 
-    T* find(LdcVectorCompareFn compareFn, const void* other) { return static_cast<T*>(ldcVectorFind(&m_vector, compareFn, other)); }
-    const T* find(LdcVectorCompareFn compareFn, const void* other) const { return static_cast<const T*>(ldcVectorFind(&m_vector, compareFn, other)); }
+    T& operator[](uint32_t idx)
+    {
+        assert(idx < size());
+        return *(static_cast<T*>(ldcVectorAt(&m_vector, idx)));
+    }
+    const T& operator[](uint32_t idx) const
+    {
+        assert(idx < size());
+        return *(static_cast<const T*>(ldcVectorAt(&m_vector, idx)));
+    }
 
-    T* findUnordered(LdcVectorCompareFn compareFn, const void* other) { return static_cast<T*>(ldcVectorFindUnordered(&m_vector, compareFn, other)); }
-    const T* findUnordered(LdcVectorCompareFn compareFn, const void* other) const { return static_cast<const T*>(ldcVectorFindUnordered(&m_vector, compareFn, other)); }
+    T* find(LdcVectorCompareFn compareFn, const void* other)
+    {
+        return static_cast<T*>(ldcVectorFind(&m_vector, compareFn, other));
+    }
+    const T* find(LdcVectorCompareFn compareFn, const void* other) const
+    {
+        return static_cast<const T*>(ldcVectorFind(&m_vector, compareFn, other));
+    }
 
-    int findIndex(LdcVectorCompareFn compareFn, const void* other) const { return ldcVectorFindIdx(&m_vector, compareFn, other); }
-    int findUnorderedIndex(LdcVectorCompareFn compareFn, const void* other) const { return ldcVectorFindUnorderedIdx(&m_vector, compareFn, other); }
+    T* findUnordered(LdcVectorCompareFn compareFn, const void* other)
+    {
+        return static_cast<T*>(ldcVectorFindUnordered(&m_vector, compareFn, other));
+    }
+    const T* findUnordered(LdcVectorCompareFn compareFn, const void* other) const
+    {
+        return static_cast<const T*>(ldcVectorFindUnordered(&m_vector, compareFn, other));
+    }
+
+    int findIndex(LdcVectorCompareFn compareFn, const void* other) const
+    {
+        return ldcVectorFindIdx(&m_vector, compareFn, other);
+    }
+    int findUnorderedIndex(LdcVectorCompareFn compareFn, const void* other) const
+    {
+        return ldcVectorFindUnorderedIdx(&m_vector, compareFn, other);
+    }
 
     void append(const T& element) { ldcVectorAppend(&m_vector, &element); }
-    T* insert(LdcVectorCompareFn compareFn, const T& element) { return static_cast<T*>(ldcVectorInsert(&m_vector, compareFn, static_cast<const void *>(&element))); }
+    T* insert(LdcVectorCompareFn compareFn, const T& element)
+    {
+        return static_cast<T*>(ldcVectorInsert(&m_vector, compareFn, static_cast<const void*>(&element)));
+    }
+
+    T* grow() { return static_cast<T*>(ldcVectorGrow(&m_vector)); }
+    void shrink() { ldcVectorShrink(&m_vector); }
 
     VNNoCopyNoMove(Vector);
+
 private:
     LdcVector m_vector{};
 };

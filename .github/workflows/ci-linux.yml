@@ -41,6 +41,8 @@ jobs:
         run: pip3 install -r cmake/tools/lint_requirements.txt
 
       - name: Run Lint Check
+        env:
+          SOURCE_BRANCH: ${{ github.head_ref }}
         run: python3 cmake/tools/lint.py --check-only --diff-main
 
   build:
@@ -64,7 +66,7 @@ jobs:
       - name: Cache APT Packages
         uses: awalsh128/cache-apt-pkgs-action@latest
         with:
-          packages: nlohmann-json3-dev ninja-build libfmt-dev libcli11-dev libavcodec-dev libavformat-dev libavutil-dev libavfilter-dev libgtest-dev libgmock-dev libxxhash-dev librange-v3-dev unzip
+          packages: nlohmann-json3-dev ninja-build libfmt-dev libcli11-dev libavcodec-dev libavformat-dev libavutil-dev libavfilter-dev libgtest-dev libgmock-dev libxxhash-dev librange-v3-dev libvulkan-dev glslang-tools unzip
 
       - name: ccache
         uses: hendrikmuhs/ccache-action@v1.2
@@ -76,7 +78,7 @@ jobs:
         run: |
           export PATH="/usr/lib/ccache:$PATH"
           mkdir build && cd build
-          cmake -G Ninja -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DVN_SDK_EXECUTABLES=ON -DVN_SDK_UNIT_TESTS=ON -DVN_SDK_WARNINGS_FAIL=ON ..
+          cmake -G Ninja -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DVN_SDK_PIPELINE_VULKAN=ON -DVN_SDK_EXECUTABLES=ON -DVN_SDK_UNIT_TESTS=ON -DVN_SDK_WARNINGS_FAIL=ON ..
           cmake --build .
 
       - name: Cmake Install
@@ -109,7 +111,7 @@ jobs:
       - name: Cache APT Packages
         uses: awalsh128/cache-apt-pkgs-action@latest
         with:
-          packages: nlohmann-json3-dev ninja-build libfmt-dev libcli11-dev libavcodec-dev libavformat-dev libavutil-dev libavfilter-dev libgtest-dev libgmock-dev libxxhash-dev librange-v3-dev unzip
+          packages: nlohmann-json3-dev ninja-build libfmt-dev libcli11-dev libavcodec-dev libavformat-dev libavutil-dev libavfilter-dev libgtest-dev libgmock-dev libxxhash-dev librange-v3-dev libvulkan-dev glslang-tools unzip
 
       - name: Download Build Artifacts
         uses: actions/download-artifact@v4
@@ -151,7 +153,7 @@ jobs:
       - name: Cache APT Packages
         uses: awalsh128/cache-apt-pkgs-action@latest
         with:
-          packages: nlohmann-json3-dev ninja-build libfmt-dev libcli11-dev libavcodec-dev libavformat-dev libavutil-dev libavfilter-dev libgtest-dev libgmock-dev libxxhash-dev librange-v3-dev unzip
+          packages: nlohmann-json3-dev ninja-build libfmt-dev libcli11-dev libavcodec-dev libavformat-dev libavutil-dev libavfilter-dev libgtest-dev libgmock-dev libxxhash-dev librange-v3-dev libvulkan-dev glslang-tools unzip
 
       - name: Download Build Artifacts
         uses: actions/download-artifact@v4
@@ -169,17 +171,18 @@ jobs:
         id: cache-assets
         uses: actions/cache@v4
         with:
-          path: external_assets/
+          path: test_cache/
           key: test-assets-${{ hashFiles('url.txt') }}
 
       - name: Download External Assets
         if: steps.cache-assets.outputs.cache-hit != 'true'
         run: |
-          mkdir -p external_assets
-          curl -L -o external_assets/test_cache.zip "$(cat url.txt)"
+          mkdir -p test_cache
+          echo "$(git describe --match "[0-9].[0-9].[0-9]" --abbrev=0)-External" > test_cache/version.txt
+          curl -L -o test_cache.zip "$(cat url.txt)"
 
       - name: Unzip Test Assets
-        run: unzip external_assets/test_cache.zip
+        run: unzip test_cache.zip
 
       - name: Install required lib
         run: pip3 install -r src/func_tests/test_requirements.txt

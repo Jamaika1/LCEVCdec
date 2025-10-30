@@ -92,7 +92,7 @@ static inline void ldcDiagnosticsRecordSet(LdcDiagRecord* record, const LdcDiagS
 
 // Fill in entire LdcDiagRecord
 static inline void ldcDiagnosticsRecordSetAll(LdcDiagRecord* record, const LdcDiagSite* site,
-                                              int id, uint32_t size)
+                                              uint64_t id, uint32_t size)
 {
     record->site = site;
     record->timestamp = ldcDiagnosticGetTimestamp();
@@ -108,9 +108,9 @@ void ldcDiagnosticsCopyArguments(const LdcDiagSite* site, LdcDiagValue values[],
 
 // The inline implementations of the underlying diagnostics entry points
 //
-static inline void ldcLogEvent(const LdcDiagSite* site, size_t valuesSize, ...)
+static inline void ldcDiagEvent(const LdcDiagSite* site, size_t valuesSize, ...)
 {
-    if (!ldcDiagnosticsState->initialized || site->level > ldcDiagnosticsState->maxLogLevel) {
+    if (!site || !ldcDiagnosticsState->initialized || site->level > ldcDiagnosticsState->maxLogLevel) {
         return;
     }
 
@@ -138,9 +138,9 @@ static inline void ldcLogEvent(const LdcDiagSite* site, size_t valuesSize, ...)
     }
 }
 
-static inline void ldcLogEventFormatted(const LdcDiagSite* site, const char* fmt, ...)
+static inline void ldcDiagEventFormatted(const LdcDiagSite* site, const char* fmt, ...)
 {
-    if (site->level > ldcDiagnosticsState->maxLogLevel) {
+    if (!site || site->level > ldcDiagnosticsState->maxLogLevel) {
         return;
     }
 
@@ -159,56 +159,15 @@ static inline void ldcLogEventFormatted(const LdcDiagSite* site, const char* fmt
     ldcDiagnosticsBufferPush(&ldcDiagnosticsState->diagnosticsBuffer, &record, (uint8_t*)buffer, chrs + 1);
 }
 
-static inline void ldcTracingScopedBegin(const LdcDiagSite* site)
+static inline void ldcTracingScoped(const LdcDiagSite* site, uint64_t id)
 {
     if (!ldcDiagnosticsState->initialized) {
         return;
     }
 
     LdcDiagRecord* rec = ldcDiagnosticsBufferPushBegin(&ldcDiagnosticsState->diagnosticsBuffer, 0);
-    ldcDiagnosticsRecordSetAll(rec, site, 1, 0);
+    ldcDiagnosticsRecordSetAll(rec, site, id, 0);
     ldcDiagnosticsBufferPushEnd(&ldcDiagnosticsState->diagnosticsBuffer);
-}
-
-static inline void ldcTracingScopedEnd(const LdcDiagSite* site)
-{
-    if (!ldcDiagnosticsState->initialized) {
-        return;
-    }
-
-    LdcDiagRecord* rec = ldcDiagnosticsBufferPushBegin(&ldcDiagnosticsState->diagnosticsBuffer, 0);
-    ldcDiagnosticsRecordSetAll(rec, site, 0, 0);
-    ldcDiagnosticsBufferPushEnd(&ldcDiagnosticsState->diagnosticsBuffer);
-}
-
-static inline void ldcTracingEvent(const LdcDiagSite* site, size_t valuesSize, ...)
-{
-    if (!ldcDiagnosticsState->initialized) {
-        return;
-    }
-
-    if (valuesSize == 0) {
-        // Special case this path so that inlining can simplify this fn
-        LdcDiagRecord* rec = ldcDiagnosticsBufferPushBegin(&ldcDiagnosticsState->diagnosticsBuffer, 0);
-        ldcDiagnosticsRecordSetAll(rec, site, 0, 0);
-        ldcDiagnosticsBufferPushEnd(&ldcDiagnosticsState->diagnosticsBuffer);
-    } else {
-        LdcDiagRecord* rec =
-            ldcDiagnosticsBufferPushBegin(&ldcDiagnosticsState->diagnosticsBuffer, valuesSize);
-
-        // Extract arguments into a value array
-        LdcDiagValue* values =
-            (LdcDiagValue*)ldcDiagnosticsBufferVarData(&ldcDiagnosticsState->diagnosticsBuffer, rec);
-
-        ldcDiagnosticsRecordSet(rec, site);
-
-        va_list args;
-        va_start(args, valuesSize);
-        ldcDiagnosticsCopyArguments(site, values, args);
-        va_end(args);
-
-        ldcDiagnosticsBufferPushEnd(&ldcDiagnosticsState->diagnosticsBuffer);
-    }
 }
 
 static inline void ldcMetricInt32(const LdcDiagSite* site, int32_t value)
@@ -282,6 +241,7 @@ static inline void ldcMetricFloat64(const LdcDiagSite* site, double value)
 
     ldcDiagnosticsBufferPush(&ldcDiagnosticsState->diagnosticsBuffer, &record, NULL, 0);
 }
+
 #endif
 
 #ifdef __cplusplus

@@ -447,7 +447,7 @@ namespace {
         PipelineCPU* const pipeline{data.pipeline};
         FrameCPU* const frame{data.frame};
 
-        if (pipeline->isFlushed(frame) || frame->isPassthrough()) {
+        if (pipeline->isSkipped(frame) || frame->isPassthrough()) {
             // Just move temporal buffer along pipline
             pipeline->transferTemporalBuffer(frame, data.planeIndex);
             return nullptr;

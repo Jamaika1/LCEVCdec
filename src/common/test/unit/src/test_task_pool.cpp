@@ -12,15 +12,15 @@
  * ANY ONWARD DISTRIBUTION, WHETHER STAND-ALONE OR AS PART OF ANY OTHER PROJECT, REMAINS SUBJECT TO
  * THE EXCLUSION OF PATENT LICENSES PROVISION OF THE BSD-3-CLAUSE-CLEAR LICENSE. */
 
-#include <fmt/core.h>
-#include <gtest/gtest.h>
-//
 #include <LCEVC/common/diagnostics.h>
 #include <LCEVC/common/memory.h>
 #include <LCEVC/common/platform.h>
 #include <LCEVC/common/task_pool.h>
 #include <LCEVC/common/threads.h>
-
+//
+#include <fmt/core.h>
+#include <gtest/gtest.h>
+//
 #include <atomic>
 #include <cstdio>
 
@@ -311,7 +311,7 @@ TEST_P(TaskPoolTest, TaskGroupInit)
 {
     LdcTaskGroup group;
 
-    EXPECT_TRUE(ldcTaskGroupInitialize(&group, &taskPool, 10));
+    EXPECT_TRUE(ldcTaskGroupInitialize(&group, &taskPool, 10, 0));
     ldcTaskGroupDestroy(&group);
 }
 
@@ -336,7 +336,7 @@ TEST_P(TaskPoolTest, TaskGroupSimple)
 {
     LdcTaskGroup group;
 
-    EXPECT_TRUE(ldcTaskGroupInitialize(&group, &taskPool, 10));
+    EXPECT_TRUE(ldcTaskGroupInitialize(&group, &taskPool, 10, 0));
 
     // Add a couple of pending tasks
     //
@@ -383,7 +383,7 @@ TEST_P(TaskPoolTest, TaskGroupTree)
 {
     LdcTaskGroup group;
 
-    EXPECT_TRUE(ldcTaskGroupInitialize(&group, &taskPool, 15));
+    EXPECT_TRUE(ldcTaskGroupInitialize(&group, &taskPool, 15, 0));
 
     LdcTaskDependency inputs[8];
     LdcTaskDependency outputsRow1[4];

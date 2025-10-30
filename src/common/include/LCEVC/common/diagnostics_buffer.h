@@ -24,6 +24,7 @@
  */
 #include <LCEVC/common/diagnostics.h>
 #include <LCEVC/common/memory.h>
+//
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -32,6 +33,7 @@ extern "C"
 {
 #endif
 
+typedef struct LdcMemoryAllocator LdcMemoryAllocator;
 typedef struct LdcDiagnosticsBuffer LdcDiagnosticsBuffer;
 
 /*! Initialize a diagnostics buffer - allocate buffers of given sizes.

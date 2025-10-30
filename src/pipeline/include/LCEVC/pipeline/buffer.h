@@ -23,7 +23,7 @@
 typedef struct LdpBufferFunctions LdpBufferFunctions;
 
 // Default minimum row alignment for internal allocations
-#define kBufferRowAlignment 8
+#define kBufferRowAlignment 16
 
 // Buffer
 //

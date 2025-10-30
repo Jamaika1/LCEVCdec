@@ -58,10 +58,12 @@ static LdcTask* addTask(LdcTaskPool* pool, LdcTaskGroup* group, const LdcTaskDep
     // NB: there is a wasted byte which will likely round up to a machine word - no great loss
     // but may be worth clearing up once everything else is stable.
     dataSize = VNAlignSize(dataSize, sizeof(uint32_t));
-    LdcTask* task =
-        (LdcTask*)VNAllocateZeroArray(pool->shortTermAllocator, &allocation, uint8_t,
-                                      sizeof(LdcTask) + dataSize + sizeof(uint32_t) * inputsCount);
-
+    const uint64_t diagId = group ? group->diagId : 0;
+    (void)diagId;
+    VNAllocateIdZeroArray(pool->shortTermAllocator, &allocation, uint8_t,
+                          sizeof(LdcTask) + dataSize + sizeof(uint32_t) * inputsCount,
+                          "TaskPoolTask", diagId);
+    LdcTask* task = VNAllocationPtr(allocation, LdcTask);
     if (task == NULL) {
         VNLogError("Cannot allocate task.");
         return NULL;
@@ -503,7 +505,7 @@ bool ldcTaskPoolInitialize(LdcTaskPool* pool, LdcMemoryAllocator* longTermAlloca
     if (pool->multiThreaded) {
         threadMutexLock(&pool->mutex);
 
-        VNAllocateZeroArray(longTermAllocator, &pool->threads, LdcTaskThread, threadCount);
+        VNAllocateZeroArray(longTermAllocator, &pool->threads, LdcTaskThread, threadCount, "TaskPoolThread");
 
         ldcDequeInitialize(&pool->readyParts, threadCount * 2, sizeof(LdcTaskPart), pool->longTermAllocator);
 
@@ -763,8 +765,9 @@ static void taskGroupReserve(struct LdcTaskGroup* group, uint32_t dependenciesRe
     const uint32_t newMetSize = (VNAlignSize(dependenciesReserved, 64) / 64) * sizeof(uint64_t);
     const uint32_t newPtrSize = dependenciesReserved * sizeof(void*);
     LdcMemoryAllocation newAllocation = {0};
-    uint8_t* alloc = VNAllocateZeroArray(group->pool->shortTermAllocator, &newAllocation, uint8_t,
-                                         newMetSize + newPtrSize * 2);
+    VNAllocateIdZeroArray(group->pool->shortTermAllocator, &newAllocation, uint8_t,
+                          newMetSize + newPtrSize * 2, "TaskPoolGroupDeps", group->diagId);
+    uint8_t* alloc = VNAllocationPtr(newAllocation, uint8_t);
 
     uint64_t* const newDependenciesMet = (uint64_t*)alloc;
     alloc += newMetSize;
@@ -792,7 +795,8 @@ static void taskGroupReserve(struct LdcTaskGroup* group, uint32_t dependenciesRe
     group->dependenciesReserved = dependenciesReserved;
 }
 
-bool ldcTaskGroupInitialize(LdcTaskGroup* group, LdcTaskPool* pool, uint32_t dependenciesReserved)
+bool ldcTaskGroupInitialize(LdcTaskGroup* group, LdcTaskPool* pool, uint32_t dependenciesReserved,
+                            uint64_t diagId)
 {
     assert(group);
     assert(pool);
@@ -806,6 +810,7 @@ bool ldcTaskGroupInitialize(LdcTaskGroup* group, LdcTaskPool* pool, uint32_t dep
     // Set up group with no dependencies or tasks (so far)
     VNClear(group);
     group->pool = pool;
+    group->diagId = diagId;
 
     taskGroupReserve(group, dependenciesReserved);
 

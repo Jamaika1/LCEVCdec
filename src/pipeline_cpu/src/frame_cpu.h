@@ -46,7 +46,8 @@ enum FrameState
 class FrameCPU : public LdpFrame
 {
 public:
-    FrameCPU(LdcMemoryAllocator* allocator, uint64_t timestamp);
+    FrameCPU(LdcMemoryAllocator* enhancementAllocator, LdcMemoryAllocator* bufferAllocator,
+             uint64_t timestamp);
     ~FrameCPU() = default;
 
     // Allocate per frame buffers
@@ -67,7 +68,7 @@ public:
     bool isPassthrough() const { return m_passthrough; }
 
     //
-    bool hasGoodConfig() const { return globalConfig->initialized; }
+    bool hasGoodConfig() const { return globalConfig && globalConfig->initialized; }
 
     // Connect output picture to frame
     void setOutputPicture(LdpPicture* picture);
@@ -202,8 +203,9 @@ public:
     VNNoCopyNoMove(FrameCPU);
 
 private:
-    // The allocator to use for this frame (e.g. pipeline rolling arena)
-    LdcMemoryAllocator* m_allocator{};
+    // The allocators to use for this frame
+    LdcMemoryAllocator* m_enhancementAllocator{};
+    LdcMemoryAllocator* m_bufferAllocator{};
 
     // Current frame state
     // This get peeked at across threads - so it is atomic
@@ -228,6 +230,9 @@ private:
 
     // Pointers to buffer to use for each LOQ - may share buffers between LoQs depending on scaling modes
     uint8_t* m_intermediateBufferPtr[RCMaxPlanes][LOQMaxCount] = {};
+
+    // True if intermediate buffers are setup
+    bool m_intermediateInitialized{false};
 
     // Dependencies for inputs to task group
     LdcTaskDependency m_depBasePicture{kTaskDependencyInvalid};

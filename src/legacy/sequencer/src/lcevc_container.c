@@ -183,7 +183,8 @@ static StampedBuffer* stampedBufferNodeAlloc(LdcMemoryAllocator* allocator,
     const uint8_t* newEntryData = (copy ? NULL : data);
     size_t unencapsulatedSize = 0;
     if (copy && bufferSize > 0) {
-        uint8_t* tempData = VNAllocateArray(allocator, allocation, uint8_t, bufferSize);
+        VNAllocateArray(allocator, allocation, uint8_t, bufferSize, "StampedBuffer");
+        uint8_t* tempData = VNAllocationPtr(*allocation, uint8_t);
         if (unencapsulate) {
             if (!lcevcContainerUnencapsulate(data, bufferSize, tempData, &unencapsulatedSize, &idr)) {
                 VNLogError("Failed to lcevcContainerUnencapsulate LCEVC data from NAL unit");

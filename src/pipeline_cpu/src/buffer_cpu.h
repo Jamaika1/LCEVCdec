@@ -21,13 +21,10 @@
 
 namespace lcevc_dec::pipeline_cpu {
 
-class PictureCPU;
-class PipelineCPU;
-
 class BufferCPU : public LdpBuffer
 {
 public:
-    BufferCPU(PipelineCPU& pipeline, uint32_t size);
+    BufferCPU(LdcMemoryAllocator* allocator, uint32_t size);
     ~BufferCPU();
 
     bool map(LdpBufferMapping* mapping, int32_t offset, uint32_t size, LdpAccess access);
@@ -43,7 +40,7 @@ public:
     VNNoCopyNoMove(BufferCPU);
 
 private:
-    PipelineCPU& m_pipeline;
+    LdcMemoryAllocator* m_allocator;
     LdcMemoryAllocation m_allocation = {0};
 
     bool m_mapped = false;

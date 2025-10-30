@@ -27,7 +27,7 @@ include("CMakeSetup")
 project(
     LCEVCdec_SDK
     DESCRIPTION "The Open Source LCEVC Decoder SDK"
-    VERSION 4.0.2
+    VERSION 4.0.3
     LANGUAGES CXX C)
 
 # Build configuration
@@ -44,6 +44,7 @@ option(VN_SDK_COVERAGE "Generate gcov statistics for coverage" OFF)
 option(VN_SDK_TRACING
        "Configurable tracing information recorder for function entry/exit in perfetto format" ON)
 option(VN_SDK_METRICS "Configurable metrics recording" ON)
+option(VN_SDK_MEMORY_DIAGNOSTICS "Record memory allocation and free events in diagnostics" OFF)
 option(VN_SDK_DIAGNOSTICS_ASYNC "Enable asynchronous output of logging, tracing and metrics" ON)
 set(VN_SDK_MAXIMUM_LOG_LEVEL
     "VERBOSE"

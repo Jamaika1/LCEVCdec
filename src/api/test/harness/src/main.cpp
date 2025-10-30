@@ -457,6 +457,7 @@ static int decode(const Config& cfg)
                                                               &basePicture));
                 } else {
                     pictureBufferDesc.data = new uint8_t[baseImage.size]; // NOLINT:cppcoreguidelines-owning-memory
+
                     VN_LCEVC_CHECK(LCEVC_AllocPictureExternal(decoder, &baseDecoder->description(),
                                                               &pictureBufferDesc, nullptr, &basePicture));
                     memcpy(pictureBufferDesc.data, baseImage.ptr, baseImage.size);

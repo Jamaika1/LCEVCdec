@@ -85,6 +85,7 @@ typedef struct LdeCmdBufferCpu
     uint32_t count;          /**< Number of commands in buffer. */
     uint16_t numEntryPoints; /**< Number of entry points. */
     uint8_t transformSize; /**< Number of residuals in each data element of `data`, 16 for DDS, 4 for DD. */
+    uint64_t diagId; /**< ID passed throught form memory llocation tracing */
 } LdeCmdBufferCpu;
 
 /*------------------------------------------------------------------------------*/
@@ -127,6 +128,19 @@ static inline bool ldeCmdBufferCpuIsEmpty(const LdeCmdBufferCpu* cmdBuffer)
  */
 bool ldeCmdBufferCpuInitialize(LdcMemoryAllocator* allocator, LdeCmdBufferCpu* cmdBuffer,
                                uint16_t numEntryPoints);
+
+/*! \brief Initializes a command buffer, ready to be reset before appending.
+ *
+ * \param allocator              Memory allocator for all buffer allocations.
+ * \param cmdBuffer              The command buffer to initialize.
+ * \param numEntryPoints         The number of entry points to be created when calling
+ *                               cmdBufferCpuSplit. Cannot be greater than the maximum of
+ * CBCKMaxEntryPoints. \param diagId                 A 64 bit id to be attached to diagnostics
+ *
+ * \return True on success, otherwise false.
+ */
+bool ldeCmdBufferCpuInitializeId(LdcMemoryAllocator* allocator, LdeCmdBufferCpu* cmdBuffer,
+                                 uint16_t numEntryPoints, uint64_t diagId);
 
 /*! \brief Releases all the memory associated with the command buffer.
  *

@@ -206,7 +206,7 @@ void ldcDiagnosticsLogLevel(LdcLogLevel maxLevel)
 
 bool ldcDiagnosticsHandlerPush(LdcDiagHandler* handler, void* userData)
 {
-    if (ldcDiagnosticsState->handlersCount >= VNDiagnosticsMaxHandlers) {
+    if (!ldcDiagnosticsState || ldcDiagnosticsState->handlersCount >= VNDiagnosticsMaxHandlers) {
         // Too many handlers
         assert(0);
         return false;
@@ -220,7 +220,7 @@ bool ldcDiagnosticsHandlerPush(LdcDiagHandler* handler, void* userData)
 
 bool ldcDiagnosticsHandlerPop(LdcDiagHandler* handler, void** userData)
 {
-    if (ldcDiagnosticsState->handlersCount == 0) {
+    if (!ldcDiagnosticsState || ldcDiagnosticsState->handlersCount == 0) {
         // No more handlers
         return false;
     }
@@ -354,6 +354,11 @@ int ldcDiagnosticFormatJson(char* dst, uint32_t dstSize, const LdcDiagSite* site
                 ", \"pid\":%u, \"tid\":%u, \"name\":\"%s\", \"args\": { \"value\": %s}},\n",
                 microSeconds, processId, record->threadId, site->str, valueBuffer);
             break;
+
+        // Memory
+        case LdcDiagTypeMemoryAllocate:
+        case LdcDiagTypeMemoryReallocate:
+        case LdcDiagTypeMemoryFree: break;
     }
 #undef TSFMT
     return numChars;
@@ -365,6 +370,11 @@ void ldcDiagnosticsCopyArguments(const LdcDiagSite* site, LdcDiagValue values[],
 {
     for (uint32_t i = 0; i < site->argumentCount; ++i) {
         switch (site->argumentTypes[i]) {
+            case LdcDiagArgId: {
+                values[i].id = va_arg(args, uint64_t);
+                break;
+            }
+
             case LdcDiagArgBool: {
                 values[i].valueBool = va_arg(args, int);
                 break;
@@ -437,7 +447,7 @@ void ldcDiagnosticsCopyArguments(const LdcDiagSite* site, LdcDiagValue values[],
 //
 void ldcLogEvent(const LdcDiagSite* site, size_t valuesSize, ...)
 {
-    if (site->level > ldcDiagnosticsState->maxLogLevel) {
+    if (!site || site->level > ldcDiagnosticsState->maxLogLevel) {
         return;
     }
 
@@ -457,7 +467,7 @@ void ldcLogEvent(const LdcDiagSite* site, size_t valuesSize, ...)
 
 void ldcLogEventFormatted(const LdcDiagSite* site, const char* fmt, ...)
 {
-    if (site->level > ldcDiagnosticsState->maxLogLevel) {
+    if (!site || site->level > ldcDiagnosticsState->maxLogLevel) {
         return;
     }
 
@@ -559,4 +569,5 @@ void ldcMetricFloat64(const LdcDiagSite* site, double value)
 
     applyDiagnosticsHandlers(site, &record, NULL);
 }
+
 #endif

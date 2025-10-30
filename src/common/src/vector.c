@@ -28,7 +28,7 @@ void ldcVectorInitialize(LdcVector* vector, uint32_t elementSize, uint32_t reser
 
     VNClear(vector);
 
-    VNAllocateArray(allocator, &vector->dataAllocation, uint8_t, reserved * elementSize);
+    VNAllocateArray(allocator, &vector->dataAllocation, uint8_t, reserved * elementSize, "Vector");
     VNCheck(VNAllocationSucceeded(vector->dataAllocation));
 
     vector->data = VNAllocationPtr(vector->dataAllocation, uint8_t);
