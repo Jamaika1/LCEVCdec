@@ -445,7 +445,7 @@ void ldcDiagnosticsCopyArguments(const LdcDiagSite* site, LdcDiagValue values[],
 
 // All events are synchronous
 //
-void ldcLogEvent(const LdcDiagSite* site, size_t valuesSize, ...)
+void ldcDiagEvent(const LdcDiagSite* site, size_t valuesSize, ...)
 {
     if (!site || site->level > ldcDiagnosticsState->maxLogLevel) {
         return;
@@ -465,7 +465,7 @@ void ldcLogEvent(const LdcDiagSite* site, size_t valuesSize, ...)
     applyDiagnosticsHandlers(site, &record, values);
 }
 
-void ldcLogEventFormatted(const LdcDiagSite* site, const char* fmt, ...)
+void ldcDiagEventFormatted(const LdcDiagSite* site, const char* fmt, ...)
 {
     if (!site || site->level > ldcDiagnosticsState->maxLogLevel) {
         return;
