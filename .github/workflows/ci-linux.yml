@@ -37,13 +37,16 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Fetch target repo refs
+        run: git remote add target https://github.com/v-novaltd/LCEVCdec.git && git fetch target
+
       - name: Install required lib
         run: pip3 install -r cmake/tools/lint_requirements.txt
 
       - name: Run Lint Check
         env:
-          SOURCE_BRANCH: ${{ github.head_ref }}
-        run: python3 cmake/tools/lint.py --check-only --diff-main
+          SOURCE_BRANCH: HEAD
+        run: export TARGET_BRANCH=$(git merge-base HEAD target/main) && python3 cmake/tools/lint.py --check-only --diff-main
 
   build:
     name: Build

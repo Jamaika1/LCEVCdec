@@ -181,6 +181,6 @@ INSTANTIATE_TEST_SUITE_P(
         applyCmdBufferTestParams{16, LdpFPS10, 0, true, false, false, "43f8e9f02215913b66f1ab2ff51c022e"},
         applyCmdBufferTestParams{16, LdpFPU12, 0, true, false, false, "9ad5b2cd7aa4115fea6f9d51e38c670c"},
         applyCmdBufferTestParams{16, LdpFPU12, 3, true, false, false, "9ad5b2cd7aa4115fea6f9d51e38c670c"},
-        applyCmdBufferTestParams{16, LdpFPS8, 0, false, false, true, "6fc6eee07ccad0a2f1d271360d9da5aa"},
+        applyCmdBufferTestParams{16, LdpFPS8, 0, false, false, true, "ab4b29de79ac859aeb9bf288b6989883"},
         applyCmdBufferTestParams{4, LdpFPU10, 0, false, false, true, "d8e7eb2cee934527d5cf0c49bc86b441"}),
     testNames);

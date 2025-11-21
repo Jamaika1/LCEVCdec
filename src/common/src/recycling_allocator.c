@@ -126,7 +126,7 @@ static void recyclingFree(LdcMemoryAllocator* allocator, LdcMemoryAllocation* al
 static void recyclingReallocate(LdcMemoryAllocator* allocator, LdcMemoryAllocation* allocation,
                                 size_t size, const LdcDiagSite* site)
 {
-    LdcMemoryAllocation newAllocation = {};
+    LdcMemoryAllocation newAllocation = {0};
     if (size) {
         // Allocate the new buffer
         recyclingAllocate(allocator, &newAllocation, size, allocation->alignment, site);

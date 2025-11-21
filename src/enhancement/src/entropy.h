@@ -49,7 +49,7 @@ typedef struct EntropyDecoder
 {
     uint8_t currHuff;
     uint32_t rawOffset;
-    HuffmanSingleDecoder_t huffman[HuffTemporalCount]; // Note that HuffTemporalCount == HuffSizeCount
+    HuffmanSingleDecoder huffman[HuffTemporalCount]; // Note that HuffTemporalCount == HuffSizeCount
     HuffmanTripleDecodeState comboHuffman;
     HuffmanStream hstream;
     bool rleOnly;

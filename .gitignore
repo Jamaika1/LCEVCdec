@@ -23,6 +23,7 @@ venv
 .report.json
 CMakeUserPresets.json
 conan_imports_manifest.txt
+imgui.ini
 
 .DS_Store
 

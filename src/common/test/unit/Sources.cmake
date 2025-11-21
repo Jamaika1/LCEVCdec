@@ -31,7 +31,6 @@ list(
     "src/test_task_group.cpp"
     "src/test_task_pool_wrappers.cpp"
     "src/test_threads.cpp"
-    "src/test_trace.cpp"
     "src/test_vector.cpp")
 
 list(APPEND SOURCES_MAIN "src/common_main.cpp")

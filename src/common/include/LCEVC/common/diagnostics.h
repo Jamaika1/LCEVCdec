@@ -67,7 +67,6 @@ typedef enum LdcDiagType
     LdcDiagTypeTraceBegin,   // Start named event
     LdcDiagTypeTraceEnd,     // Stop named event
     LdcDiagTypeTraceInstant, // Named event with no duration
-    LdcDiagTypeTraceScoped,  // Enter/leave function scope (id in event marks begin vs. end)
 
     // Async events
     LdcDiagTypeTraceAsyncBegin,   // Async start
@@ -182,7 +181,7 @@ typedef bool LdcDiagHandler(void* user, const LdcDiagSite* site, const LdcDiagRe
 extern "C"
 {
 #endif
-void ldcDiagnosticsInitialize(void* diagnosticState);
+void ldcDiagnosticsInitialize(void* parentState);
 static inline void* ldcDiagnosticsStateGet(void);
 void ldcDiagnosticsRelease(void);
 bool ldcDiagnosticsHandlerPush(LdcDiagHandler* handler, void* userData);
@@ -210,9 +209,6 @@ bool ldcDiagTraceFileRelease(void);
 #if VN_SDK_FEATURE(DIAGNOSTICS_ASYNC)
 static inline void ldcDiagEvent(const LdcDiagSite* site, size_t valuesSize, ...);
 static inline void ldcDiagEventFormatted(const LdcDiagSite* site, const char* fmt, ...);
-
-static inline void ldcTracingScoped(const LdcDiagSite* site, uint64_t id);
-
 static inline void ldcMetricInt32(const LdcDiagSite* site, int32_t value);
 static inline void ldcMetricUInt32(const LdcDiagSite* site, uint32_t value);
 static inline void ldcMetricInt64(const LdcDiagSite* site, int64_t value);
@@ -222,7 +218,6 @@ static inline void ldcMetricFloat64(const LdcDiagSite* site, double value);
 #else
 void ldcDiagEvent(const LdcDiagSite* site, size_t valuesSize, ...);
 void ldcDiagEventFormatted(const LdcDiagSite* site, const char* fmt, ...);
-void ldcTracingScoped(const LdcDiagSite* site, uint64_t id);
 void ldcMetricInt32(const LdcDiagSite* site, int32_t value);
 void ldcMetricUInt32(const LdcDiagSite* site, uint32_t value);
 void ldcMetricInt64(const LdcDiagSite* site, int64_t value);
@@ -455,28 +450,28 @@ struct LdcDiagArgumentTraits<unsigned long>
                      ##__VA_ARGS__);                                                                     \
     } while (0)
 
+// Version of above with no arguments
+#define _VNDiagEventNoArgs(type, level, str)                                            \
+    do {                                                                                \
+        static const LdcDiagSite site_ = {type, __FILE__, __LINE__, level,         str, \
+                                          0,    NULL,     NULL,     LdcDiagArgNone};    \
+        ldcDiagEvent(&site_, 0);                                                        \
+    } while (0)
+
 // Tracing macros - C
 //
 #if VN_SDK_FEATURE(TRACING)
 
 #define VNTraceBegin(msg, ...) \
     _VNDiagEventNames(LdcDiagTypeTraceBegin, LdcLogLevelNone, msg, ##__VA_ARGS__)
-#define VNTraceEnd() _VNDiagEventNames(LdcDiagTypeTraceEnd, LdcLogLevelNone, "")
+#define VNTraceEnd() _VNDiagEventNoArgs(LdcDiagTypeTraceEnd, LdcLogLevelNone)
+
 #define VNTraceInstant(msg, ...) \
     _VNDiagEventNames(LdcDiagTypeTraceInstant, LdcLogLevelNone, msg, ##__VA_ARGS__)
 
-#define VNTraceScopedBegin()                                       \
-    static const LdcDiagSite _traceSite = {LdcDiagTypeTraceScoped, \
-                                           __FILE__,               \
-                                           __LINE__,               \
-                                           LdcLogLevelNone,        \
-                                           __func__,               \
-                                           0,                      \
-                                           NULL,                   \
-                                           NULL,                   \
-                                           LdcDiagArgId};          \
-    ldcTracingScoped(&_traceSite, 1)
-#define VNTraceScopedEnd() ldcTracingScoped(&_traceSite, 0)
+#define VNTraceScopedBegin(...) \
+    _VNDiagEventNames(LdcDiagTypeTraceBegin, LdcLogLevelNone, __func__, ##__VA_ARGS__)
+#define VNTraceScopedEnd() ldcDiagEvent(&ldcDiagnosticsTraceScopedEndSite, 0);
 
 #define VNTraceAsyncBegin(msg, id, ...) \
     _VNDiagEventIdNames(LdcDiagTypeTraceAsyncBegin, LdcLogLevelNone, id, msg, ...)
@@ -501,12 +496,14 @@ struct LdcDiagArgumentTraits<unsigned long>
 
 // Tracing macros - C++
 
+extern "C" const LdcDiagSite ldcDiagnosticsTraceScopedEndSite;
+
 // Wrap TraceSite in a constructor
 struct LdcDiagSiteWrapper : public LdcDiagSite
 {
     LdcDiagSiteWrapper(const char* f, uint32_t l, const char* func)
     {
-        type = LdcDiagTypeTraceScoped;
+        type = LdcDiagTypeTraceBegin;
         file = f;
         line = l;
         str = func;
@@ -517,27 +514,19 @@ struct LdcDiagSiteWrapper : public LdcDiagSite
 class LdcTraceScoped
 {
 public:
-    LdcTraceScoped(const LdcDiagSite* site)
-        : m_site(site)
-    {
-        ldcTracingScoped(site, 1);
-    }
-    ~LdcTraceScoped() { ldcTracingScoped(m_site, 0); }
+    LdcTraceScoped(const LdcDiagSite* site) { ldcDiagEvent(site, 0); }
+    ~LdcTraceScoped() { ldcDiagEvent(&ldcDiagnosticsTraceScopedEndSite, 0); }
 
     VNNoCopyNoMove(LdcTraceScoped);
-
-private:
-    const LdcDiagSite* m_site;
 };
 
 #if VN_SDK_FEATURE(TRACING)
 
 // Scoped object to generate begin/end events
 // NB: Trailing semicolon is missing
-#define VNTraceScoped()                                                 \
-    static LdcDiagSiteWrapper traceSite_(__FILE__, __LINE__, __func__); \
-    LdcTraceScoped _traceScoped(&traceSite_)
-
+#define VNTraceScoped()                                                       \
+    static LdcDiagSiteWrapper traceScopedSite_(__FILE__, __LINE__, __func__); \
+    LdcTraceScoped _traceScoped(&traceScopedSite_)
 #else
 #define VNTraceScoped() (void)(0)
 #endif

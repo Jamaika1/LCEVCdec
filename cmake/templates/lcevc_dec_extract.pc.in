@@ -1,0 +1,10 @@
+prefix=@CMAKE_INSTALL_PREFIX@
+libdir=@CMAKE_INSTALL_FULL_LIBDIR@
+includedir=${prefix}/include
+
+Name: lcevc_dec_extract
+Description: LCEVC Decoder SDK Extract
+URL: https://github.com/v-novaltd/LCEVCdec
+Version: @EXTRACT_VERSION@
+Libs: -L"${libdir}" -llcevc_dec_extract
+Cflags: -I"${includedir}"

@@ -63,16 +63,17 @@ def run_cmd(cmd):
 
 def get_changed_files(diff_main=False):
     if diff_main:
+        remote_name = 'origin'
         if os.environ.get('SOURCE_BRANCH'):
             current_branch = os.environ.get('SOURCE_BRANCH')
         else:
-            process = run_cmd(['git', 'rev-parse', '--abbrev-ref', 'HEAD'])
+            process = run_cmd(['git', 'rev-parse', '--abbrev-ref', '@{upstream}'])
             current_branch = process.stdout.decode('utf-8').strip()
-        target_branch = os.environ.get('TARGET_BRANCH', 'main')
+            remote_name = current_branch[:current_branch.find('/')]
+        target_branch = os.environ.get('TARGET_BRANCH', f'{remote_name}/main')
         print(f'Getting file diff from "{current_branch}" to "{target_branch}"')
-        process = run_cmd(['git', 'diff', '--name-only',
-                          f'origin/{current_branch}', f'origin/{target_branch}'])
-        assert process.returncode == 0, "Failed to find changed files"
+        process = run_cmd(['git', 'diff', '--name-only', current_branch, target_branch])
+        assert process.returncode == 0, f"Failed to find changed files: {process.stderr.decode('utf-8')}"
         changed_files = process.stdout.decode('utf-8').splitlines()
     else:
         process = run_cmd(['git', 'ls-files', '--modified'])

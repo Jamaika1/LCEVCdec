@@ -20,7 +20,6 @@
 #include <LCEVC/common/simple_allocator.h>
 #include <LCEVC/utility/md5.h>
 //
-
 #include <gtest/gtest.h>
 //
 #include <algorithm>

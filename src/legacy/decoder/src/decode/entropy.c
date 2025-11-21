@@ -90,7 +90,7 @@ static int32_t chunkInitialise(Logger_t log, EntropyDecoder_t* state, const Chun
     return 0;
 }
 
-static inline int32_t huffmanSingleDecode(const HuffmanSingleDecoder_t* decoder,
+static inline int32_t huffmanSingleDecode(const HuffmanSingleDecoder* decoder,
                                           HuffmanStream_t* stream, uint8_t* symbolOut)
 {
     /* This order is optimised for streams which are frequently single-symbol, like MSB and

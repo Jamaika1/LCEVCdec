@@ -21,14 +21,15 @@ option(VN_STRIP_RELEASE "Strip any debug information from release binaries" ON)
 option(VN_SDK_SIMD "Enable SIMD for current architecture (SSE + AVX2 or NEON)" ON)
 option(VN_SDK_LTO "Enable link time optimisation in the linker" OFF)
 
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake/modules")
-include("CMakeSetup")
+include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules/CMakeSetup.cmake")
 
 project(
     LCEVCdec_SDK
     DESCRIPTION "The Open Source LCEVC Decoder SDK"
-    VERSION 4.0.3
+    VERSION 4.0.4
     LANGUAGES CXX C)
+
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake/modules")
 
 # Build configuration
 option(VN_SDK_EXECUTABLES "Include samples and test harness executables in SDK installations" OFF)
@@ -98,10 +99,12 @@ option(VN_SDK_USE_PGO "Use previously-generated PGO profiles to optimize this bu
 option(VN_SDK_BENCHMARK "Build benchmark google benchmark tests" OFF)
 option(VN_SDK_FORCE_OVERLAY "Enable forced overlay" OFF)
 
-# Pipeline Versions
+# Module Versions
 set(PIPELINE_CPU_VERSION 1)
 set(PIPELINE_VULKAN_VERSION 1)
 set(PIPELINE_LEGACY_VERSION 1)
+set(UTILITY_VERSION 1)
+set(EXTRACT_VERSION 1)
 
 # Decoder components
 

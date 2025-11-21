@@ -115,6 +115,8 @@ if (VN_SDK_LTO)
 endif ()
 
 #
-include("Arch/${TARGET_ARCH}" OPTIONAL)
-include("Platform/${TARGET_PLATFORM}")
-include("Compiler/${TARGET_COMPILER}")
+if (NOT TARGET_PLATFORM STREQUAL "Emscripten")
+    include("${CMAKE_CURRENT_LIST_DIR}/Arch/${TARGET_ARCH}.cmake" OPTIONAL)
+    include("${CMAKE_CURRENT_LIST_DIR}/Platform/${TARGET_PLATFORM}.cmake")
+    include("${CMAKE_CURRENT_LIST_DIR}/Compiler/${TARGET_COMPILER}.cmake")
+endif ()

@@ -82,7 +82,7 @@ static bool chunkInitialize(EntropyDecoder* state, const LdeChunk* chunk, const 
     return true;
 }
 
-static inline bool huffmanSingleDecode(const HuffmanSingleDecoder_t* decoder, HuffmanStream* stream,
+static inline bool huffmanSingleDecode(const HuffmanSingleDecoder* decoder, HuffmanStream* stream,
                                        uint8_t* symbolOut)
 {
     /* This order is optimized for streams which are frequently single-symbol, like MSB and

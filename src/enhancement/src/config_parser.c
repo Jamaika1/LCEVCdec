@@ -1166,7 +1166,7 @@ static bool parseHDRPayload(ByteStream* stream, LdeGlobalConfig* globalConfig)
         deinterlacingInfoOut->deinterlacerType = deinterlacerType;
         deinterlacingInfoOut->topFieldFirstFlag = topFieldFirstFlag;
     }
-    return false;
+    return true;
 }
 
 /* 7.3.10 (Table-14) */

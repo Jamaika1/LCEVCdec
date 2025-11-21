@@ -1,4 +1,4 @@
-# Copyright (c) V-Nova International Limited 2023-2025. All rights reserved.
+# Copyright (c) V-Nova International Limited 2025. All rights reserved.
 # This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
 # No patent licenses are granted under this license. For enquiries about patent licenses,
 # please contact legal@v-nova.com.
@@ -15,21 +15,26 @@
 find_package(PkgConfig)
 
 # ##################################################################################################
-# lcevc_dec::lcevc_dec
+# lcevc_dec_utility::lcevc_dec_utility
 # ##################################################################################################
-pkg_check_modules(lcevc_dec lcevc_dec)
-find_package_handle_standard_args(lcevc_dec DEFAULT_MSG lcevc_dec_FOUND lcevc_dec_VERSION)
+pkg_check_modules(lcevc_dec_utility lcevc_dec_utility)
+find_package_handle_standard_args(lcevc_dec_utility DEFAULT_MSG lcevc_dec_utility_FOUND
+                                  lcevc_dec_utility_VERSION)
 
 # Propagate version
-set(lcevc_dec_VERSION lcevc_dec_VERSION)
+set(lcevc_dec_utility_VERSION lcevc_dec_utility_VERSION)
 
 # Create interface library
-add_library(lcevc_dec::lcevc_dec INTERFACE IMPORTED)
-set_property(TARGET lcevc_dec::lcevc_dec PROPERTY INTERFACE_VERSION ${lcevc_dec_VERSION})
-set_property(TARGET lcevc_dec::lcevc_dec PROPERTY INTERFACE_INCLUDE_DIRECTORIES
-                                                  "${lcevc_dec_INCLUDE_DIRS}")
-set_property(TARGET lcevc_dec::lcevc_dec PROPERTY INTERFACE_LINK_LIBRARIES "${lcevc_dec_LIBRARIES}")
-set_property(TARGET lcevc_dec::lcevc_dec PROPERTY INTERFACE_LINK_DIRECTORIES
-                                                  "${lcevc_dec_LIBRARY_DIRS}")
-set_property(TARGET lcevc_dec::lcevc_dec PROPERTY INTERFACE_COMPILE_OPTIONS "${lcevc_dec_CFLAGS}"
-                                                  "${lcevc_dec_CFLAGS_OTHER}")
+add_library(lcevc_dec_utility::lcevc_dec_utility INTERFACE IMPORTED)
+set_property(TARGET lcevc_dec_utility::lcevc_dec_utility PROPERTY INTERFACE_VERSION
+                                                                  ${lcevc_dec_utility_VERSION})
+set_property(TARGET lcevc_dec_utility::lcevc_dec_utility
+             PROPERTY INTERFACE_INCLUDE_DIRECTORIES "${lcevc_dec_utility_INCLUDE_DIRS}")
+set_property(TARGET lcevc_dec_utility::lcevc_dec_utility PROPERTY INTERFACE_LINK_LIBRARIES
+                                                                  "${lcevc_dec_utility_LIBRARIES}")
+set_property(TARGET lcevc_dec_utility::lcevc_dec_utility
+             PROPERTY INTERFACE_LINK_DIRECTORIES "${lcevc_dec_utility_LIBRARY_DIRS}")
+set_property(
+    TARGET lcevc_dec_utility::lcevc_dec_utility
+    PROPERTY INTERFACE_COMPILE_OPTIONS "${lcevc_dec_utility_CFLAGS}"
+             "${lcevc_dec_utility_CFLAGS_OTHER}")

@@ -97,6 +97,7 @@ std::unique_ptr<BinReader> createBinReader(std::unique_ptr<std::istream> stream)
     std::unique_ptr<BinReader> reader(new BinReader(std::move(stream)));
 
     if (!reader->readHeader()) {
+        fmt::print(stderr, "Cannot open bin file: invalid header\n");
         return nullptr;
     }
 

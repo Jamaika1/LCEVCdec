@@ -194,6 +194,7 @@ TEST_F(ConfigParserTest, checkHDRParams)
     EXPECT_EQ(globalConfig.hdrInfo.masteringDisplay.displayPrimariesY[0], 4);
     EXPECT_EQ(globalConfig.hdrInfo.masteringDisplay.displayPrimariesY[1], 5);
     EXPECT_EQ(globalConfig.hdrInfo.masteringDisplay.displayPrimariesY[2], 6);
+    EXPECT_EQ(globalConfig.hdrInfo.tonemapperConfig[0].type, 2);
 
     ldeConfigsReleaseFrame(&frameConfig);
 }

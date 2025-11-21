@@ -287,7 +287,7 @@ typedef struct HuffmanSingleDecoder
 {
     HuffmanManualDecodeState_t manualState;
     HuffmanTable_t table;
-} HuffmanSingleDecoder_t;
+} HuffmanSingleDecoder;
 
 /*! \brief Initialize both parts of a huffman single-decoder.
  *

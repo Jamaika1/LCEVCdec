@@ -1,4 +1,4 @@
-# Copyright (c) V-Nova International Limited 2022-2024. All rights reserved.
+# Copyright (c) V-Nova International Limited 2022-2025. All rights reserved.
 # This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
 # No patent licenses are granted under this license. For enquiries about patent licenses,
 # please contact legal@v-nova.com.
@@ -16,4 +16,4 @@ set(CMAKE_SYSTEM_PROCESSOR armv7-a)
 set(TARGET_TRIPLE arm-linux-gnueabi)
 set(TARGET_GCC_VERSION "-9")
 
-include("GNUCToolchain")
+include("${CMAKE_CURRENT_LIST_DIR}/../modules/GNUCToolchain.cmake")

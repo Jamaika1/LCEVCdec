@@ -20,10 +20,24 @@
 #include <LCEVC/common/threads.h>
 #include <stdarg.h>
 #include <stdio.h>
+#ifdef __cplusplus
+#include <atomic>
+#else
+#include <stdatomic.h>
+#endif
 
 #ifdef __cplusplus
 extern "C"
 {
+#endif
+#ifdef __cplusplus
+typedef std::atomic_uint LdcAtomicUint;
+static_assert(sizeof(LdcAtomicUint) == sizeof(unsigned int), "atomic uint size mismatch");
+static_assert(alignof(LdcAtomicUint) == alignof(unsigned int), "atomic uint alignment mismatch");
+typedef std::atomic_flag LdcAtomicFlag;
+#else
+typedef atomic_uint LdcAtomicUint;
+typedef atomic_flag LdcAtomicFlag;
 #endif
 
 // Common diagnostic state
@@ -45,6 +59,7 @@ typedef struct DiagnosticState
 
     //
     bool initialized;
+    LdcAtomicUint refCount;
 
 #if VN_OS(WINDOWS)
     LARGE_INTEGER performanceCounterFrequency;
@@ -64,6 +79,9 @@ extern DiagnosticState* ldcDiagnosticsState;
 
 //
 static inline void* ldcDiagnosticsStateGet(void) { return ldcDiagnosticsState; }
+
+// Common site used for all scoped TraceEnds
+extern const LdcDiagSite ldcDiagnosticsTraceScopedEndSite;
 
 // Get a time for diagnostic records
 //

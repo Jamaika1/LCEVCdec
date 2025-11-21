@@ -19,9 +19,29 @@
 #include <gtest/gtest.h>
 //
 #include <climits>
+#include <thread>
+#include <vector>
 
 extern "C" bool LCEVC_DiagHandlerOStream(void* user, const LdcDiagSite* site,
                                          const LdcDiagRecord* record, const LdcDiagValue* values);
+
+class DiagnosticsInitialisation : public testing::Test
+{
+public:
+    void SetUp() override
+    {
+        // common_main.cpp initializes this to simplify unit tests, reset back to uninitialized state
+        ldcDiagnosticsRelease();
+        ASSERT_TRUE(ldcDiagnosticsState == NULL);
+    }
+    void TearDown() override
+    {
+        ldcDiagnosticsInitialize(NULL);
+        ASSERT_TRUE(ldcDiagnosticsState->initialized);
+        ldcDiagnosticsHandlerPush(ldcDiagHandlerStdio, stdout);
+        ldcDiagnosticsLogLevel(LdcLogLevelVerbose);
+    }
+};
 
 class DiagnosticsTest : public testing::Test
 {
@@ -66,6 +86,48 @@ public:
 private:
     std::ostringstream m_output;
 };
+
+TEST_F(DiagnosticsInitialisation, SingleInstance)
+{
+    ldcDiagnosticsInitialize(NULL);
+    EXPECT_TRUE(ldcDiagnosticsState->initialized);
+    ldcDiagnosticsRelease();
+    EXPECT_TRUE(ldcDiagnosticsState == NULL);
+}
+
+TEST_F(DiagnosticsInitialisation, MultipleInstances)
+{
+    // Create 'two' instances of diagnostics state
+    ldcDiagnosticsInitialize(NULL);
+    EXPECT_TRUE(ldcDiagnosticsState->initialized);
+    ldcDiagnosticsInitialize(NULL);
+    EXPECT_TRUE(ldcDiagnosticsState->initialized);
+
+    // Release instances of diagnostics state one by one
+    ldcDiagnosticsRelease();
+    EXPECT_FALSE(ldcDiagnosticsState == NULL);
+    EXPECT_TRUE(ldcDiagnosticsState->initialized);
+    ldcDiagnosticsRelease();
+    EXPECT_TRUE(ldcDiagnosticsState == NULL);
+}
+
+TEST_F(DiagnosticsInitialisation, ConcurrentInstances)
+{
+    std::vector<std::thread> threads;
+    threads.reserve(4);
+    for (int i = 0; i < 4; ++i) {
+        threads.emplace_back([]() {
+            ldcDiagnosticsInitialize(NULL);
+            ldcDiagnosticsRelease();
+        });
+    }
+
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    EXPECT_TRUE(ldcDiagnosticsState == NULL);
+}
 
 TEST_F(DiagnosticsTest, LogFormats)
 {

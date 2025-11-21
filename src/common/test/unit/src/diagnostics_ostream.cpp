@@ -65,7 +65,6 @@ extern "C" bool LCEVC_DiagHandlerOStream(void* user, const LdcDiagSite* site,
 
         case LdcDiagTypeTraceBegin:
         case LdcDiagTypeTraceEnd:
-        case LdcDiagTypeTraceScoped:
         case LdcDiagTypeTraceInstant:
         case LdcDiagTypeTraceAsyncBegin:
         case LdcDiagTypeTraceAsyncEnd:

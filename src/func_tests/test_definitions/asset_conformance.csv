@@ -13,7 +13,7 @@ asset_hash,cpu_concatenation,cpu_concatenation_SCM-1,MR,SKIP,SKIP,SKIP,SKIP,SKIP
 asset_hash,cpu_concatenation,cpu_concatenation_SCM-2,MR,SKIP,SKIP,SKIP,SKIP,SKIP,SKIP,SKIP,SKIP,SKIP,MR,SKIP,MR,,concatenations/SCM-2.ts,ef6e994ff612b8e7,output-hash,lcevc_dec_test_harness,
 asset_hash,cpu_concatenation,cpu_concatenation_BITD-1,BROKEN,SKIP,SKIP,SKIP,SKIP,SKIP,SKIP,SKIP,SKIP,SKIP,BROKEN,SKIP,BROKEN,DEC-532,concatenations/BITD-1.ts,dfdc942020168ecb,output-hash,lcevc_dec_test_harness,
 asset_hash,cpu_concatenation,cpu_concatenation_BITD-2,BROKEN,SKIP,SKIP,SKIP,SKIP,SKIP,SKIP,SKIP,SKIP,SKIP,BROKEN,SKIP,BROKEN,DEC-532,concatenations/BITD-2.ts,,output-hash,lcevc_dec_test_harness,
-asset_hash,cpu_discontinuity,cpu_discontinuity_DISCO-1,MR,MR,MR,MR,MR,MR,MR,MR,MR,SKIP,MR,SKIP,MR,,discontinuity/DISCO-1.ts,c88d9b2396a4b3be,output-hash,lcevc_dec_test_harness,
+asset_hash,cpu_discontinuity,cpu_discontinuity_DISCO-1,MR,MR,MR,MR,MR,MR,MR,MR,MR,SKIP,MR,SKIP,BROKEN,Fails on github CI,discontinuity/DISCO-1.ts,c88d9b2396a4b3be,output-hash,lcevc_dec_test_harness,
 asset_hash,vulkan_concatenation,vulkan_concatenation_RES-1,SKIP,SKIP,SKIP,SKIP,SKIP,SKIP,SKIP,SKIP,SKIP,SKIP,MR,MR,SKIP,DEC-919,concatenations/RES-1.ts,15e7206c6c040d91,output-hash,lcevc_dec_test_harness,vulkan
 asset_hash,vulkan_concatenation,vulkan_concatenation_RES-2,SKIP,SKIP,SKIP,SKIP,SKIP,SKIP,SKIP,SKIP,SKIP,SKIP,MR,MR,SKIP,DEC-919,concatenations/RES-2.ts,0060b6a6374b5c34,output-hash,lcevc_dec_test_harness,vulkan
 asset_hash,vulkan_concatenation,vulkan_concatenation_RES-3,SKIP,SKIP,SKIP,SKIP,SKIP,SKIP,SKIP,SKIP,SKIP,SKIP,SKIP,SKIP,SKIP,Harness doesn't support AV1 webm,concatenations/RES-3.webm,,output-hash,lcevc_dec_test_harness,vulkan

@@ -26,9 +26,9 @@ static bool diagnosticHandlerTraceFile(void* user, const LdcDiagSite* site,
 {
     FILE* output = user;
 
-    if (site->type != LdcDiagTypeTraceScoped && site->type != LdcDiagTypeTraceInstant &&
-        site->type != LdcDiagTypeTraceAsyncBegin && site->type != LdcDiagTypeTraceAsyncEnd &&
-        site->type != LdcDiagTypeTraceAsyncInstant && site->type != LdcDiagTypeMetric) {
+    if (site->type != LdcDiagTypeTraceInstant && site->type != LdcDiagTypeTraceAsyncBegin &&
+        site->type != LdcDiagTypeTraceAsyncEnd && site->type != LdcDiagTypeTraceAsyncInstant &&
+        site->type != LdcDiagTypeMetric) {
         return false;
     }
 

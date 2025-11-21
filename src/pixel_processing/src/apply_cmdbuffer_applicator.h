@@ -162,6 +162,9 @@ static ApplyCmdBufferFunction getApplyFunction(LdeCmdBufferCpuCmd command, LdeTr
         if (command == CBCCClear) {
             return clear;
         }
+        if (command == CBCCSetZero) {
+            return transformType == TransformDD ? &setZeroDD : &setZeroDDS;
+        }
         return kHighlightTable[transformType][fpType];
     }
     switch (command) {

@@ -45,8 +45,15 @@ if (VULKAN_PIPELINE)
 endif ()
 
 find_package(lcevc_dec REQUIRED)
+find_package(lcevc_dec_utility REQUIRED)
 
 add_executable(lcevc_dec_api_sample_cpp ../src/main.cpp)
 
-target_link_libraries(lcevc_dec_api_sample_cpp fmt::fmt CLI11::CLI11 lcevc_dec::lcevc_dec
-                      ffmpeg-libs::ffmpeg-libs $<TARGET_NAME_IF_EXISTS:Vulkan::Vulkan>)
+target_link_libraries(
+    lcevc_dec_api_sample_cpp
+    fmt::fmt
+    CLI11::CLI11
+    lcevc_dec::lcevc_dec
+    lcevc_dec_utility::lcevc_dec_utility
+    ffmpeg-libs::ffmpeg-libs
+    $<TARGET_NAME_IF_EXISTS:Vulkan::Vulkan>)
