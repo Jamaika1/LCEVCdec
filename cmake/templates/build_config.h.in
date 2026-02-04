@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2022-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2022-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -188,6 +188,7 @@
 #define VN_COMPILER(x)              VN_COMPILER_PRIVATE_DEF_##x()
 #define VN_VARIANT(x)               VN_VARIANT_PRIVATE_DEF_##x()
 #define VN_SDK_FEATURE(x)           VN_SDK_FEATURE_PRIVATE_DEF_##x()
+#define VN_SDK_LOG(x)               VN_SDK_LOG_PRIVATE_DEF_##x()
 #define VN_SDK_PIPELINE(x)          VN_SDK_PIPELINE_PRIVATE_DEF_##x()
 #define VN_CORE_FEATURE(x)          VN_CORE_FEATURE_PRIVATE_DEF_##x()
 
@@ -399,23 +400,35 @@
 #define VN_SDK_FEATURE_PRIVATE_DEF_BUILD_DETAILS() VN_@VN_SDK_BUILD_DETAILS@
 
 /* Logging */
-#define VN_SDK_LOG_ENABLE_@VN_SDK_MAXIMUM_LOG_LEVEL@ 1
+#define VN_SDK_LOG_PRIVATE_DEF_VERBOSE() 0
+#define VN_SDK_LOG_PRIVATE_DEF_DEBUG() 0
+#define VN_SDK_LOG_PRIVATE_DEF_INFO() 0
+#define VN_SDK_LOG_PRIVATE_DEF_WARNING() 0
+#define VN_SDK_LOG_PRIVATE_DEF_ERROR() 0
+#define VN_SDK_LOG_PRIVATE_DEF_FATAL() 0
 
-/* Make sure all log levels below highest are enabled */
-#ifdef VN_SDK_LOG_ENABLE_VERBOSE
-#define VN_SDK_LOG_ENABLE_DEBUG
+#undef VN_SDK_LOG_PRIVATE_DEF_@VN_SDK_MAXIMUM_LOG_LEVEL@
+#define VN_SDK_LOG_PRIVATE_DEF_@VN_SDK_MAXIMUM_LOG_LEVEL@() 1
+
+#if VN_SDK_LOG_PRIVATE_DEF_VERBOSE()
+#undef VN_SDK_LOG_PRIVATE_DEF_DEBUG
+#define VN_SDK_LOG_PRIVATE_DEF_DEBUG() 1
 #endif
-#ifdef VN_SDK_LOG_ENABLE_DEBUG
-#define VN_SDK_LOG_ENABLE_INFO
+#if VN_SDK_LOG_PRIVATE_DEF_DEBUG()
+#undef VN_SDK_LOG_PRIVATE_DEF_INFO
+#define VN_SDK_LOG_PRIVATE_DEF_INFO() 1
 #endif
-#ifdef VN_SDK_LOG_ENABLE_INFO
-#define VN_SDK_LOG_ENABLE_WARNING
+#if VN_SDK_LOG_PRIVATE_DEF_INFO()
+#undef VN_SDK_LOG_PRIVATE_DEF_WARNING
+#define VN_SDK_LOG_PRIVATE_DEF_WARNING() 1
 #endif
-#ifdef VN_SDK_LOG_ENABLE_WARNING
-#define VN_SDK_LOG_ENABLE_ERROR
+#if VN_SDK_LOG_PRIVATE_DEF_WARNING()
+#undef VN_SDK_LOG_PRIVATE_DEF_ERROR
+#define VN_SDK_LOG_PRIVATE_DEF_ERROR() 1
 #endif
-#ifdef VN_SDK_LOG_ENABLE_ERROR
-#define VN_SDK_LOG_ENABLE_FATAL
+#if VN_SDK_LOG_PRIVATE_DEF_ERROR()
+#undef VN_SDK_LOG_PRIVATE_DEF_FATAL
+#define VN_SDK_LOG_PRIVATE_DEF_FATAL() 1
 #endif
 
 /* clang-format on */

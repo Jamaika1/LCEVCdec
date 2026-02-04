@@ -1,4 +1,4 @@
-# Copyright (c) V-Nova International Limited 2023-2025. All rights reserved.
+# Copyright (c) V-Nova International Limited 2023-2026. All rights reserved.
 # This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
 # No patent licenses are granted under this license. For enquiries about patent licenses,
 # please contact legal@v-nova.com.
@@ -15,16 +15,20 @@
 list(
     APPEND
     SOURCES
+    "src/add.c"
+    "src/add_neon.c"
+    "src/add_scalar.c"
+    "src/add_sse.c"
     "src/apply_cmdbuffer.c"
     "src/apply_cmdbuffer_neon.c"
     "src/apply_cmdbuffer_scalar.c"
     "src/apply_cmdbuffer_sse.c"
     "src/dither.c"
     "src/dither.c"
-    "src/blit_neon.c"
-    "src/blit_scalar.c"
-    "src/blit_sse.c"
-    "src/blit.c"
+    "src/convert_neon.c"
+    "src/convert_scalar.c"
+    "src/convert_sse.c"
+    "src/convert.c"
     "src/upscale_neon.c"
     "src/upscale_scalar.c"
     "src/upscale_sse.c"
@@ -35,18 +39,24 @@ list(
 list(
     APPEND
     HEADERS
+    "src/add_common.h"
     "src/apply_cmdbuffer_applicator.h"
     "src/apply_cmdbuffer_common.h"
-    "src/blit_common.h"
+    "src/convert_common.h"
     "src/fp_types.h"
     "src/upscale_common.h"
     "src/upscale_neon.h"
     "src/upscale_scalar.h"
     "src/upscale_sse.h")
 
-list(APPEND INTERFACES "include/LCEVC/pixel_processing/apply_cmdbuffer.h"
-     "include/LCEVC/pixel_processing/dither.h" "include/LCEVC/pixel_processing/blit.h"
-     "include/LCEVC/pixel_processing/upscale.h")
+list(
+    APPEND
+    INTERFACES
+    "include/LCEVC/pixel_processing/add.h"
+    "include/LCEVC/pixel_processing/apply_cmdbuffer.h"
+    "include/LCEVC/pixel_processing/dither.h"
+    "include/LCEVC/pixel_processing/convert.h"
+    "include/LCEVC/pixel_processing/upscale.h")
 
 list(APPEND INTERFACES_DETAIL "include/LCEVC/pixel_processing/detail/apply_dither_scalar.h"
      "include/LCEVC/pixel_processing/detail/apply_dither_sse.h"

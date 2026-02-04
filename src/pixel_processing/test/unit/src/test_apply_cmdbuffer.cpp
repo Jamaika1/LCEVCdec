@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2025-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -124,8 +124,10 @@ TEST_P(ApplyCmdBuffer, AllCombinations)
 {
     const applyCmdBufferTestParams params = GetParam();
     fillCmdBuffer(params.entryPoints, params.fixedPoint, params.surfaceRasterOrder);
-    EXPECT_TRUE(ldppApplyCmdBuffer(&taskPool, NULL, &enhancementTile, params.fixedPoint, &testPlane.planeDesc,
-                                   params.surfaceRasterOrder, params.forceScalar, params.highlight));
+    VNDiagInfo(diagInfo, "Name", 0, 0, 9);
+    EXPECT_TRUE(ldppApplyCmdBuffer(&taskPool, NULL, &enhancementTile, params.fixedPoint,
+                                   &testPlane.planeDesc, params.surfaceRasterOrder,
+                                   params.forceScalar, params.highlight, VNDiagInfoPtr(diagInfo)));
 }
 
 std::string testNames(const testing::TestParamInfo<applyCmdBufferTestParams>& value)
@@ -162,8 +164,10 @@ TEST_P(ApplyCmdBufferHash, HashPlane)
 {
     const applyCmdBufferTestParams params = GetParam();
     fillCmdBuffer(params.entryPoints, params.fixedPoint, params.surfaceRasterOrder);
-    EXPECT_TRUE(ldppApplyCmdBuffer(&taskPool, NULL, &enhancementTile, params.fixedPoint, &testPlane.planeDesc,
-                                   params.surfaceRasterOrder, params.forceScalar, params.highlight));
+    VNDiagInfo(diagInfo, "Name", 0, 0, 9);
+    EXPECT_TRUE(ldppApplyCmdBuffer(&taskPool, NULL, &enhancementTile, params.fixedPoint,
+                                   &testPlane.planeDesc, params.surfaceRasterOrder,
+                                   params.forceScalar, params.highlight, VNDiagInfoPtr(diagInfo)));
     EXPECT_EQ(hashPlane(), params.hash);
 }
 

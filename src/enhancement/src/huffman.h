@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2022-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2022-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -17,26 +17,19 @@
 
 #include "bitstream.h"
 
-/* These must add up to VN_BIG_TABLE_MAX_SIZE*/
-#define VN_BIG_TABLE_LEADING_ZEROES_BITS 4
-#define VN_BIG_TABLE_MAX_CODE_SIZE 8
+// VN_BIG_TABLE_LEADING_ZEROES_BITS, VN_BIG_TABLE_MAX_CODE_SIZE, and VN_SMALL_TABLE_MAX_SIZE are
+// defined via cmake, defaults in CMakeLists.txt.
 
-/* (1 << VN_BIG_TABLE_LEADING_ZEROES_BITS) - 1 */
-#define VN_BIG_TABLE_MAX_NUM_LEADING_ZEROES 15
-/* VN_BIG_TABLE_MAX_NUM_LEADING_ZEROES + VN_BIG_TABLE_MAX_CODE_SIZE*/
-#define VN_BIG_TABLE_CODE_SIZE_TO_READ 23
+#define VN_BIG_TABLE_MAX_SIZE (VN_BIG_TABLE_LEADING_ZEROES_BITS + VN_BIG_TABLE_MAX_CODE_SIZE)
 
-/* (1<<VN_BIG_TABLE_MAX_SIZE) - 1 */
-#define VN_BIG_HUFFMAN_IDX_MASK 4095
+#define VN_BIG_TABLE_MAX_NUM_LEADING_ZEROES ((1 << VN_BIG_TABLE_LEADING_ZEROES_BITS) - 1)
+#define VN_BIG_TABLE_CODE_SIZE_TO_READ \
+    (VN_BIG_TABLE_MAX_NUM_LEADING_ZEROES + VN_BIG_TABLE_MAX_CODE_SIZE)
 
-/* (1<<VN_BIG_TABLE_MAX_CODE_SIZE) - 1 */
-#define VN_BIG_HUFFMAN_CODE_MASK 255
+#define VN_BIG_HUFFMAN_IDX_MASK ((1 << VN_BIG_TABLE_MAX_SIZE) - 1)
+#define VN_BIG_HUFFMAN_CODE_MASK ((1 << VN_BIG_TABLE_MAX_CODE_SIZE) - 1)
 
-/* (1<<VN_SMALL_TABLE_MAX_SIZE) - 1 */
-#define VN_SMALL_HUFFMAN_CODE_MASK 1023
-
-#define VN_BIG_TABLE_MAX_SIZE 12
-#define VN_SMALL_TABLE_MAX_SIZE 10
+#define VN_SMALL_HUFFMAN_CODE_MASK ((1 << VN_SMALL_TABLE_MAX_SIZE) - 1)
 
 /* VN_MAX_NUM_SYMBOLS is a feature of the stream: for sparse symbols, 5 bits store the symbol
  * count (so, at most 32 symbols). For dense symbols, there's a presence bitmap of size 256. */

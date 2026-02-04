@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2023-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2023-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -60,7 +60,7 @@ struct Config
     std::string configurationJson;
     std::string trickplayJson;
     bool verbose{false};
-    bool repeat{false};
+    uint32_t repeat{1};
 };
 
 struct Stats
@@ -144,8 +144,8 @@ int setupConfig(int argc, char** argv, Config& cfgOut)
     app.add_option("--trickplay", cfgOut.trickplayJson,
                    "JSON trickplay configuration (Inline json, or json filename)");
     app.add_flag("-v,--verbose", cfgOut.verbose, "Enable verbose logging");
-    app.add_flag("--repeat", cfgOut.repeat, "Repeat decoding task for ever");
-    app.add_flag("--pending-limit", cfgOut.pendingLimit, "Maximum number of frames to keep pending.");
+    app.add_option("--repeat", cfgOut.repeat, "Repeat count for decoding task, use -1 to repeat forever");
+    app.add_option("--pending-limit", cfgOut.pendingLimit, "Maximum number of frames to keep pending.");
 
     try {
         app.parse(argc, argv);
@@ -579,9 +579,9 @@ int main(int argc, char** argv)
         return res;
     }
 
-    do {
+    for (uint32_t r = 0; r < cfg.repeat; ++r) {
         if (int ret = decode(cfg); ret != EXIT_SUCCESS) {
             return ret;
         }
-    } while (cfg.repeat);
+    }
 }

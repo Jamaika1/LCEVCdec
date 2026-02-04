@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2022-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2022-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -34,7 +34,7 @@ TEST(BitStream, Initialize)
     stream.nextBit = 5;
     stream.word = 30;
 
-    uint8_t data;
+    uint8_t data = 0;
 
     const BitStream_t baselineStream = stream;
 

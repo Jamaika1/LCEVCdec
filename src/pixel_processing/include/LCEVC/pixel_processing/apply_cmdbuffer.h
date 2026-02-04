@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2025-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -38,8 +38,8 @@ extern "C"
  *                               residual locations for debugging residual distribution
  */
 bool ldppApplyCmdBuffer(LdcTaskPool* taskPool, LdcTask* parent, LdpEnhancementTile* enhancementTile,
-                        LdpFixedPoint fixedPoint, const LdpPicturePlaneDesc* plane,
-                        bool rasterOrder, bool forceScalar, bool highlight);
+                        LdpFixedPoint fixedPoint, const LdpPicturePlaneDesc* plane, bool rasterOrder,
+                        bool forceScalar, bool highlight, const LdpPipelineDiagInfo* diagInfo);
 
 #ifdef __cplusplus
 }

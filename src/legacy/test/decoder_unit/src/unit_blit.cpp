@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2022-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2022-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -45,15 +45,15 @@ constexpr uint32_t kDstStride = 512;
 
 // -----------------------------------------------------------------------------
 
-struct BlitTestParams
+struct ConvertTestParams
 {
     FixedPoint_t srcFP;
     FixedPoint_t dstFP;
 };
 
-class BlitTest : public FixtureWithParam<BlitTestParams>
+class BlitTest : public FixtureWithParam<ConvertTestParams>
 {
-    using BaseClass = FixtureWithParam<BlitTestParams>;
+    using BaseClass = FixtureWithParam<ConvertTestParams>;
 
 public:
     void SetUp() override
@@ -155,7 +155,7 @@ TEST_P(AddTest, CompareSIMD)
 // -----------------------------------------------------------------------------
 
 // Helper for printing a meaningful name for the test parameter
-std::string CopyToString(const testing::TestParamInfo<BlitTestParams>& value)
+std::string CopyToString(const testing::TestParamInfo<ConvertTestParams>& value)
 {
     const FixedPoint_t srcFP = value.param.srcFP;
     const FixedPoint_t dstFP = value.param.dstFP;
@@ -165,7 +165,7 @@ std::string CopyToString(const testing::TestParamInfo<BlitTestParams>& value)
     return ss.str();
 }
 //
-std::string BlitToString(const testing::TestParamInfo<BlitTestParams>& value)
+std::string BlitToString(const testing::TestParamInfo<ConvertTestParams>& value)
 {
     const FixedPoint_t srcFP = value.param.srcFP;
     const FixedPoint_t dstFP = value.param.dstFP;
@@ -205,7 +205,7 @@ const auto kCopyParams = rv::cartesian_product(kFixedPointAll, kFixedPointAll) |
                              return isDepthPromotion && !areBothSigned;
                          }) |
                          rv::transform([](auto value) {
-                             return BlitTestParams{std::get<0>(value), std::get<1>(value)};
+                             return ConvertTestParams{std::get<0>(value), std::get<1>(value)};
                          }) |
                          rg::to_vector;
 
@@ -214,7 +214,7 @@ INSTANTIATE_TEST_SUITE_P(BlitTests, CopyTest, testing::ValuesIn(kCopyParams), Co
 // -----------------------------------------------------------------------------
 
 const auto kBlitParams = kFixedPointAll | rv::transform([](auto value) {
-                             return BlitTestParams{ldlFixedPointHighPrecision(value), value};
+                             return ConvertTestParams{ldlFixedPointHighPrecision(value), value};
                          }) |
                          rg::to_vector;
 

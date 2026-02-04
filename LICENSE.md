@@ -1,6 +1,6 @@
 The Clear BSD License
 
-Copyright (c) V-Nova International Limited 2014 - 2024. All rights reserved.
+Copyright (c) V-Nova International Limited 2014 - 2026. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification, are permitted
 (subject to the limitations in the disclaimer and the additional terms below) provided that the

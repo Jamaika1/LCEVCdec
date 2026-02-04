@@ -1,4 +1,4 @@
-# Copyright (c) V-Nova International Limited 2024-2025. All rights reserved.
+# Copyright (c) V-Nova International Limited 2024-2026. All rights reserved.
 # This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
 # No patent licenses are granted under this license. For enquiries about patent licenses,
 # please contact legal@v-nova.com.
@@ -324,7 +324,7 @@ def is_binary_file(file_path):
     return False
 
 
-def remove_tailing_space(file, check_only=False):
+def remove_trailing_spaces(file, check_only=False):
     if os.path.isdir(file):
         return True
     assert os.path.isfile(file), f"Cannot find file: {file}"
@@ -343,16 +343,16 @@ def remove_tailing_space(file, check_only=False):
                 diff = []
                 for i, (original, stripped) in enumerate(zip(original_content.splitlines(), stripped_content.splitlines()), start=1):
                     if original != stripped:
-                        diff.append(f"Line {i}: '{repr(original)}'")
+                        diff.append(f"Line {i}: '{original}'")
                 if diff:
-                    print(f'\033[0;33m!>>\033[0m Tailing spaces in {file}:\n' + '\n'.join(diff))
+                    print(f'\033[0;33m!>>\033[0m Trailing spaces in {file}:\n' + '\n'.join(diff))
                     return False
             else:
                 with open(file, 'w') as f:
                     f.write(stripped_content + '\n')
         return True
     except Exception as e:
-        print(f"Failed to remove tailing spaces on {file}: {e}")
+        print(f"Failed to remove trailing spaces on {file}: {e}")
         return False
 
 
@@ -444,8 +444,8 @@ def main():
     if not lint_readme():
         errors += 1
 
-    for path in get_paths('*.*', changed_files, global_dirs=TRAILING_SPACE_GLOB_DIRS, excluded_dirs=None):
-        if not remove_tailing_space(path, args.check_only):
+    for path in get_paths(['*.*'], changed_files, global_dirs=TRAILING_SPACE_GLOB_DIRS, excluded_dirs=None):
+        if not remove_trailing_spaces(path, args.check_only):
             errors += 1
 
     zizmor_exe = find_formatter('zizmor', '1.3.0')

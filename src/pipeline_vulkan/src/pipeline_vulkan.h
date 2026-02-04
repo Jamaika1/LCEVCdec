@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2025-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -168,7 +168,7 @@ public:
 
     void updateTemporalBufferDesc(TemporalBuffer* buffer, const TemporalBufferDesc& desc) const;
 
-#ifdef VN_SDK_LOG_ENABLE_DEBUG
+#if VN_SDK_LOG(DEBUG)
     // Write Debug log of current frame state
     void logFrames();
     void logFrameIndex(const char* indexName, const lcevc_dec::common::Vector<FrameVulkan*>& index) const;

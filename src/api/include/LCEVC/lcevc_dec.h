@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2023-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2023-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -469,10 +469,10 @@ LCEVC_ReturnCode LCEVC_AllocPictureExternal( LCEVC_DecoderHandle decHandle,
 /*!
  * Releases a picture instance.
  *
- * @attention                        No reference calls to picture handle should be made after this
- *                                   method
+ * @attention                        No reference calls to the picture handle should be made after
+ *                                   this method
  * @param[in]    decHandle           LCEVC Decoder handle
- * @param[in]    picHandle           Handle to picture instance to be released
+ * @param[in]    picHandle           Handle to the picture instance to be released
  * @return                           LCEVC_InvalidParam if an invalid picHandle is given,
  *                                   LCEVC_Error if the picture cannot be release, otherwise
  *                                   LCEVC_Success
@@ -484,7 +484,7 @@ LCEVC_ReturnCode LCEVC_FreePicture( LCEVC_DecoderHandle decHandle, LCEVC_Picture
  * Set per picture metadata.
  *
  * @param[in]    decHandle           LCEVC Decoder handle
- * @param[in]    picHandle           Handle to picture instance to be updated
+ * @param[in]    picHandle           Handle to the picture instance to be updated
  * @param[in]    flag                Identify flag value to set in picture
  * @param[in]    value               Value that flag will be set to
  * @return                           LCEVC_InvalidParam for an invalid picHandle or flag, otherwise
@@ -500,7 +500,7 @@ LCEVC_ReturnCode LCEVC_SetPictureFlag( LCEVC_DecoderHandle decHandle,
  * Fetch per picture metadata.
  *
  * @param[in]    decHandle           LCEVC Decoder handle
- * @param[in]    picHandle           Handle to picture instance to be queried
+ * @param[in]    picHandle           Handle to the picture instance to be queried
  * @param[in]    flag                Identify flag value to get from picture
  * @param[out]   value               Value of the flag that will be fetched
  * @return                           LCEVC_InvalidParam for an invalid picHandle or flag, otherwise
@@ -516,7 +516,7 @@ LCEVC_ReturnCode LCEVC_GetPictureFlag( LCEVC_DecoderHandle decHandle,
  * Get the description of a picture instance.
  *
  * @param[in]    decHandle           LCEVC Decoder handle
- * @param[in]    picHandle           Handle to picture instance to be queried
+ * @param[in]    picHandle           Handle to the picture instance to be queried
  * @param[out]   desc                Contents of the pointer will be rewritten with picture
  *                                   descriptions
  * @return                           LCEVC_InvalidParam for an invalid picHandle or desc, otherwise
@@ -535,7 +535,7 @@ LCEVC_ReturnCode LCEVC_GetPictureDesc( LCEVC_DecoderHandle decHandle,
  * by this function: the original memory will be reused.
  *
  * @param[in]    decHandle           LCEVC Decoder handle
- * @param[in]    picHandle           Handle to picture instance to be adjusted
+ * @param[in]    picHandle           Handle to the picture instance to be adjusted
  * @param[in]    desc                The new picture description
  * @return                           LCEVC_InvalidParam for an invalid picHandle or desc, otherwise
  *                                   LCEVC_Success
@@ -549,7 +549,7 @@ LCEVC_ReturnCode LCEVC_SetPictureDesc( LCEVC_DecoderHandle decHandle,
  * Get a description of the buffer from a picture instance.
  *
  * @param[in]    decHandle           LCEVC Decoder handle
- * @param[in]    picHandle           Handle to picture instance to be queried
+ * @param[in]    picHandle           Handle to the picture instance to be queried
  * @param[out]   bufferDesc          Destination for buffer description
  * @return                           LCEVC_InvalidParam for an invalid picHandle or bufferDesc.
  *                                   LCEVC_Error if the picture was allocated without a buffer desc
@@ -566,7 +566,7 @@ LCEVC_ReturnCode LCEVC_GetPictureBuffer( LCEVC_DecoderHandle decHandle,
  * Get the number of planes from a picture instance.
  *
  * @param[in]    decHandle           LCEVC Decoder handle
- * @param[in]    picHandle           Handle to picture instance to be queried
+ * @param[in]    picHandle           Handle to the picture instance to be queried
  * @param[out]   planeCount          Will be filled with number of planes
  * @return                           LCEVC_InvalidParam for an invalid picHandle or bufferDesc,
  *                                   otherwise LCEVC_Success
@@ -581,7 +581,7 @@ LCEVC_ReturnCode LCEVC_GetPicturePlaneCount( LCEVC_DecoderHandle decHandle,
  * LCEVC_SendDecoderBase using the same picture.
  *
  * @param[in]    decHandle           LCEVC Decoder handle
- * @param[in]    picHandle           Handle to picture instance to be updated
+ * @param[in]    picHandle           Handle to the picture instance to be updated
  * @param[in]    userData            The user data to associate with the picture
  * @return                           LCEVC_InvalidParam if the picture is not valid,
  *                                   LCEVC_Success otherwise
@@ -595,7 +595,7 @@ LCEVC_ReturnCode LCEVC_SetPictureUserData( LCEVC_DecoderHandle decHandle,
  * Get the user data pointer from a picture instance.
  *
  * @param[in]    decHandle           LCEVC Decoder handle
- * @param[in]    picHandle           Handle to picture instance to be queried
+ * @param[in]    picHandle           Handle to the picture instance to be queried
  * @param[out]   userData            The user data to associate with the picture
  * @return                           LCEVC_InvalidParam if the picture is invalid or userData is
  *                                   invalid, LCEVC_Success otherwise
@@ -610,7 +610,7 @@ LCEVC_ReturnCode LCEVC_GetPictureUserData( LCEVC_DecoderHandle decHandle,
  * strided pointer. This creates a picture lock (only one lock is allowed per picture).
  *
  * @param[in]    decHandle           LCEVC Decoder handle
- * @param[in]    picHandle           Handle to picture instance to lock
+ * @param[in]    picHandle           Handle to the picture instance to lock
  * @param[in]    access              How plane data will be accessed (Read, Write, or Modify)
  * @param[out]   pictureLock         Destination PictureLockHandle representing the locked state
  * @return                           LCEVC_InvalidParam if the picture or access is invalid,
@@ -767,7 +767,7 @@ LCEVC_ReturnCode LCEVC_SendDecoderEnhancementData( LCEVC_DecoderHandle decHandle
  * @param[in]    timeoutUs           Maximum decode time in uSecs
  * @param[in]    userData            A user pointer that is propagated to the DecoderInformation
  *                                   for all decoded timestamps that result from this base.
- *                                   Overwrites any existing userData.
+ *                                   Overwrites any existing user data.
  * @return                           LCEVC_Again if the decoder cannot consume the base data in
  *                                   its current state, but may be able to later (typically this
  *                                   means receiving decoded pictures). If LCEVC_Again is returned,

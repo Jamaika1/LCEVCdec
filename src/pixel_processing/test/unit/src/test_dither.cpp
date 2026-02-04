@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2022-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2022-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -90,9 +90,9 @@ TEST_F(DitherFixture, CheckSIMDAccuracy)
             const uint16_t* pEntropyScalar = entropyValues.data();
             simdResults.fill(0);
 
-#if VN_CORE_FEATURE(SSE)
+#if VN_SDK_FEATURE(SSE)
             ldppDitherApplySSE((__m128i*)simdResults.data(), &pEntropySIMD, 0, strength);
-#elif VN_CORE_FEATURE(NEON)
+#elif VN_SDK_FEATURE(NEON)
             // Explicit copy to/from result buffer for NEON
             int16x8x2_t neonResult = vld2q_s16(simdResults.data());
             ldppDitherApplyNEON(&neonResult, &pEntropySIMD, 0, strength);

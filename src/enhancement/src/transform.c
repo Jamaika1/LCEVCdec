@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2022-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2022-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -197,7 +197,7 @@ void dequantInverseDDS2D(const Dequant* dequant, TemporalSignal temporalSignal,
     inverseDDS2D(dqCoeffs, residuals);
 }
 
-#if VN_CORE_FEATURE(SSE)
+#if VN_SDK_FEATURE(SSE)
 
 /*------------------------------------------------------------------------------*/
 
@@ -405,7 +405,7 @@ void dequantInverseDDS2D_SSE(const Dequant* dequant, TemporalSignal temporalSign
 
 #endif
 
-#if VN_CORE_FEATURE(NEON)
+#if VN_SDK_FEATURE(NEON)
 
 /*------------------------------------------------------------------------------*/
 
@@ -650,12 +650,12 @@ void dequantInverseDDS2D_NEON(const Dequant* dequant, TemporalSignal temporalSig
 static const TransformFunction kTable[2][2] = {{&inverseDD2D, &inverseDD1D},
                                                {&inverseDDS2D, &inverseDDS1D}};
 
-#if VN_CORE_FEATURE(SSE)
+#if VN_SDK_FEATURE(SSE)
 
 static const TransformFunction kTableSIMD[2][2] = {{&inverseDD2D_SSE, &inverseDD1D_SSE},
                                                    {&inverseDDS2D_SSE, &inverseDDS1D_SSE}};
 
-#elif VN_CORE_FEATURE(NEON)
+#elif VN_SDK_FEATURE(NEON)
 
 static const TransformFunction kTableSIMD[2][2] = {{&inverseDD2D_NEON, &inverseDD1D_NEON},
                                                    {&inverseDDS2D_NEON, &inverseDDS1D_NEON}};
@@ -688,13 +688,13 @@ TransformFunction transformGetFunction(LdeTransformType transform, LdeScalingMod
 static const DequantTransformFunction kDequantTable[2][2] = {{&dequantInverseDD2D, &dequantInverseDD1D},
                                                              {&dequantInverseDDS2D, &dequantInverseDDS1D}};
 
-#if VN_CORE_FEATURE(SSE)
+#if VN_SDK_FEATURE(SSE)
 
 static const DequantTransformFunction kDequantTableSIMD[2][2] = {
     {&dequantInverseDD2D_SSE, &dequantInverseDD1D_SSE},
     {&dequantInverseDDS2D_SSE, &dequantInverseDDS1D_SSE}};
 
-#elif VN_CORE_FEATURE(NEON)
+#elif VN_SDK_FEATURE(NEON)
 
 static const DequantTransformFunction kDequantTableSIMD[2][2] = {
     {&dequantInverseDD2D_NEON, &dequantInverseDD1D_NEON},

@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2025-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -123,9 +123,7 @@ PipelineCPU::PipelineCPU(const PipelineBuilderCPU& builder, pipeline::EventSink*
     }
     ldeConfigPoolInitialize(m_allocator, m_allocator, &m_configPool, bitstreamVersion);
 
-    // Start task pool - pool threads is 1 less than configured threads
-    VNCheck(m_configuration.numThreads >= 1);
-    ldcTaskPoolInitialize(&m_taskPool, m_allocator, m_allocator, m_configuration.numThreads - 1,
+    ldcTaskPoolInitialize(&m_taskPool, m_allocator, m_allocator, m_configuration.numThreads,
                           m_configuration.numReservedTasks);
 
     // Fill in empty temporal buffer anchors
@@ -344,7 +342,7 @@ LdpPicture* PipelineCPU::receiveDecoderPicture(LdpDecodeInformation& decodeInfoO
 
             if (!m_interTaskFrameDone.waitDeadline(lock, pendingFrame->deadline)) {
                 VNLogWarning("wait timed out ts:%" PRIx64, pendingFrame->timestamp);
-#ifdef VN_SDK_LOG_ENABLE_DEBUG
+#if VN_SDK_LOG(DEBUG)
                 ldcTaskPoolDump(&m_taskPool, nullptr);
 #endif
             } else {
@@ -661,7 +659,7 @@ uint32_t PipelineCPU::findAllocatedPicture(const PictureCPU* frame) const
         }
     }
 
-    VNLogError("Could not find picture!!");
+    VNLogError("Could not find picture!");
     return UINT32_MAX;
 }
 
@@ -1098,7 +1096,7 @@ void PipelineCPU::outputDone(FrameCPU* frame)
     m_eventSink->generate(pipeline::EventCanReceive);
 }
 
-#ifdef VN_SDK_LOG_ENABLE_DEBUG
+#if VN_SDK_LOG(DEBUG)
 // Dump frame and index state
 //
 void PipelineCPU::logFrames()

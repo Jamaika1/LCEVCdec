@@ -442,7 +442,6 @@ The events are generated with the various API functions - and queued up to a sep
 * An event is generated when the decoder is about to be destroyed.
 * An event is generated for any implementation specific log messages.
 
-
 Handles
 -------
 
@@ -470,3 +469,12 @@ A handle can be tested for null by checking the value:
   if(decoderHandle.hdl ==0) {
     // ...
   }
+
+User Data
+---------
+
+User data pointers can be passed into the decoder at several points and the matching pointer will be returned with their associated object. There are three types of user data objects in the LCEVC decoder:
+
+* Frame user data - is passed in with :cpp:func:`LCEVC_SendDecoderBase` and is associated with the frame itself, it is returned by :cpp:member:`~LCEVC_DecodeInformation::baseUserData` when the frame is complete and emitted by :cpp:func:`LCEVC_ReceiveDecoderPicture`.
+* Picture user data - is associated to a given :cpp:struct:`LCEVC_PictureHandle`, it can be set with :cpp:func:`LCEVC_SetPictureUserData` and retrieved with :cpp:func:`LCEVC_GetPictureUserData` on any given picture.
+* Callback user data is passed into :cpp:func:`LCEVC_SetDecoderEventCallback` and is then accessible as a parameter of the :cpp:type:`LCEVC_EventCallback`.

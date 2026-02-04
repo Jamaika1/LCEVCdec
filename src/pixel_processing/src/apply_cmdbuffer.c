@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2025-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -34,13 +34,19 @@ typedef struct ApplyCmdBufferSlicedJobContext
     LdpFixedPoint fixedPoint;
     const TileDesc tileDesc;
     bool highlight;
+
+#if VN_SDK_FEATURE(TRACING)
+    LdpPipelineDiagInfo diagInfo;
+#endif
 } ApplyCmdBufferSlicedJobContext;
 
 static bool applyCmdBufferSlicedJob(void* argument, uint32_t offset, uint32_t count)
 {
-    VNTraceScopedBegin();
-
     const ApplyCmdBufferSlicedJobContext* context = (const ApplyCmdBufferSlicedJobContext*)argument;
+    VNTraceScopedBeginArgs("task", context->diagInfo.task, "timestamp", context->diagInfo.timestamp,
+                           "loq", context->diagInfo.loq, "plane", context->diagInfo.plane, "offset",
+                           offset, "count", count);
+
     bool r = true;
     for (uint32_t i = 0; i < count; ++i) {
         r &= context->function(context->enhancementTile, offset + i, &context->plane,
@@ -52,8 +58,8 @@ static bool applyCmdBufferSlicedJob(void* argument, uint32_t offset, uint32_t co
 }
 
 bool ldppApplyCmdBuffer(LdcTaskPool* taskPool, LdcTask* parent, LdpEnhancementTile* enhancementTile,
-                        LdpFixedPoint fixedPoint, const LdpPicturePlaneDesc* plane,
-                        bool rasterOrder, bool forceScalar, bool highlight)
+                        LdpFixedPoint fixedPoint, const LdpPicturePlaneDesc* plane, bool rasterOrder,
+                        bool forceScalar, bool highlight, const LdpPipelineDiagInfo* diagInfo)
 {
     if (!plane->firstSample) {
         VNLogError("Apply cmdbuffer surface has no data pointer");
@@ -100,12 +106,16 @@ bool ldppApplyCmdBuffer(LdcTaskPool* taskPool, LdcTask* parent, LdpEnhancementTi
         }
         cmdBuffer->entryPoints = NULL;
     } else {
-        ApplyCmdBufferSlicedJobContext slicedJobContext = {
+        const ApplyCmdBufferSlicedJobContext slicedJobContext = {
             .function = applicatorFunction,
             .enhancementTile = enhancementTile,
             .plane = *plane,
             .fixedPoint = fixedPoint,
             .highlight = highlight,
+#if VN_SDK_FEATURE(TRACING)
+            .diagInfo = *diagInfo
+#endif
+
         };
 
         return ldcTaskPoolAddSlicedDeferred(taskPool, parent, &applyCmdBufferSlicedJob, NULL,

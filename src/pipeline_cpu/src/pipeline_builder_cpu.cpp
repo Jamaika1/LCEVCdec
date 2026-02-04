@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2025-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -49,8 +49,13 @@ PipelineBuilderCPU::PipelineBuilderCPU(LdcMemoryAllocator* allocator)
     : m_allocator(allocator)
     , m_configurableMembers(kConfigMemberMap, m_configuration)
 {
+#if VN_OS(ANDROID)
+    // Special case for Android, single threaded operation often gives better performance on mobile
+    m_configuration.numThreads = 1;
+#else
     // Set default thread count - number of platform cores, plus 1 for main thread
-    m_configuration.numThreads = threadNumCores() + 1;
+    m_configuration.numThreads = threadNumCores();
+#endif
 }
 
 PipelineBuilderCPU::~PipelineBuilderCPU() {}

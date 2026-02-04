@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2025-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -301,6 +301,12 @@ bool FrameCPU::initializeIntermediateBuffers()
 
     const LdpColorFormat format = getBaseColorFormat();
 
+    if (globalConfig->initialized && globalConfig->numPlanes > 1 &&
+        (baseFormat == LdpColorFormatNV12_8 || baseFormat == LdpColorFormatNV21_8)) {
+        VNLogError("CPU pipeline doesn't support NV12 base pictures with chroma residuals");
+        return false;
+    }
+
     // Allocate buffers starting at LOQ0, down to LOQ2 - As we go down, if there is no scaling
     // between layers, then the buffer will be shared with lower LOQ.
     for (int8_t loq = LOQ0; loq <= LOQ2; loq++) {
@@ -309,7 +315,7 @@ bool FrameCPU::initializeIntermediateBuffers()
         if (globalConfig->initialized) {
             ldePlaneDimensionsFromConfig(globalConfig, static_cast<LdeLOQIndex>(loq), 0, &width, &height);
         } else {
-            // SOme sort of passthrough - use base size
+            // Some sort of passthrough - use base size
             width = static_cast<uint16_t>(baseWidth);
             height = static_cast<uint16_t>(baseHeight);
         }
@@ -747,7 +753,7 @@ std::pair<uint32_t, uint32_t> FrameCPU::temporalDimensions(uint32_t plane) const
     }
 }
 
-#ifdef VN_SDK_LOG_ENABLE_DEBUG
+#if VN_SDK_LOG(DEBUG)
 // Write description of frame into string buffer
 // Return number of characters written to buffer
 

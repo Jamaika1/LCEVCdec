@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2024-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2024-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -19,6 +19,8 @@
 #include <gtest/gtest.h>
 //
 #include <climits>
+#include <cstdint>
+#include <cstring>
 #include <thread>
 #include <vector>
 
@@ -155,7 +157,7 @@ TEST_F(DiagnosticsTest, LogFormats)
 
 TEST_F(DiagnosticsTest, LogFormatTypes)
 {
-#ifdef VN_SDK_LOG_ENABLE_INFO
+#if VN_SDK_LOG(INFO)
     char c = 40;
     uint8_t u8 = 41;
     int8_t i8 = 42;
@@ -234,16 +236,70 @@ TEST_F(DiagnosticsTest, Formatted)
     EXPECT_EQ(get(), "Error (formatted): Formatted 34\n");
 }
 
-static void function2()
+#if VN_SDK_FEATURE(TRACING)
+
+TEST_F(DiagnosticsTest, TraceEvents)
+{
+    VNTraceBegin("Begin");
+    VNTraceBeginArgs("BeginArgs", "a", 1, "b", 2);
+    VNTraceEnd();
+    VNTraceEnd();
+    VNTraceInstant("Instant");
+    VNTraceInstantArgs("InstantArgs", "x", 7, "y", 8);
+    const uint64_t asyncId = 42;
+    VNTraceAsyncBegin("AsyncBegin", asyncId);
+    VNTraceAsyncBeginArgs("AsyncBeginArgs", asyncId, "count", 1);
+    VNTraceAsyncEnd("AsyncEnd", asyncId);
+    VNTraceAsyncInstant("AsyncInstant", asyncId);
+    VNTraceAsyncInstantArgs("AsyncInstantArgs", asyncId, "count", 2);
+
+    const std::string match =
+        "Trace: {\"ph\":\"B\", \"ts\":0.000, \"pid\":1, \"tid\":2, \"name\":\"Begin\"},\n\n"
+        "Trace: {\"ph\":\"B\", \"ts\":0.000, \"pid\":1, \"tid\":2, \"name\":\"BeginArgs\", "
+        "\"args\": { \"a\": 1, \"b\": 2}},\n\n"
+        "Trace: {\"ph\":\"E\", \"ts\":0.000, \"pid\":1, \"tid\":2},\n\n"
+        "Trace: {\"ph\":\"E\", \"ts\":0.000, \"pid\":1, \"tid\":2},\n\n"
+        "Trace: {\"ph\":\"i\", \"ts\":0.000, \"pid\":1, \"tid\":2, \"name\":\"Instant\"},\n\n"
+        "Trace: {\"ph\":\"i\", \"ts\":0.000, \"pid\":1, \"tid\":2, \"name\":\"InstantArgs\", "
+        "\"args\": { \"x\": 7, \"y\": 8}},\n\n"
+        "Trace: {\"ph\":\"b\", \"ts\":0.000, \"pid\":1, \"tid\":2, \"name\":\"AsyncBegin\", "
+        "\"id\":42 },\n\n"
+        "Trace: {\"ph\":\"b\", \"ts\":0.000, \"pid\":1, \"tid\":2, \"name\":\"AsyncBeginArgs\", "
+        "\"id\":42 , \"args\": { \"count\": 1}},\n\n"
+        "Trace: {\"ph\":\"e\", \"ts\":0.000, \"pid\":1, \"tid\":2, \"name\":\"AsyncEnd\", "
+        "\"id\":42 },\n\n"
+        "Trace: {\"ph\":\"n\", \"ts\":0.000, \"pid\":1, \"tid\":2, \"name\":\"AsyncInstant\", "
+        "\"id\":42 },\n\n"
+        "Trace: {\"ph\":\"n\", \"ts\":0.000, \"pid\":1, \"tid\":2, \"name\":\"AsyncInstantArgs\", "
+        "\"id\":42 , \"args\": { \"count\": 2}},\n\n";
+
+    EXPECT_EQ(get(), match);
+}
+
+static void function4()
 {
     VNTraceScoped();
+    VNLogInfo("Function 4");
+}
+
+static void function3()
+{
+    VNTraceScopedBegin();
+    VNLogInfo("Function 3");
+    function4();
+    VNTraceScopedEnd();
+}
+
+static void function2()
+{
+    VNTraceScopedArgs("1", 1, "2", 2, "3", 3, "4", 4);
     VNLogInfo("Function 2");
+    function3();
 }
 
 static void function1()
 {
-    VNTraceScoped();
-
+    VNTraceScopedArgs("arg1", 1, "arg2", 2);
     VNLogInfo("Function 1");
     function2();
 }
@@ -254,14 +310,23 @@ TEST_F(DiagnosticsTest, Scoped)
 
     EXPECT_EQ(
         get(),
-        "Trace: {\"ph\":\"B\", \"ts\":0.000, \"pid\":1, \"tid\":2, \"name\":\"function1\"},\n\n"
+        "Trace: {\"ph\":\"B\", \"ts\":0.000, \"pid\":1, \"tid\":2, \"name\":\"function1\", "
+        "\"args\": { \"arg1\": 1, \"arg2\": 2}},\n\n"
         "Info: Function 1\n"
-        "Trace: {\"ph\":\"B\", \"ts\":0.000, \"pid\":1, \"tid\":2, \"name\":\"function2\"},\n\n"
+        "Trace: {\"ph\":\"B\", \"ts\":0.000, \"pid\":1, \"tid\":2, \"name\":\"function2\", "
+        "\"args\": { \"1\": 1, \"2\": 2, \"3\": 3, \"4\": 4}},\n\n"
         "Info: Function 2\n"
+        "Trace: {\"ph\":\"B\", \"ts\":0.000, \"pid\":1, \"tid\":2, \"name\":\"function3\"},\n\n"
+        "Info: Function 3\nTrace: {\"ph\":\"B\", \"ts\":0.000, \"pid\":1, \"tid\":2, "
+        "\"name\":\"function4\"},\n\n"
+        "Info: Function 4\nTrace: {\"ph\":\"E\", \"ts\":0.000, \"pid\":1, \"tid\":2},\n\n"
+        "Trace: {\"ph\":\"E\", \"ts\":0.000, \"pid\":1, \"tid\":2},\n\n"
         "Trace: {\"ph\":\"E\", \"ts\":0.000, \"pid\":1, \"tid\":2},\n\n"
         "Trace: {\"ph\":\"E\", \"ts\":0.000, \"pid\":1, \"tid\":2},\n\n");
 }
+#endif
 
+#if VN_SDK_FEATURE(METRICS)
 TEST_F(DiagnosticsTest, Metrics)
 {
     int32_t i32 = 44;
@@ -291,6 +356,7 @@ TEST_F(DiagnosticsTest, Metrics)
                      "Metric: {\"ph\":\"C\", \"ts\":0.000, \"pid\":1, \"tid\":2, \"name\":\"f64\", "
                      "\"args\": { \"value\": 8}},\n\n");
 }
+#endif
 
 extern "C" int diagnosticsTestCLog();
 TEST_F(DiagnosticsTest, TestCLog) { EXPECT_TRUE(diagnosticsTestCLog()); }
@@ -298,5 +364,37 @@ TEST_F(DiagnosticsTest, TestCLog) { EXPECT_TRUE(diagnosticsTestCLog()); }
 extern "C" int diagnosticsTestCScope();
 TEST_F(DiagnosticsTest, TestCScoped) { EXPECT_TRUE(diagnosticsTestCScope()); }
 
+#if VN_SDK_FEATURE(METRICS)
 extern "C" int diagnosticsTestCMetrics();
 TEST_F(DiagnosticsTest, TestCMetrics) { EXPECT_TRUE(diagnosticsTestCMetrics()); }
+#endif
+
+#if VN_SDK_FEATURE(TRACING)
+extern "C" int diagnosticsTestCTraceEvents();
+TEST_F(DiagnosticsTest, TestCTraceEvents)
+{
+    EXPECT_TRUE(diagnosticsTestCTraceEvents());
+
+    const std::string match =
+        "Trace: {\"ph\":\"B\", \"ts\":0.000, \"pid\":1, \"tid\":2, \"name\":\"Begin\"},\n\n"
+        "Trace: {\"ph\":\"B\", \"ts\":0.000, \"pid\":1, \"tid\":2, \"name\":\"BeginArgs\", "
+        "\"args\": { \"a\": 1, \"b\": 2}},\n\n"
+        "Trace: {\"ph\":\"E\", \"ts\":0.000, \"pid\":1, \"tid\":2},\n\n"
+        "Trace: {\"ph\":\"E\", \"ts\":0.000, \"pid\":1, \"tid\":2},\n\n"
+        "Trace: {\"ph\":\"i\", \"ts\":0.000, \"pid\":1, \"tid\":2, \"name\":\"Instant\"},\n\n"
+        "Trace: {\"ph\":\"i\", \"ts\":0.000, \"pid\":1, \"tid\":2, \"name\":\"InstantArgs\", "
+        "\"args\": { \"x\": 7, \"y\": 8}},\n\n"
+        "Trace: {\"ph\":\"b\", \"ts\":0.000, \"pid\":1, \"tid\":2, \"name\":\"AsyncBegin\", "
+        "\"id\":42 },\n\n"
+        "Trace: {\"ph\":\"b\", \"ts\":0.000, \"pid\":1, \"tid\":2, \"name\":\"AsyncBeginArgs\", "
+        "\"id\":42 , \"args\": { \"count\": 1}},\n\n"
+        "Trace: {\"ph\":\"e\", \"ts\":0.000, \"pid\":1, \"tid\":2, \"name\":\"AsyncEnd\", "
+        "\"id\":42 },\n\n"
+        "Trace: {\"ph\":\"n\", \"ts\":0.000, \"pid\":1, \"tid\":2, \"name\":\"AsyncInstant\", "
+        "\"id\":42 },\n\n"
+        "Trace: {\"ph\":\"n\", \"ts\":0.000, \"pid\":1, \"tid\":2, \"name\":\"AsyncInstantArgs\", "
+        "\"id\":42 , \"args\": { \"count\": 2}},\n\n";
+
+    EXPECT_EQ(get(), match);
+}
+#endif

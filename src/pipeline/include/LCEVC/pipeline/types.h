@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2025-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -27,6 +27,7 @@
 #ifndef VN_LCEVC_PIPELINE_TYPES_H
 #define VN_LCEVC_PIPELINE_TYPES_H
 
+#include <LCEVC/common/platform.h>
 #include <LCEVC/common/return_code.h>
 //
 #include <stdbool.h>
@@ -315,6 +316,27 @@ typedef struct LdpPipelineCapacity
     uint32_t baseMaximum;
     uint32_t outputMaximum;
 } LdpPipelineCapacity;
+
+// Used to pass task details for diagnostics
+//
+typedef struct LdpPipelineDiagInfo LdpPipelineDiagInfo;
+
+#if VN_SDK_FEATURE(TRACING)
+struct LdpPipelineDiagInfo
+{
+    const char* task;
+    uint64_t timestamp;
+    uint8_t loq;
+    uint8_t plane;
+};
+
+#define VNDiagInfo(var, name, timestamp, loq, plane) \
+    const LdpPipelineDiagInfo var = {(name), (timestamp), (uint8_t)(loq), (uint8_t)(plane)}
+#define VNDiagInfoPtr(var) (&(var))
+#else
+#define VNDiagInfo(var, name, timestamp, loq, plane) (void)(0)
+#define VNDiagInfoPtr(var) (NULL)
+#endif
 
 #ifdef __cplusplus
 }

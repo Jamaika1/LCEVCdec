@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2024-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2024-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -19,6 +19,7 @@
 
 #include <string_view>
 
+#ifndef VNThreadLocal
 #if VN_COMPILER(MSVC)
 #include <windows.h>
 #define VNThreadLocal __declspec(thread)
@@ -26,6 +27,7 @@
 #else
 #define VNThreadLocal __thread
 #define VN_TO_THREAD_NAME(x) x
+#endif
 #endif
 
 namespace lcevc_dec::decoder {

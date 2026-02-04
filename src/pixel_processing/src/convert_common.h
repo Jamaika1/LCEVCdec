@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2022-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2022-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -12,8 +12,8 @@
  * ANY ONWARD DISTRIBUTION, WHETHER STAND-ALONE OR AS PART OF ANY OTHER PROJECT, REMAINS SUBJECT TO
  * THE EXCLUSION OF PATENT LICENSES PROVISION OF THE BSD-3-CLAUSE-CLEAR LICENSE. */
 
-#ifndef VN_LCEVC_PIXEL_PROCESSING_BLIT_COMMON_H
-#define VN_LCEVC_PIXEL_PROCESSING_BLIT_COMMON_H
+#ifndef VN_LCEVC_PIXEL_PROCESSING_CONVERT_COMMON_H
+#define VN_LCEVC_PIXEL_PROCESSING_CONVERT_COMMON_H
 
 #include <stdint.h>
 
@@ -55,24 +55,26 @@ typedef struct LdpPicturePlaneDesc LdpPicturePlaneDesc;
 
 #define VN_PLANE_GETLINE(pl, offset) (pl->firstSample + (offset * pl->rowByteStride))
 
-#define VN_BLIT_PER_PIXEL_BODY(Src_t, Dst_t, ...)                            \
-    const LdpPicturePlaneDesc* src = args->src;                              \
-    const LdpPicturePlaneDesc* dst = args->dst;                              \
-    const uint32_t srcStride = src->rowByteStride / sizeof(Src_t);           \
-    const uint32_t dstStride = dst->rowByteStride / sizeof(Dst_t);           \
-    const Src_t* srcRow = (const Src_t*)VN_PLANE_GETLINE(src, args->offset); \
-    Dst_t* dstRow = (Dst_t*)VN_PLANE_GETLINE(dst, args->offset);             \
-    int32_t dstValue = 0;                                                    \
-    for (uint32_t y = 0; y < args->count; ++y) {                             \
-        const Src_t* srcPixel = srcRow;                                      \
-        Dst_t* dstPixel = dstRow;                                            \
-        for (uint32_t x = 0; x < args->minWidth; ++x) {                      \
-            int32_t srcValue = (int32_t)*srcPixel++;                         \
-            VN_CALL_OP(__VA_ARGS__);                                         \
-            *dstPixel++ = (Dst_t)dstValue;                                   \
-        }                                                                    \
-        srcRow += srcStride;                                                 \
-        dstRow += dstStride;                                                 \
+#define VN_BLIT_PER_PIXEL_BODY(Src_t, Dst_t, ...)                                     \
+    const LdpPicturePlaneDesc* src = args->src;                                       \
+    const LdpPicturePlaneDesc* dst = args->dst;                                       \
+    const uint32_t srcStride = src->rowByteStride / sizeof(Src_t);                    \
+    const uint32_t dstStride = dst->rowByteStride / sizeof(Dst_t);                    \
+    const Src_t* restrict srcRow = (const Src_t*)VN_PLANE_GETLINE(src, args->offset); \
+    Dst_t* restrict dstRow = (Dst_t*)VN_PLANE_GETLINE(dst, args->offset);             \
+    int32_t dstValue = 0;                                                             \
+    const uint32_t minWidth = args->minWidth;                                         \
+    const uint32_t count = args->count;                                               \
+    for (uint32_t y = 0; y < count; ++y) {                                            \
+        const Src_t* restrict srcPixel = srcRow;                                      \
+        Dst_t* restrict dstPixel = dstRow;                                            \
+        for (uint32_t x = 0; x < minWidth; ++x) {                                     \
+            int32_t srcValue = (int32_t)*srcPixel++;                                  \
+            VN_CALL_OP(__VA_ARGS__);                                                  \
+            *dstPixel++ = (Dst_t)dstValue;                                            \
+        }                                                                             \
+        srcRow += srcStride;                                                          \
+        dstRow += dstStride;                                                          \
     }
 
 /*! \brief Helper macro for setting up the boilerplate code used for each specialized
@@ -104,21 +106,22 @@ typedef struct LdpPicturePlaneDesc LdpPicturePlaneDesc;
     const uint32_t srcStride = src->rowByteStride / sizeof(Src_t);           \
     const uint32_t dstStride = dst->rowByteStride / sizeof(Dst_t);           \
     const Src_t* srcRow = (const Src_t*)VN_PLANE_GETLINE(src, args->offset); \
-    Dst_t* dstRow = (Dst_t*)VN_PLANE_GETLINE(dst, args->offset)
+    Dst_t* dstRow = (Dst_t*)VN_PLANE_GETLINE(dst, args->offset);             \
+    const uint32_t count = args->count
 
 /*------------------------------------------------------------------------------*/
 
 /*! \brief Arguments passed to the specialised blit function implementations. */
-typedef struct LdppBlitArgs
+typedef struct LdppConvertArgs
 {
-    const struct LdpPicturePlaneDesc* src; /**< Source plane to blit from. */
-    const struct LdpPicturePlaneDesc* dst; /**< Destination plane to blit to. */
-    uint32_t minWidth;                     /**< Minimum plane width. */
-    uint32_t offset;                       /**< Row offset to start processing from. */
-    uint32_t count;                        /**< Number of rows to process. */
-} LdppBlitArgs;
+    const LdpPicturePlaneDesc* src; /**< Source plane to copy from. */
+    const LdpPicturePlaneDesc* dst; /**< Destination plane to copy to. */
+    uint32_t minWidth;              /**< Minimum plane width. */
+    uint32_t offset;                /**< Row offset to start processing from. */
+    uint32_t count;                 /**< Number of rows to process. */
+} LdppConvertArgs;
 
-typedef void (*PlaneBlitFunction)(const LdppBlitArgs* args);
+typedef void (*PlaneConvertFunction)(const LdppConvertArgs* args);
 
 /*------------------------------------------------------------------------------*/
 
@@ -126,4 +129,4 @@ typedef void (*PlaneBlitFunction)(const LdppBlitArgs* args);
 }
 #endif
 
-#endif // VN_LCEVC_PIXEL_PROCESSING_BLIT_COMMON_H
+#endif // VN_LCEVC_PIXEL_PROCESSING_CONVERT_COMMON_H

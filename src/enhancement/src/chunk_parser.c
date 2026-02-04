@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2024-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2024-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -47,7 +47,7 @@ static bool quantMatrixParseLOQ(ByteStream* stream, LdeLOQIndex loq, LdeFrameCon
 static void quantMatrixDebugLog(const LdeQuantMatrix* quantMatrix, const LdeTransformType transform,
                                 const LdeLOQIndex loq)
 {
-#ifdef VN_SDK_LOG_ENABLE_VERBOSE
+#if VN_SDK_LOG(VERBOSE)
     const uint8_t* values = quantMatrixGetValuesConst(quantMatrix, loq);
 
     if (transform == TransformDD) {

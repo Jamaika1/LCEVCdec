@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2023-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2023-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -127,7 +127,7 @@ bool Picture::copyData(const Picture& source)
 bool Picture::toCoreImage(perseus_image& dest)
 {
     const uint32_t numPlanes = getNumPlanes();
-#ifdef VN_SDK_LOG_ENABLE_ERROR
+#if VN_SDK_LOG(ERROR)
     const uint64_t timestamp = getTimestamp();
 #endif
 

@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2025-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -179,7 +179,7 @@ static inline void* ldcVectorFindUnordered(const LdcVector* vector, LdcVectorCom
 static inline int ldcVectorFindUnorderedIdx(const LdcVector* vector, LdcVectorCompareFn compareFn,
                                             const void* other);
 
-/*! Insert element into vector
+/*! Insert element into sorted vector
  *
  * @param[in] vector            An initialized vector.
  * @param[in] compareFn         Pointer function that provides a comparison between elements <0, 0 or >0

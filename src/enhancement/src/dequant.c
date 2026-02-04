@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2022-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2022-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -248,7 +248,7 @@ bool calculateDequant(Dequant* dequant, const LdeGlobalConfig* globalConfig,
                                               frameConfig->dequantOffset, frameConfig->dequantOffsetMode);
         }
 
-#if VN_CORE_FEATURE(SSE)
+#if VN_SDK_FEATURE(SSE)
         dequant->stepWidthVector[temporalIdx][0] =
             _mm_load_si128((const __m128i*)&dequant->stepWidth[temporalIdx][0]);
         dequant->stepWidthVector[temporalIdx][1] =
@@ -257,7 +257,7 @@ bool calculateDequant(Dequant* dequant, const LdeGlobalConfig* globalConfig,
             _mm_load_si128((const __m128i*)&dequant->offset[temporalIdx][0]);
         dequant->offsetVector[temporalIdx][1] =
             _mm_load_si128((const __m128i*)&dequant->offset[temporalIdx][8]);
-#elif VN_CORE_FEATURE(NEON)
+#elif VN_SDK_FEATURE(NEON)
         dequant->stepWidthVector[temporalIdx][0] = vld1q_s16(&dequant->stepWidth[temporalIdx][0]);
         dequant->stepWidthVector[temporalIdx][1] = vld1q_s16(&dequant->stepWidth[temporalIdx][8]);
         dequant->offsetVector[temporalIdx][0] = vld1q_s16(&dequant->offset[temporalIdx][0]);

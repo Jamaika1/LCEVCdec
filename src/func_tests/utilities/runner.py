@@ -1,4 +1,4 @@
-# Copyright (c) V-Nova International Limited 2023-2025. All rights reserved.
+# Copyright (c) V-Nova International Limited 2023-2026. All rights reserved.
 # This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
 # No patent licenses are granted under this license. For enquiries about patent licenses,
 # please contact legal@v-nova.com.
@@ -140,6 +140,7 @@ class ADBRunner(Runner):
     # Used to switch when debugging from a different machine
     ADB_SERVER_HOST = config.get('ADB_SERVER_HOST', 'localhost')
     ADB_SERIAL = config.get('ADB_SERIAL')
+    PLATFORM = config.get('PLATFORM')
     DEVICE_ENCODE_CACHE_SIZE = 1000
 
     def __init__(self, executable, cwd, **kwargs):
@@ -186,6 +187,8 @@ class ADBRunner(Runner):
         return super().set_param(param, value)
 
     def set_json_param(self, param, value: dict, **kwargs):
+        if 'VIM' in self.PLATFORM and 'threads' not in value:
+            value['threads'] = 4  # VIMs run much faster with more threads, Android default is 1
         self.set_param(param, f"'{json.dumps(value, separators=(',', ':'))}'", **kwargs)
 
     def _translate_path(self, host_path):

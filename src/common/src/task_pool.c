@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2024-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2024-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -34,7 +34,7 @@
 
 // Forward declarations
 static void scheduleTask(LdcTaskPool* pool, LdcTask* task, LdcTask** head);
-#ifdef VN_SDK_LOG_ENABLE_DEBUG
+#if VN_SDK_LOG(DEBUG)
 static void taskPoolDump(LdcTaskPool* pool, const LdcTaskGroup* group);
 #endif
 
@@ -497,6 +497,10 @@ bool ldcTaskPoolInitialize(LdcTaskPool* pool, LdcMemoryAllocator* longTermAlloca
     VNCheck(threadCondVarInitialize(&pool->condVarCompleted) == ThreadResultSuccess);
 
     // Threads
+    if (threadCount <= 1) {
+        // When threads=1, run truly single threaded with no worker threads.
+        threadCount = 0;
+    }
     pool->multiThreaded = (threadCount > 0);
 
     pool->threadCount = threadCount;
@@ -1109,7 +1113,7 @@ static void* taskWrapperSlicedDeferComplete(LdcTask* task, const LdcTaskPart* pa
 bool ldcTaskPoolAddSlicedDeferred(LdcTaskPool* pool, LdcTask* parent,
                                   bool (*function)(void* argument, uint32_t offset, uint32_t count),
                                   bool (*completion)(void* argument, uint32_t count),
-                                  void* argument, uint32_t argumentSize, uint32_t totalSize)
+                                  const void* argument, uint32_t argumentSize, uint32_t totalSize)
 {
     assert(pool);
 
@@ -1167,7 +1171,7 @@ bool ldcTaskPoolAddSlicedDeferred(LdcTaskPool* pool, LdcTask* parent,
 
 // Debugging
 //
-#ifdef VN_SDK_LOG_ENABLE_DEBUG
+#if VN_SDK_LOG(DEBUG)
 static const char* depsSetAsString(char* dest, size_t destSize, const LdcTaskDependency* deps,
                                    uint32_t depsCount, const LdcTaskGroup* group)
 {

@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2025-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -18,6 +18,7 @@
 #include <LCEVC/common/diagnostics_buffer.h>
 #include <LCEVC/common/platform.h>
 #include <LCEVC/common/threads.h>
+//
 #include <stdarg.h>
 #include <stdio.h>
 #ifdef __cplusplus
@@ -26,10 +27,10 @@
 #include <stdatomic.h>
 #endif
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
+// do { ... } while(0) is used to make macros work with if/else correctly
+//
+// NOLINTBEGIN(cppcoreguidelines-avoid-do-while)
+
 #ifdef __cplusplus
 typedef std::atomic_uint LdcAtomicUint;
 static_assert(sizeof(LdcAtomicUint) == sizeof(unsigned int), "atomic uint size mismatch");
@@ -38,6 +39,33 @@ typedef std::atomic_flag LdcAtomicFlag;
 #else
 typedef atomic_uint LdcAtomicUint;
 typedef atomic_flag LdcAtomicFlag;
+#endif
+
+// Functions used by the diagnostic macros
+//
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
+#if VN_SDK_FEATURE(DIAGNOSTICS_ASYNC)
+static inline void ldcDiagEvent(const LdcDiagSite* site, size_t valuesSize, ...);
+static inline void ldcDiagEventFormatted(const LdcDiagSite* site, const char* fmt, ...);
+static inline void ldcMetricInt32(const LdcDiagSite* site, int32_t value);
+static inline void ldcMetricUInt32(const LdcDiagSite* site, uint32_t value);
+static inline void ldcMetricInt64(const LdcDiagSite* site, int64_t value);
+static inline void ldcMetricUInt64(const LdcDiagSite* site, uint64_t value);
+static inline void ldcMetricFloat32(const LdcDiagSite* site, float value);
+static inline void ldcMetricFloat64(const LdcDiagSite* site, double value);
+#else
+void ldcDiagEvent(const LdcDiagSite* site, size_t valuesSize, ...);
+void ldcDiagEventFormatted(const LdcDiagSite* site, const char* fmt, ...);
+void ldcMetricInt32(const LdcDiagSite* site, int32_t value);
+void ldcMetricUInt32(const LdcDiagSite* site, uint32_t value);
+void ldcMetricInt64(const LdcDiagSite* site, int64_t value);
+void ldcMetricUInt64(const LdcDiagSite* site, uint64_t value);
+void ldcMetricFloat32(const LdcDiagSite* site, float value);
+void ldcMetricFloat64(const LdcDiagSite* site, double value);
 #endif
 
 // Common diagnostic state
@@ -53,11 +81,8 @@ typedef struct DiagnosticState
 
     uint32_t handlersCount;
 
-    // Global maximum log level
-    //
     LdcLogLevel maxLogLevel;
 
-    //
     bool initialized;
     LdcAtomicUint refCount;
 
@@ -65,14 +90,18 @@ typedef struct DiagnosticState
     LARGE_INTEGER performanceCounterFrequency;
 #endif
 
+    LdcDiagnosticsBuffer diagnosticsBuffer;
+
 #if VN_SDK_FEATURE(DIAGNOSTICS_ASYNC)
     Thread thread;
     ThreadMutex mutex;
-    uint32_t flushCount;
+
     ThreadCondVar flushed;
 
-    LdcDiagnosticsBuffer diagnosticsBuffer;
+    // This is protected by the above mutex
+    int flushCount;
 #endif
+
 } DiagnosticState;
 
 extern DiagnosticState* ldcDiagnosticsState;
@@ -82,6 +111,289 @@ static inline void* ldcDiagnosticsStateGet(void) { return ldcDiagnosticsState; }
 
 // Common site used for all scoped TraceEnds
 extern const LdcDiagSite ldcDiagnosticsTraceScopedEndSite;
+
+#ifdef __cplusplus
+}
+#endif
+
+// Argument classification
+//
+#ifdef __cplusplus
+
+// Use a C++ traits type to classify argument types
+template <typename T>
+struct LdcDiagArgumentTraits
+{};
+template <>
+struct LdcDiagArgumentTraits<bool>
+{
+    enum
+    {
+        Type = LdcDiagArgBool
+    };
+};
+template <>
+struct LdcDiagArgumentTraits<char>
+{
+    enum
+    {
+        Type = LdcDiagArgChar
+    };
+};
+template <>
+struct LdcDiagArgumentTraits<int8_t>
+{
+    enum
+    {
+        Type = LdcDiagArgInt8
+    };
+};
+template <>
+struct LdcDiagArgumentTraits<uint8_t>
+{
+    enum
+    {
+        Type = LdcDiagArgUInt8
+    };
+};
+template <>
+struct LdcDiagArgumentTraits<int16_t>
+{
+    enum
+    {
+        Type = LdcDiagArgInt16
+    };
+};
+template <>
+struct LdcDiagArgumentTraits<uint16_t>
+{
+    enum
+    {
+        Type = LdcDiagArgUInt16
+    };
+};
+template <>
+struct LdcDiagArgumentTraits<int32_t>
+{
+    enum
+    {
+        Type = LdcDiagArgInt32
+    };
+};
+template <>
+struct LdcDiagArgumentTraits<uint32_t>
+{
+    enum
+    {
+        Type = LdcDiagArgUInt32
+    };
+};
+template <>
+struct LdcDiagArgumentTraits<int64_t>
+{
+    enum
+    {
+        Type = LdcDiagArgInt64
+    };
+};
+template <>
+struct LdcDiagArgumentTraits<uint64_t>
+{
+    enum
+    {
+        Type = LdcDiagArgUInt64
+    };
+};
+template <>
+struct LdcDiagArgumentTraits<char*>
+{
+    enum
+    {
+        Type = LdcDiagArgCharPtr
+    };
+};
+template <>
+struct LdcDiagArgumentTraits<const char*>
+{
+    enum
+    {
+        Type = LdcDiagArgConstCharPtr
+    };
+};
+template <>
+struct LdcDiagArgumentTraits<void*>
+{
+    enum
+    {
+        Type = LdcDiagArgVoidPtr
+    };
+};
+template <>
+struct LdcDiagArgumentTraits<const void*>
+{
+    enum
+    {
+        Type = LdcDiagArgConstVoidPtr
+    };
+};
+
+template <typename T>
+constexpr LdcDiagArg LdcDiagArgumentType(T t)
+{
+    return static_cast<LdcDiagArg>(LdcDiagArgumentTraits<T>::Type);
+}
+
+constexpr LdcDiagArg LdcDiagArgumentType() { return LdcDiagArgNone; }
+
+#define _VNDiagArgumentType(n, a) LdcDiagArgumentType(a)
+
+#if VN_OS(APPLE)
+template <>
+struct LdcDiagArgumentTraits<unsigned long>
+{
+    enum
+    {
+        Type = LdcDiagArgUInt32
+    };
+};
+#endif
+
+#elif __STDC_VERSION__ >= 201112
+// Use C11 _Generic to classify argument type
+
+/* clang-format off */
+#if !defined(_MSC_VER) || defined(__clang__)
+#define _VNTACharType \
+    char: LdcDiagArgChar,
+#else
+#define _VNTACharType
+#endif
+
+#if VN_OS(APPLE)
+#define _VNTASizeType \
+    size_t: LdcDiagArgUInt64,
+#else
+#define _VNTASizeType
+#endif
+/* clang-format on */
+
+#define _VNDiagArgumentType(n, a) \
+    _Generic((a),                               \
+        _Bool: LdcDiagArgBool,                  \
+        _VNTACharType int8_t: LdcDiagArgInt8,   \
+        uint8_t: LdcDiagArgUInt8,               \
+        int16_t: LdcDiagArgInt16,               \
+        uint16_t: LdcDiagArgUInt16,             \
+        int32_t: LdcDiagArgInt32,               \
+        uint32_t: LdcDiagArgUInt32,             \
+        int64_t: LdcDiagArgInt64,               \
+        uint64_t: LdcDiagArgUInt64,             \
+        _VNTASizeType char*: LdcDiagArgCharPtr, \
+        const char*: LdcDiagArgConstCharPtr,    \
+        void*: LdcDiagArgVoidPtr,               \
+        const void*: LdcDiagArgConstVoidPtr)
+#else
+#error "Cannot identity argument types for tracing."
+#endif
+
+#define _VNDiagArgumentComma() ,
+
+#define _VNDiagArgumentPairValue(n, a0, a1) a1
+#define _VNDiagArgumentPairType(n, a0, a1) _VNDiagArgumentType(n, a1)
+#define _VNDiagArgumentPairName(n, a0, a1) a0
+
+// Common internal macro to generate the static Diag event site and call
+//
+#define _VNDiagEvent(type, level, str)                                                  \
+    do {                                                                                \
+        static const LdcDiagSite site_ = {type, __FILE__, __LINE__, level,         str, \
+                                          0,    NULL,     NULL,     LdcDiagArgNone};    \
+        ldcDiagEvent(&site_, 0);                                                        \
+    } while (0)
+
+#define _VNDiagEventNoArgs(type, level, str) _VNDiagEvent(type, level, str)
+
+#define _VNDiagEventId(type, level, id, str)                                            \
+    do {                                                                                \
+        static const LdcDiagArg args_[] = {LdcDiagArgId};                               \
+        static const char* const names_[] = {"id"};                                     \
+        static const LdcDiagSite site_ = {type, __FILE__, __LINE__, level,         str, \
+                                          1,    args_,    names_,   LdcDiagArgNone};    \
+        ldcDiagEvent(&site_, sizeof(LdcDiagValue), (uint64_t)id);                       \
+    } while (0)
+
+#define _VNDiagEventIdNoArgs(type, level, id, str) _VNDiagEventId(type, level, id, str)
+
+#define _VNDiagEventArgs(type, level, str, ...)                                                 \
+    do {                                                                                        \
+        static const LdcDiagArg args_[] = {LdcDiagArgNone VNForEach(                            \
+            _VNDiagArgumentType, _VNDiagArgumentComma, _VNDiagArgumentComma, ##__VA_ARGS__)};   \
+        static const LdcDiagSite site_ = {                                                      \
+            type,      __FILE__, __LINE__,                                                      \
+            level,     str,      (sizeof(args_) / sizeof(LdcDiagArg)) - 1,                      \
+            args_ + 1, NULL,     LdcDiagArgNone};                                               \
+        ldcDiagEvent(&site_, sizeof(LdcDiagValue) * ((sizeof(args_) / sizeof(LdcDiagArg)) - 1), \
+                     ##__VA_ARGS__);                                                            \
+    } while (0)
+
+// Version that records pairs of argument name and value
+#define _VNDiagEventNamedArgs(type, level, str, ...)                                               \
+    do {                                                                                           \
+        static const LdcDiagArg args_[] = {LdcDiagArgNone VNForEachPair(                           \
+            _VNDiagArgumentPairType, _VNDiagArgumentComma, _VNDiagArgumentComma, ##__VA_ARGS__)};  \
+        static const char* const names_[] = {NULL VNForEachPair(                                   \
+            _VNDiagArgumentPairName, _VNDiagArgumentComma, _VNDiagArgumentComma, ##__VA_ARGS__)};  \
+        static const LdcDiagSite site_ = {                                                         \
+            type,      __FILE__,   __LINE__,                                                       \
+            level,     str,        (sizeof(args_) / sizeof(LdcDiagArg)) - 1,                       \
+            args_ + 1, names_ + 1, LdcDiagArgNone};                                                \
+        ldcDiagEvent(&site_, sizeof(LdcDiagValue) *                                                \
+                                 ((sizeof(args_) / sizeof(LdcDiagArg)) - 1)                        \
+                                     VNForEachPair(_VNDiagArgumentPairValue, _VNDiagArgumentComma, \
+                                                   _VNDiagArgumentComma, ##__VA_ARGS__));          \
+    } while (0)
+
+// Version of above with extra event id
+#define _VNDiagEventIdNamedArgs(type, level, id, str, ...)                                        \
+    do {                                                                                          \
+        static const LdcDiagArg args_[] = {LdcDiagArgId VNForEachPair(                            \
+            _VNDiagArgumentPairType, _VNDiagArgumentComma, _VNDiagArgumentComma, ##__VA_ARGS__)}; \
+        static const char* const names_[] = {"id" VNForEachPair(                                  \
+            _VNDiagArgumentPairName, _VNDiagArgumentComma, _VNDiagArgumentComma, ##__VA_ARGS__)}; \
+        static const LdcDiagSite site_ = {type,  __FILE__, __LINE__,                              \
+                                          level, str,      (sizeof(args_) / sizeof(LdcDiagArg)),  \
+                                          args_, names_,   LdcDiagArgNone};                       \
+        ldcDiagEvent(&site_, sizeof(LdcDiagValue) * (sizeof(args_) / sizeof(LdcDiagArg)),         \
+                     (uint64_t)id VNForEachPair(_VNDiagArgumentPairValue, _VNDiagArgumentComma,   \
+                                                _VNDiagArgumentComma, ##__VA_ARGS__));            \
+    } while (0)
+
+#ifdef __cplusplus
+// Tracing macros - C++
+
+class LdcTraceScoped
+{
+public:
+    LdcTraceScoped() {}
+    ~LdcTraceScoped() { ldcDiagEvent(&ldcDiagnosticsTraceScopedEndSite, 0); }
+
+    VNNoCopyNoMove(LdcTraceScoped);
+};
+#endif
+
+// Metrics
+#define _VNTraceMetric(type, name, value)                                                \
+    do {                                                                                 \
+        static const LdcDiagSite site_ = {                                               \
+            LdcDiagTypeMetric, __FILE__, __LINE__, LdcLogLevelNone, name, 0, NULL, NULL, \
+            LdcDiagArg##type};                                                           \
+        ldcMetric##type(&site_, value);                                                  \
+    } while (0)
+
+#ifdef __cplusplus
+extern "C"
+{
+#endif
 
 // Get a time for diagnostic records
 //
@@ -265,5 +577,7 @@ static inline void ldcMetricFloat64(const LdcDiagSite* site, double value)
 #ifdef __cplusplus
 }
 #endif
+
+// NOLINTEND(cppcoreguidelines-avoid-do-while)
 
 #endif // VN_LCEVC_COMMON_DETAIL_DIAGNOSTICS_H

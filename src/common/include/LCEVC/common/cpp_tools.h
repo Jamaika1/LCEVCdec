@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2024-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2024-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -17,69 +17,170 @@
 
 #define VNExpand(x) x
 
-#define _VNNthArg(_Ignored, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, N, ...) N
+// Used for for expanding empty lists
+//
+#define _VNForEachEmpty(_op, ...)
 
-#define _VNForEach0(_op, ...)
-#define _VNForEach1(_op, _idx, _arg) _op(_idx, _arg)
-#define _VNForEach2(_op, _idx, _arg, ...) _op(_idx, _arg) _VNForEach1(_op, _idx + 1, __VA_ARGS__)
-#define _VNForEach3(_op, _idx, _arg, ...) \
-    _op(_idx, _arg) VNExpand(_VNForEach2(_op, _idx + 1, __VA_ARGS__))
-#define _VNForEach4(_op, _idx, _arg, ...) \
-    _op(_idx, _arg) VNExpand(_VNForEach3(_op, _idx + 1, __VA_ARGS__))
-#define _VNForEach5(_op, _idx, _arg, ...) \
-    _op(_idx, _arg) VNExpand(_VNForEach4(_op, _idx + 1, __VA_ARGS__))
-#define _VNForEach6(_op, _idx, _arg, ...) \
-    _op(_idx, _arg) VNExpand(_VNForEach5(_op, _idx + 1, __VA_ARGS__))
-#define _VNForEach7(_op, _idx, _arg, ...) \
-    _op(_idx, _arg) VNExpand(_VNForEach6(_op, _idx + 1, __VA_ARGS__))
-#define _VNForEach8(_op, _idx, _arg, ...) \
-    _op(_idx, _arg) VNExpand(_VNForEach7(_op, _idx + 1, __VA_ARGS__))
-#define _VNForEach9(_op, _idx, _arg, ...) \
-    _op(_idx, _arg) VNExpand(_VNForEach8(_op, _idx + 1, __VA_ARGS__))
-#define _VNForEach10(_op, _idx, _arg, ...) \
-    _op(_idx, _arg) VNExpand(_VNForEach9(_op, _idx + 1, __VA_ARGS__))
+// Chain of macros that expand to "op(argIndex, argumentValue)" seperated by 'sep' for n arguments where 'op' is a macro
+//
+#define _VNForEach1(_op, _sep, _idx, _arg, ...) _op(_idx, _arg)
+#define _VNForEach2(_op, _sep, _idx, _arg, ...) \
+    _op(_idx, _arg) _sep() _VNForEach1(_op, _sep, _idx + 1, __VA_ARGS__)
+#define _VNForEach3(_op, _sep, _idx, _arg, ...) \
+    _op(_idx, _arg) _sep() VNExpand(_VNForEach2(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEach4(_op, _sep, _idx, _arg, ...) \
+    _op(_idx, _arg) _sep() VNExpand(_VNForEach3(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEach5(_op, _sep, _idx, _arg, ...) \
+    _op(_idx, _arg) _sep() VNExpand(_VNForEach4(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEach6(_op, _sep, _idx, _arg, ...) \
+    _op(_idx, _arg) _sep() VNExpand(_VNForEach5(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEach7(_op, _sep, _idx, _arg, ...) \
+    _op(_idx, _arg) _sep() VNExpand(_VNForEach6(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEach8(_op, _sep, _idx, _arg, ...) \
+    _op(_idx, _arg) _sep() VNExpand(_VNForEach7(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEach9(_op, _sep, _idx, _arg, ...) \
+    _op(_idx, _arg) _sep() VNExpand(_VNForEach8(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEach10(_op, _sep, _idx, _arg, ...) \
+    _op(_idx, _arg) _sep() VNExpand(_VNForEach9(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEach11(_op, _sep, _idx, _arg, ...) \
+    _op(_idx, _arg) _sep() VNExpand(_VNForEach10(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEach12(_op, _sep, _idx, _arg, ...) \
+    _op(_idx, _arg) _sep() VNExpand(_VNForEach11(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEach13(_op, _sep, _idx, _arg, ...) \
+    _op(_idx, _arg) _sep() VNExpand(_VNForEach12(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEach14(_op, _sep, _idx, _arg, ...) \
+    _op(_idx, _arg) _sep() VNExpand(_VNForEach13(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEach15(_op, _sep, _idx, _arg, ...) \
+    _op(_idx, _arg) _sep() VNExpand(_VNForEach14(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEach16(_op, _sep, _idx, _arg, ...) \
+    _op(_idx, _arg) _sep() VNExpand(_VNForEach15(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEach17(_op, _sep, _idx, _arg, ...) \
+    _op(_idx, _arg) _sep() VNExpand(_VNForEach16(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEach18(_op, _sep, _idx, _arg, ...) \
+    _op(_idx, _arg) _sep() VNExpand(_VNForEach17(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEach19(_op, _sep, _idx, _arg, ...) \
+    _op(_idx, _arg) _sep() VNExpand(_VNForEach18(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEach20(_op, _sep, _idx, _arg, ...) \
+    _op(_idx, _arg) _sep() VNExpand(_VNForEach19(_op, _sep, _idx + 1, __VA_ARGS__))
 
-#define _VNForEach1Sep(_op, _sep, _idx, _arg, ...) _op(_idx, _arg)
-#define _VNForEach2Sep(_op, _sep, _idx, _arg, ...) \
-    _op(_idx, _arg) _sep() _VNForEach1Sep(_op, _sep, _idx + 1, __VA_ARGS__)
-#define _VNForEach3Sep(_op, _sep, _idx, _arg, ...) \
-    _op(_idx, _arg) _sep() VNExpand(_VNForEach2Sep(_op, _sep, _idx + 1, __VA_ARGS__))
-#define _VNForEach4Sep(_op, _sep, _idx, _arg, ...) \
-    _op(_idx, _arg) _sep() VNExpand(_VNForEach3Sep(_op, _sep, _idx + 1, __VA_ARGS__))
-#define _VNForEach5Sep(_op, _sep, _idx, _arg, ...) \
-    _op(_idx, _arg) _sep() VNExpand(_VNForEach4Sep(_op, _sep, _idx + 1, __VA_ARGS__))
-#define _VNForEach6Sep(_op, _sep, _idx, _arg, ...) \
-    _op(_idx, _arg) _sep() VNExpand(_VNForEach5Sep(_op, _sep, _idx + 1, __VA_ARGS__))
-#define _VNForEach7Sep(_op, _sep, _idx, _arg, ...) \
-    _op(_idx, _arg) _sep() VNExpand(_VNForEach6Sep(_op, _sep, _idx + 1, __VA_ARGS__))
-#define _VNForEach8Sep(_op, _sep, _idx, _arg, ...) \
-    _op(_idx, _arg) _sep() VNExpand(_VNForEach7Sep(_op, _sep, _idx + 1, __VA_ARGS__))
-#define _VNForEach9Sep(_op, _sep, _idx, _arg, ...) \
-    _op(_idx, _arg) _sep() VNExpand(_VNForEach8Sep(_op, _sep, _idx + 1, __VA_ARGS__))
-#define _VNForEach10Sep(_op, _sep, _idx, _arg, ...) \
-    _op(_idx, _arg) _sep() VNExpand(_VNForEach9Sep(_op, _sep, _idx + 1, __VA_ARGS__))
+// First step in above chain that adds a prefix
+//
+#define _VNForEach1Prefix(_op, _pfx, _sep, _idx, _arg, ...) _pfx() _op(_idx, _arg)
+#define _VNForEach2Prefix(_op, _pfx, _sep, _idx, _arg, ...) \
+    _pfx() _op(_idx, _arg) _sep() _VNForEach1(_op, _sep, _idx + 1, __VA_ARGS__)
+#define _VNForEach3Prefix(_op, _pfx, _sep, _idx, _arg, ...) \
+    _pfx() _op(_idx, _arg) _sep() VNExpand(_VNForEach2(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEach4Prefix(_op, _pfx, _sep, _idx, _arg, ...) \
+    _pfx() _op(_idx, _arg) _sep() VNExpand(_VNForEach3(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEach5Prefix(_op, _pfx, _sep, _idx, _arg, ...) \
+    _pfx() _op(_idx, _arg) _sep() VNExpand(_VNForEach4(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEach6Prefix(_op, _pfx, _sep, _idx, _arg, ...) \
+    _pfx() _op(_idx, _arg) _sep() VNExpand(_VNForEach5(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEach7Prefix(_op, _pfx, _sep, _idx, _arg, ...) \
+    _pfx() _op(_idx, _arg) _sep() VNExpand(_VNForEach6(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEach8Prefix(_op, _pfx, _sep, _idx, _arg, ...) \
+    _pfx() _op(_idx, _arg) _sep() VNExpand(_VNForEach7(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEach9Prefix(_op, _pfx, _sep, _idx, _arg, ...) \
+    _pfx() _op(_idx, _arg) _sep() VNExpand(_VNForEach8(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEach10Prefix(_op, _pfx, _sep, _idx, _arg, ...) \
+    _pfx() _op(_idx, _arg) _sep() VNExpand(_VNForEach9(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEach11Prefix(_op, _pfx, _sep, _idx, _arg, ...) \
+    _pfx() _op(_idx, _arg) _sep() VNExpand(_VNForEach10(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEach12Prefix(_op, _pfx, _sep, _idx, _arg, ...) \
+    _pfx() _op(_idx, _arg) _sep() VNExpand(_VNForEach11(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEach13Prefix(_op, _pfx, _sep, _idx, _arg, ...) \
+    _pfx() _op(_idx, _arg) _sep() VNExpand(_VNForEach12(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEach14Prefix(_op, _pfx, _sep, _idx, _arg, ...) \
+    _pfx() _op(_idx, _arg) _sep() VNExpand(_VNForEach13(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEach15Prefix(_op, _pfx, _sep, _idx, _arg, ...) \
+    _pfx() _op(_idx, _arg) _sep() VNExpand(_VNForEach14(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEach16Prefix(_op, _pfx, _sep, _idx, _arg, ...) \
+    _pfx() _op(_idx, _arg) _sep() VNExpand(_VNForEach15(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEach17Prefix(_op, _pfx, _sep, _idx, _arg, ...) \
+    _pfx() _op(_idx, _arg) _sep() VNExpand(_VNForEach16(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEach18Prefix(_op, _pfx, _sep, _idx, _arg, ...) \
+    _pfx() _op(_idx, _arg) _sep() VNExpand(_VNForEach17(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEach19Prefix(_op, _pfx, _sep, _idx, _arg, ...) \
+    _pfx() _op(_idx, _arg) _sep() VNExpand(_VNForEach18(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEach20Prefix(_op, _pfx, _sep, _idx, _arg, ...) \
+    _pfx() _op(_idx, _arg) _sep() VNExpand(_VNForEach19(_op, _sep, _idx + 1, __VA_ARGS__))
+
+// Chain of macros that expand to "op(argIndex, argumentValue0, argumentValue1)" separated by 'sep' for n arguments pairs where 'op' is a macro
+//
+#define _VNForEachPair1(_op, _sep, _idx, _arg0, _arg1, ...) _op(_idx, _arg0, _arg1)
+#define _VNForEachPair2(_op, _sep, _idx, _arg0, _arg1, ...) \
+    _op(_idx, _arg0, _arg1) _sep() _VNForEachPair1(_op, _sep, _idx + 1, __VA_ARGS__)
+#define _VNForEachPair3(_op, _sep, _idx, _arg0, _arg1, ...) \
+    _op(_idx, _arg0, _arg1) _sep() VNExpand(_VNForEachPair2(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEachPair4(_op, _sep, _idx, _arg0, _arg1, ...) \
+    _op(_idx, _arg0, _arg1) _sep() VNExpand(_VNForEachPair3(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEachPair5(_op, _sep, _idx, _arg0, _arg1, ...) \
+    _op(_idx, _arg0, _arg1) _sep() VNExpand(_VNForEachPair4(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEachPair6(_op, _sep, _idx, _arg0, _arg1, ...) \
+    _op(_idx, _arg0, _arg1) _sep() VNExpand(_VNForEachPair5(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEachPair7(_op, _sep, _idx, _arg0, _arg1, ...) \
+    _op(_idx, _arg0, _arg1) _sep() VNExpand(_VNForEachPair6(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEachPair8(_op, _sep, _idx, _arg0, _arg1, ...) \
+    _op(_idx, _arg0, _arg1) _sep() VNExpand(_VNForEachPair7(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEachPair9(_op, _sep, _idx, _arg0, _arg1, ...) \
+    _op(_idx, _arg0, _arg1) _sep() VNExpand(_VNForEachPair8(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEachPair10(_op, _sep, _idx, _arg0, _arg1, ...) \
+    _op(_idx, _arg0, _arg1) _sep() VNExpand(_VNForEachPair9(_op, _sep, _idx + 1, __VA_ARGS__))
+
+// First step in above chain that adds a prefix
+//
+#define _VNForEachPair1Prefix(_op, _pfx, _sep, _idx, _arg0, _arg1, ...) \
+    _pfx() _op(_idx, _arg0, _arg1)
+#define _VNForEachPair2Prefix(_op, _pfx, _sep, _idx, _arg0, _arg1, ...) \
+    _pfx() _op(_idx, _arg0, _arg1) _sep() _VNForEachPair1(_op, _sep, _idx + 1, __VA_ARGS__)
+#define _VNForEachPair3Prefix(_op, _pfx, _sep, _idx, _arg0, _arg1, ...) \
+    _pfx() _op(_idx, _arg0, _arg1) _sep() VNExpand(_VNForEachPair2(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEachPair4Prefix(_op, _pfx, _sep, _idx, _arg0, _arg1, ...) \
+    _pfx() _op(_idx, _arg0, _arg1) _sep() VNExpand(_VNForEachPair3(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEachPair5Prefix(_op, _pfx, _sep, _idx, _arg0, _arg1, ...) \
+    _pfx() _op(_idx, _arg0, _arg1) _sep() VNExpand(_VNForEachPair4(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEachPair6Prefix(_op, _pfx, _sep, _idx, _arg0, _arg1, ...) \
+    _pfx() _op(_idx, _arg0, _arg1) _sep() VNExpand(_VNForEachPair5(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEachPair7Prefix(_op, _pfx, _sep, _idx, _arg0, _arg1, ...) \
+    _pfx() _op(_idx, _arg0, _arg1) _sep() VNExpand(_VNForEachPair6(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEachPair8Prefix(_op, _pfx, _sep, _idx, _arg0, _arg1, ...) \
+    _pfx() _op(_idx, _arg0, _arg1) _sep() VNExpand(_VNForEachPair7(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEachPair9Prefix(_op, _pfx, _sep, _idx, _arg0, _arg1, ...) \
+    _pfx() _op(_idx, _arg0, _arg1) _sep() VNExpand(_VNForEachPair8(_op, _sep, _idx + 1, __VA_ARGS__))
+#define _VNForEachPair10Prefix(_op, _pfx, _sep, _idx, _arg0, _arg1, ...) \
+    _pfx() _op(_idx, _arg0, _arg1) _sep() VNExpand(_VNForEachPair9(_op, _sep, _idx + 1, __VA_ARGS__))
 
 /*
- * Expands to op(n, arg) for each argument
+ * Mechanism for selecting nth argument based on number of varargs (limited to 20)
  */
-#define VNForEach(op, ...)                                                              \
-    VNExpand(_VNNthArg(_Ignored, ##__VA_ARGS__, _VNForEach10, _VNForEach9, _VNForEach8, \
-                       _VNForEach7, _VNForEach6, _VNForEach5, _VNForEach4, _VNForEach3, \
-                       _VNForEach2, _VNForEach1, _VNForEach0)(op, 0, ##__VA_ARGS__))
+#define _VNNthArg(_Ignored, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, \
+                  _17, _18, _19, _20, N, ...)                                                      \
+    N
 
 /*
- * Expands to op(n, arg) for each argument separated by `sep`
+ * Expands to op(n, arg) for each argument, prefixed by `pfx()` when not empty, and separated by `sep()`
  */
-#define VNForEachSeperated(op, sep, ...)                                                               \
-    VNExpand(_VNNthArg(_Ignored, ##__VA_ARGS__, _VNForEach10Sep, _VNForEach9Sep, _VNForEach8Sep,       \
-                       _VNForEach7Sep, _VNForEach6Sep, _VNForEach5Sep, _VNForEach4Sep, _VNForEach3Sep, \
-                       _VNForEach2Sep, _VNForEach1Sep, _VNForEach0)(op, sep, 0, __VA_ARGS__))
+#define VNForEach(op, pfx, sep, ...)                                                               \
+    VNExpand(_VNNthArg(_Ignored, ##__VA_ARGS__, _VNForEach20Prefix, _VNForEach19Prefix,            \
+                       _VNForEach18Prefix, _VNForEach17Prefix, _VNForEach16Prefix,                 \
+                       _VNForEach15Prefix, _VNForEach14Prefix, _VNForEach13Prefix,                 \
+                       _VNForEach12Prefix, _VNForEach11Prefix, _VNForEach10Prefix,                 \
+                       _VNForEach9Prefix, _VNForEach8Prefix, _VNForEach7Prefix, _VNForEach6Prefix, \
+                       _VNForEach5Prefix, _VNForEach4Prefix, _VNForEach3Prefix, _VNForEach2Prefix, \
+                       _VNForEach1Prefix, _VNForEachEmpty)(op, pfx, sep, 0, ##__VA_ARGS__))
 
 /*
- * Expands to the number of arguments
+ * Expands to op(n, arg0, arg1) for each pair of arguments, prefixed by `pfx()` when not empty, and separated by `sep()`
  */
-#define VNNumArgs(...) \
-    VNExpand(_VNNthArg(_Ignored, ##__VA_ARGS__, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0))
+#define VNForEachPair(op, pfx, sep, ...)                                                         \
+    VNExpand(_VNNthArg(_Ignored, ##__VA_ARGS__, _VNForEachPair10Prefix, _VNOddNumberOfArguments, \
+                       _VNForEachPair9Prefix, _VNOddNumberOfArguments, _VNForEachPair8Prefix,    \
+                       _VNOddNumberOfArguments, _VNForEachPair7Prefix, _VNOddNumberOfArguments,  \
+                       _VNForEachPair6Prefix, _VNOddNumberOfArguments, _VNForEachPair5Prefix,    \
+                       _VNOddNumberOfArguments, _VNForEachPair4Prefix, _VNOddNumberOfArguments,  \
+                       _VNForEachPair3Prefix, _VNOddNumberOfArguments, _VNForEachPair2Prefix,    \
+                       _VNOddNumberOfArguments, _VNForEachPair1Prefix, _VNOddNumberOfArguments,  \
+                       _VNForEachEmpty)(op, pfx, sep, 0, ##__VA_ARGS__))
 
 // Preprocessor helpers.
 #define VNConcatHelper(a, b) a##b

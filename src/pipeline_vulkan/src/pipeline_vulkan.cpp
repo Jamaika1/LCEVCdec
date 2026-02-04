@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2025-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -342,7 +342,7 @@ LdpPicture* PipelineVulkan::receiveDecoderPicture(LdpDecodeInformation& decodeIn
 
             if (!m_interTaskFrameDone.waitDeadline(lock, pendingFrame->deadline)) {
                 VNLogWarning("wait timed out ts:%" PRIx64, pendingFrame->timestamp);
-#ifdef VN_SDK_LOG_ENABLE_DEBUG
+#if VN_SDK_LOG(DEBUG)
                 ldcTaskPoolDump(&m_taskPool, nullptr);
 #endif
             } else {
@@ -1162,7 +1162,7 @@ LdpColorFormat PipelineVulkan::chromaToColorFormat(LdeChroma chroma)
     }
 }
 
-#ifdef VN_SDK_LOG_ENABLE_DEBUG
+#if VN_SDK_LOG(DEBUG)
 // Dump frame and index state
 //
 void PipelineVulkan::logFrames()

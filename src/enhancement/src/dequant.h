@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2022-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2022-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -21,9 +21,9 @@
 #include <LCEVC/enhancement/bitstream_types.h>
 #include <LCEVC/enhancement/config_types.h>
 
-#if VN_CORE_FEATURE(SSE)
+#if VN_SDK_FEATURE(SSE)
 #include <smmintrin.h>
-#elif VN_CORE_FEATURE(NEON)
+#elif VN_SDK_FEATURE(NEON)
 #include <LCEVC/common/neon.h>
 #endif
 
@@ -69,10 +69,10 @@ typedef struct Dequant
     int16_t stepWidth[TSCount][RCLayerCountDDS]; /**< Step-width per-temporal type per-layer. */
     int16_t offset[TSCount][RCLayerCountDDS];    /**< Offset per-temporal type per-layer. */
 
-#if VN_CORE_FEATURE(SSE)
+#if VN_SDK_FEATURE(SSE)
     __m128i stepWidthVector[TSCount][2]; /**< Step-widths packed into SIMD vector, maximum of 16-values. */
     __m128i offsetVector[TSCount][2]; /**< Offsets packed into SIMD vector, maximum of 16-values. */
-#elif VN_CORE_FEATURE(NEON)
+#elif VN_SDK_FEATURE(NEON)
     int16x8_t stepWidthVector[TSCount][2];
     int16x8_t offsetVector[TSCount][2];
 #endif

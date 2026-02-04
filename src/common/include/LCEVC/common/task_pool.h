@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2024-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2024-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -70,11 +70,14 @@ typedef void* (*LdcTaskFunction)(LdcTask* task, const LdcTaskPart* part);
  *  @param[in]      longTermAllocator   The memory allocator to use for pool lifetime
  *  @param[in]      shortTermAllocator  The memory allocator to use for task/group lifetime
  *  @param[in]      threadsCount        The number of threads to use within the pool (excluding
- *                                      calling thread).
+ *                                      calling thread). Unless threadsCount <= 1, then the pool
+ *                                      will not spawn any worker threads and all operations are
+ *                                      run on the main thread.
+ *
  *  @param[in]      reservedTaskCount   The number of tasks slots to reserve at start.
  *
- * If threadsCount == 0, then the pool will not spawn any extra threads, and will call the
- * task functions deterministically on the caller thread as soon as the are ready during
+ * If threadsCount <= 1, then the pool will not spawn any extra threads, and will call the
+ * task functions deterministically on the caller thread as soon as they are ready during
  * ldcTaskPoolAdd() or ldcTaskDependencyMet().
  *
  *  @return                             True on success
@@ -329,7 +332,7 @@ LdcTaskDependency ldcTaskRemoveOutput(LdcTask* task);
  *  @param[in]     parent       If not NULL, task whose dependencies will be inherited.
  *  @param[in]     function     Function to call during task.
  *  @param[in]     completion   If not NULL, function to call at end of task.
- *  @param[in]     argument     Data that is copied and passed as an argument to `function` and `completion`
+ *  @param[in]     argument     Constant data that is copied and passed as an argument to `function` and `completion`
  *  @param[in]     argumentSize Size in bytes of argument data to be copied.
  *  @param[in]     totalSize    Number of iterations for this task.
  *
@@ -338,7 +341,7 @@ LdcTaskDependency ldcTaskRemoveOutput(LdcTask* task);
 bool ldcTaskPoolAddSlicedDeferred(LdcTaskPool* pool, LdcTask* parent,
                                   bool (*function)(void* argument, uint32_t offset, uint32_t count),
                                   bool (*completion)(void* argument, uint32_t count),
-                                  void* argument, uint32_t argumentSize, uint32_t totalSize);
+                                  const void* argument, uint32_t argumentSize, uint32_t totalSize);
 
 /*! Block a task group - will stop new tasks being scheduled
  *
@@ -355,7 +358,7 @@ void ldcTaskGroupBlock(LdcTaskGroup* taskGroup);
  */
 void ldcTaskGroupUnblock(LdcTaskGroup* taskGroup);
 
-#ifdef VN_SDK_LOG_ENABLE_DEBUG
+#if VN_SDK_LOG(DEBUG)
 
 /*! Utility function to dump state of task pool to log
  *

@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2025-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -124,7 +124,7 @@ TEST_F(DecodeTemporalOn, DecodeToCpuCmdBuffer)
     EXPECT_TRUE(ldeDecodeEnhancement(&globalConfig, &frameConfig, LOQ0, 0, 0, &cmdBufferCpu,
                                      nullptr, nullptr));
     EXPECT_EQ(cmdBufferCpu.count, 344);
-    EXPECT_EQ(hashCpuBuffer(), "6b5b6fdfa8d147d7e286b9b336d278eb");
+    EXPECT_EQ(hashCpuBuffer(), "aff322c6e7b6b99923c89a1a1febd328");
 
     EXPECT_EQ(getFrame(), true);
     EXPECT_EQ(ldeCmdBufferCpuReset(&cmdBufferCpu, globalConfig.numLayers), true);
@@ -154,7 +154,7 @@ TEST_F(DecodeTemporalOn, DecodeToGpuCmdBuffer)
     EXPECT_EQ(cmdBufferGpu.commandCount, 16);
     EXPECT_EQ(cmdBufferGpuBuilder.residualCapacity, 1376);
     EXPECT_EQ(cmdBufferGpu.residualCount, 1376);
-    EXPECT_EQ(hashGpuBuffer(), "dfd6949400d7156d2953af11ea640d28");
+    EXPECT_EQ(hashGpuBuffer(), "9baf24d0841659cacdf0e5204d272be6");
 
     EXPECT_TRUE(getFrame());
     EXPECT_TRUE(ldeCmdBufferGpuReset(&cmdBufferGpu, &cmdBufferGpuBuilder, globalConfig.numLayers));
@@ -163,7 +163,7 @@ TEST_F(DecodeTemporalOn, DecodeToGpuCmdBuffer)
     EXPECT_EQ(cmdBufferGpu.commandCount, 18);
     EXPECT_EQ(cmdBufferGpuBuilder.residualCapacity, 1812);
     EXPECT_EQ(cmdBufferGpu.residualCount, 1812);
-    EXPECT_EQ(hashGpuBuffer(), "7c9b27aeba8d489e0839dd545e7d9b5e");
+    EXPECT_EQ(hashGpuBuffer(), "5f5c3906c5827aca6e27ed3bcfcba054");
 
     ldeCmdBufferGpuFree(&cmdBufferGpu, &cmdBufferGpuBuilder);
 }

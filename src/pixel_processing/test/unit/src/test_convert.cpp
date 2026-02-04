@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2022-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2022-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -12,12 +12,12 @@
  * ANY ONWARD DISTRIBUTION, WHETHER STAND-ALONE OR AS PART OF ANY OTHER PROJECT, REMAINS SUBJECT TO
  * THE EXCLUSION OF PATENT LICENSES PROVISION OF THE BSD-3-CLAUSE-CLEAR LICENSE. */
 
-#include "blit_common.h"
+#include "convert_common.h"
 #include "fp_types.h"
 #include "test_plane.h"
 
 #include <gtest/gtest.h>
-#include <LCEVC/pixel_processing/blit.h>
+#include <LCEVC/pixel_processing/convert.h>
 #include <range/v3/view.hpp>
 #include <rng.h>
 
@@ -27,8 +27,8 @@
 
 extern "C"
 {
-PlaneBlitFunction planeBlitGetFunction(LdpFixedPoint srcFP, LdpFixedPoint dstFP, LdppBlendingMode blending,
-                                       bool forceScalar, uint32_t planeIndex, bool isNV12);
+PlaneConvertFunction planeConvertGetFunction(LdpFixedPoint srcFP, LdpFixedPoint dstFP,
+                                             bool forceScalar, uint32_t planeIndex, bool isNV12);
 }
 
 namespace rg = ranges;
@@ -45,7 +45,7 @@ constexpr bool kSelectSIMD = false;
 
 // -----------------------------------------------------------------------------
 
-struct BlitTestParams
+struct ConvertTestParams
 {
     LdpFixedPoint srcFP;
     LdpFixedPoint dstFP;
@@ -53,15 +53,14 @@ struct BlitTestParams
 
 // -----------------------------------------------------------------------------
 
-class BlitTest : public testing::TestWithParam<BlitTestParams>
+class ConvertTest : public testing::TestWithParam<ConvertTestParams>
 {
 protected:
     void SetUp() override
     {
         const auto& params = GetParam();
-        m_scalarFunction =
-            planeBlitGetFunction(params.srcFP, params.dstFP, BMCopy, kForceScalar, 0, false);
-        m_simdFunction = planeBlitGetFunction(params.srcFP, params.dstFP, BMCopy, kSelectSIMD, 0, false);
+        m_scalarFunction = planeConvertGetFunction(params.srcFP, params.dstFP, kForceScalar, 0, false);
+        m_simdFunction = planeConvertGetFunction(params.srcFP, params.dstFP, kSelectSIMD, 0, false);
 
         m_src.initialize(kWidth, kHeight, kStride, params.srcFP);
         m_dstScalar.initialize(kWidth, kHeight, kStride, params.dstFP);
@@ -72,20 +71,17 @@ protected:
     TestPlane m_dstScalar{};
     TestPlane m_dstSIMD{};
 
-    PlaneBlitFunction m_scalarFunction{};
-    PlaneBlitFunction m_simdFunction{};
+    PlaneConvertFunction m_scalarFunction{};
+    PlaneConvertFunction m_simdFunction{};
 };
 
 // -----------------------------------------------------------------------------
 
-class CopyTest : public BlitTest
-{};
-
-TEST_P(CopyTest, CompareSIMD)
+TEST_P(ConvertTest, CompareSIMD)
 {
     fillPlaneWithNoise(m_src);
 
-    LdppBlitArgs args;
+    LdppConvertArgs args;
     args.src = &m_src.planeDesc;
     args.dst = &m_dstScalar.planeDesc;
     args.minWidth = kWidth;
@@ -104,61 +100,14 @@ TEST_P(CopyTest, CompareSIMD)
 
 // -----------------------------------------------------------------------------
 
-class AddTest : public BlitTest
-{};
-
-TEST_P(AddTest, CompareSIMD)
-{
-    fillPlaneWithNoise(m_src);
-    fillPlaneWithNoise(m_dstScalar);
-
-    // Copy scalar destination over to simd destination. As we are testing additive
-    // blits, it's useful to have plenty of random noise in both m_src and dst.
-    const auto& params = GetParam();
-    auto copyFunction = planeBlitGetFunction(params.dstFP, params.dstFP, BMCopy, kSelectSIMD, 0, false);
-    LdppBlitArgs copyArgs;
-    copyArgs.src = &m_dstScalar.planeDesc;
-    copyArgs.dst = &m_dstSIMD.planeDesc;
-    copyArgs.minWidth = kWidth;
-    copyArgs.offset = 0;
-    copyArgs.count = kHeight;
-    copyFunction(&copyArgs);
-
-    LdppBlitArgs args;
-    args.src = &m_src.planeDesc;
-    args.dst = &m_dstScalar.planeDesc;
-    args.minWidth = kWidth;
-    args.offset = 0;
-    args.count = kHeight;
-    m_scalarFunction(&args);
-
-    args.dst = &m_dstSIMD.planeDesc;
-    m_simdFunction(&args);
-
-    const auto compareByteSize = fixedPointByteSize(params.dstFP) * kStride * kHeight;
-    EXPECT_EQ(memcmp(m_dstScalar.planeDesc.firstSample, m_dstSIMD.planeDesc.firstSample, compareByteSize), 0);
-}
-
-// -----------------------------------------------------------------------------
-
 // Helper for printing a meaningful name for the test parameter
-std::string CopyToString(const testing::TestParamInfo<BlitTestParams>& value)
+std::string CopyToString(const testing::TestParamInfo<ConvertTestParams>& value)
 {
     const LdpFixedPoint srcFP = value.param.srcFP;
     const LdpFixedPoint dstFP = value.param.dstFP;
 
     std::stringstream ss;
     ss << fixedPointToString(srcFP) << "_to_" << fixedPointToString(dstFP);
-    return ss.str();
-}
-//
-std::string BlitToString(const testing::TestParamInfo<BlitTestParams>& value)
-{
-    const LdpFixedPoint srcFP = value.param.srcFP;
-    const LdpFixedPoint dstFP = value.param.dstFP;
-
-    std::stringstream ss;
-    ss << fixedPointToString(srcFP) << "_on_" << fixedPointToString(dstFP);
     return ss.str();
 }
 
@@ -192,19 +141,10 @@ const auto kCopyParams = rv::cartesian_product(kFixedPointAll, kFixedPointAll) |
                              return isDepthPromotion && !areBothSigned;
                          }) |
                          rv::transform([](auto value) {
-                             return BlitTestParams{std::get<0>(value), std::get<1>(value)};
+                             return ConvertTestParams{std::get<0>(value), std::get<1>(value)};
                          }) |
                          rg::to_vector;
 
-INSTANTIATE_TEST_SUITE_P(BlitTests, CopyTest, testing::ValuesIn(kCopyParams), CopyToString);
-
-// -----------------------------------------------------------------------------
-
-const auto kBlitParams = kFixedPointAll | rv::transform([](auto value) {
-                             return BlitTestParams{fixedPointHighPrecision(value), value};
-                         }) |
-                         rg::to_vector;
-
-INSTANTIATE_TEST_SUITE_P(BlitTests, AddTest, testing::ValuesIn(kBlitParams), BlitToString);
+INSTANTIATE_TEST_SUITE_P(ConvertTests, ConvertTest, testing::ValuesIn(kCopyParams), CopyToString);
 
 // -----------------------------------------------------------------------------

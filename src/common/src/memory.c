@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2024-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2024-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -12,10 +12,11 @@
  * ANY ONWARD DISTRIBUTION, WHETHER STAND-ALONE OR AS PART OF ANY OTHER PROJECT, REMAINS SUBJECT TO
  * THE EXCLUSION OF PATENT LICENSES PROVISION OF THE BSD-3-CLAUSE-CLEAR LICENSE. */
 
-#include <assert.h>
 #include <LCEVC/common/diagnostics.h>
 #include <LCEVC/common/memory.h>
 #include <LCEVC/common/platform.h>
+//
+#include <assert.h>
 #include <string.h>
 
 void ldcMemoryInitialize(LdcMemoryAllocator* allocator, size_t alignment, LdcMemoryAllocation* allocation)
@@ -71,7 +72,7 @@ void ldcMemoryReallocate(LdcMemoryAllocator* allocator, LdcMemoryAllocation* all
 #if VN_SDK_FEATURE(MEMORY_DIAGNOSTICS)
     allocation->site = site;
     const size_t valueSize = sizeof(diagId) + sizeof(uint32_t) + sizeof(void*) + sizeof(void*);
-    ldcDiagEvent(site, valueSize, diagId, (uint32_t)size, beforePtr, allocation->ptr);
+    ldcDiagEvent(site, valueSize, diagId, (uint32_t)size, allocation->ptr, beforePtr);
 #endif
 }
 

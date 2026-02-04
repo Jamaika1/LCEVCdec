@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2025-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -44,18 +44,16 @@ UpscaleHorizontalFunction getHorizontalFunction(LdpFixedPoint srcFP, LdpFixedPoi
     UpscaleHorizontalFunction res = NULL;
     const LdcAcceleration* acceleration = ldcAccelerationGet();
 
-    /* Find a SIMD functions */
-
+    /* Find a SIMD function */
     if (!forceScalar && acceleration->SSE) {
         res = upscaleGetHorizontalFunctionSSE(interleaving, srcFP, dstFP);
     }
-
     if (!forceScalar && acceleration->NEON) {
         assert(res == NULL);
         res = upscaleGetHorizontalFunctionNEON(interleaving, srcFP, dstFP);
     }
 
-    /* Find a non-SIMD function */
+    /* Fallback to a non-SIMD function */
     if (!res) {
         res = upscaleGetHorizontalFunctionScalar(srcFP, dstFP);
     }
@@ -85,14 +83,13 @@ UpscaleVerticalFunction getVerticalFunction(LdpFixedPoint srcFP, LdpFixedPoint d
         res = upscaleGetVerticalFunctionSSE(srcFP, dstFP);
         *xStep = 16;
     }
-
     if (!forceScalar && acceleration->NEON) {
         assert(res == NULL);
         res = upscaleGetVerticalFunctionNEON(srcFP, dstFP);
         *xStep = 16;
     }
 
-    /* Find a non-SIMD function */
+    /* Fallback to a non-SIMD function */
     if (!res) {
         res = upscaleGetVerticalFunctionScalar(srcFP, dstFP);
         *xStep = 2;
@@ -163,6 +160,10 @@ typedef struct UpscaleSlicedJobContext
     bool applyPA;
     const LdppDitherFrame* frameDither;
     uint32_t colStepping;
+
+#if VN_SDK_FEATURE(TRACING)
+    LdpPipelineDiagInfo diagInfo;
+#endif
 } UpscaleSlicedJobContext;
 
 /*------------------------------------------------------------------------------*/
@@ -370,9 +371,11 @@ static void verticalTask(const UpscaleSlicedJobContext* context, uint32_t yStart
 /* Callback that is invoked on each thread during upscaling. */
 static bool upscaleSlicedJob(void* argument, uint32_t offset, uint32_t count)
 {
-    VNTraceScopedBegin();
-
     const UpscaleSlicedJobContext* context = (const UpscaleSlicedJobContext*)argument;
+
+    VNTraceScopedBeginArgs("task", context->diagInfo.task, "timestamp", context->diagInfo.timestamp,
+                           "loq", context->diagInfo.loq, "plane", context->diagInfo.plane, "offset",
+                           offset, "count", count);
 
     const bool is2D = (context->colFunction != NULL);
     const uint32_t horiStart = offset << (is2D ? 1 : 0);
@@ -395,7 +398,7 @@ static bool upscaleSlicedJob(void* argument, uint32_t offset, uint32_t count)
 
 /*! Execute a multi-threaded upscale operation. */
 static bool upscaleExecute(LdcTaskPool* taskPool, LdcTask* parent, const LdppUpscaleArgs* params,
-                           const LdeKernel* kernel)
+                           const LdeKernel* kernel, const LdpPipelineDiagInfo* diagInfo)
 {
     assert(params->mode != Scale0D);
 
@@ -408,6 +411,9 @@ static bool upscaleExecute(LdcTaskPool* taskPool, LdcTask* parent, const LdppUps
     const LdpFixedPoint intermediateFP = is2D && params->intermediateLayout
                                              ? params->intermediateLayout->layoutInfo->fixedPoint
                                              : srcLayoutInfo->fixedPoint;
+#if VN_SDK_FEATURE(TRACING)
+    slicedJobContext.diagInfo = *diagInfo;
+#endif
 
     slicedJobContext.planeIndex = params->planeIndex;
     slicedJobContext.srcLayout = params->srcLayout;
@@ -450,7 +456,7 @@ static bool upscaleExecute(LdcTaskPool* taskPool, LdcTask* parent, const LdppUps
 /*------------------------------------------------------------------------------*/
 
 bool ldppUpscale(LdcTaskPool* taskPool, LdcTask* parent, const LdeKernel* kernel,
-                 const LdppUpscaleArgs* params)
+                 const LdppUpscaleArgs* params, const LdpPipelineDiagInfo* diagInfo)
 {
     const LdpPictureLayout* srcLayout = params->srcLayout;
     const LdpPictureLayout* dstLayout = params->dstLayout;
@@ -479,7 +485,7 @@ bool ldppUpscale(LdcTaskPool* taskPool, LdcTask* parent, const LdeKernel* kernel
         return false;
     }
 
-    return upscaleExecute(taskPool, parent, params, kernel);
+    return upscaleExecute(taskPool, parent, params, kernel, diagInfo);
 }
 
 /*------------------------------------------------------------------------------*/

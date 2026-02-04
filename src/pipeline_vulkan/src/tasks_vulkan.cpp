@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2025-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -19,9 +19,10 @@
 #include <LCEVC/common/memory.h>
 #include <LCEVC/enhancement/bitstream_types.h>
 #include <LCEVC/enhancement/decode.h>
+#include <LCEVC/pipeline/types.h>
 #include <LCEVC/pipeline_vulkan/types_vulkan.h>
 #include <LCEVC/pixel_processing/apply_cmdbuffer.h>
-#include <LCEVC/pixel_processing/blit.h>
+#include <LCEVC/pixel_processing/convert.h>
 #include <LCEVC/pixel_processing/upscale.h>
 
 namespace lcevc_dec::pipeline_vulkan {
@@ -41,8 +42,6 @@ namespace {
     {
         PipelineVulkan* pipeline;
         FrameVulkan* frame;
-        unsigned baseDepth;
-        unsigned enhancementDepth;
     };
 
     void* taskConvertToInternal(LdcTask* task, const LdcTaskPart* /*part*/)
@@ -135,10 +134,9 @@ namespace {
     }
 
     LdcTaskDependency addTaskConvertToInternal(PipelineVulkan* pipeline, FrameVulkan* frame,
-                                               uint32_t baseDepth, uint32_t enhancementDepth,
                                                LdcTaskDependency inputDep)
     {
-        const TaskConvertToInternalData data{pipeline, frame, baseDepth, enhancementDepth};
+        const TaskConvertToInternalData data{pipeline, frame};
         const LdcTaskDependency inputs[] = {inputDep};
         return frame->taskAdd(inputs, VNArraySize(inputs), taskConvertToInternal, &data,
                               sizeof(data), "ConvertToInternal");
@@ -152,8 +150,6 @@ namespace {
     {
         PipelineVulkan* pipeline;
         FrameVulkan* frame;
-        unsigned baseDepth;
-        unsigned enhancementDepth;
         uint8_t intermediatePtr;
     };
 
@@ -206,11 +202,10 @@ namespace {
     }
 
     LdcTaskDependency addTaskConvertFromInternal(PipelineVulkan* pipeline, FrameVulkan* frame,
-                                                 uint32_t baseDepth, uint32_t enhancementDepth,
                                                  LdcTaskDependency dst, LdcTaskDependency src,
                                                  uint8_t intermediatePtr)
     {
-        const TaskConvertFromInternalData data{pipeline, frame, baseDepth, enhancementDepth, intermediatePtr};
+        const TaskConvertFromInternalData data{pipeline, frame, intermediatePtr};
         const LdcTaskDependency inputs[] = {dst, src};
         return frame->taskAdd(inputs, VNArraySize(inputs), taskConvertFromInternal, &data,
                               sizeof(data), "ConvertFromInternal");
@@ -510,9 +505,10 @@ namespace {
 
         VNLogDebug("taskPassthrough timestamp:%" PRIx64 " plane:%d", data.frame->timestamp, data.planeIndex);
 
-        if (!ldppPlaneBlit(pipeline->taskPool(), task, pipeline->configuration().forceScalar,
-                           data.planeIndex, &frame->basePicture->layout,
-                           &frame->outputPicture->layout, &srcPlane, &dstPlane, BMCopy)) {
+        VNDiagInfo(diagInfo, task->name, frame->timestamp, LOQ0, data.planeIndex);
+        if (!ldppPlaneConvert(pipeline->taskPool(), task, pipeline->configuration().forceScalar,
+                              data.planeIndex, &frame->basePicture->layout, &frame->outputPicture->layout,
+                              &srcPlane, &dstPlane, VNDiagInfoPtr(diagInfo))) {
             VNLogError("ldppPlaneBlit In failed");
         }
 
@@ -674,8 +670,7 @@ namespace {
 
         //// Input conversion
         LdcTaskDependency basePicture{kTaskDependencyInvalid};
-        basePicture = addTaskConvertToInternal(pipeline, frame, frame->getEnhancementBitDepth(),
-                                               globalConfig.baseDepth, frame->depBasePicture());
+        basePicture = addTaskConvertToInternal(pipeline, frame, frame->depBasePicture());
 
         //// LoQ 1
 
@@ -824,8 +819,7 @@ namespace {
 
         LdcTaskDependency outputPicture{};
         outputPicture = addTaskConvertFromInternal(
-            pipeline, frame, globalConfig.baseDepth, globalConfig.enhancedDepth,
-            frame->depOutputPicture(),
+            pipeline, frame, frame->depOutputPicture(),
             addTaskWaitForMany(pipeline, frame, reconstructedPlanes, numImagePlanes), intermediatePtr);
 
         // Send output when all planes are ready
@@ -889,7 +883,7 @@ void generateTasks(PipelineVulkan* pipeline, FrameVulkan* frame, uint64_t previo
     }
 
     if (pipeline->configuration().showTasks) {
-#ifdef VN_SDK_LOG_ENABLE_DEBUG
+#if VN_SDK_LOG(DEBUG)
         ldcTaskPoolDump(pipeline->taskPool(), frame->taskGroup());
 #endif
         ldcTaskGroupUnblock(frame->taskGroup());

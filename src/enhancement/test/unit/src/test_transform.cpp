@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2023-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2023-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -178,7 +178,7 @@ static Dequant getDequantValues(DequantValuesType type, LdeTransformType transfo
     }
 
     // Load up SIMD registers
-#if VN_CORE_FEATURE(SSE)
+#if VN_SDK_FEATURE(SSE)
     for (auto temporal = 0; temporal < TSCount; ++temporal) {
         dequant.stepWidthVector[temporal][0] =
             _mm_load_si128((const __m128i*)&dequant.stepWidth[temporal][0]);
@@ -187,7 +187,7 @@ static Dequant getDequantValues(DequantValuesType type, LdeTransformType transfo
         dequant.offsetVector[temporal][0] = _mm_load_si128((const __m128i*)&dequant.offset[temporal][0]);
         dequant.offsetVector[temporal][1] = _mm_load_si128((const __m128i*)&dequant.offset[temporal][8]);
     }
-#elif VN_CORE_FEATURE(NEON)
+#elif VN_SDK_FEATURE(NEON)
     for (auto temporal = 0; temporal < TSCount; ++temporal) {
         dequant.stepWidthVector[temporal][0] = vld1q_s16(&dequant.stepWidth[temporal][0]);
         dequant.stepWidthVector[temporal][1] = vld1q_s16(&dequant.stepWidth[temporal][8]);

@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2024-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2024-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -49,6 +49,12 @@ struct ThreadMutex
     pthread_mutex_t mutex;
 };
 
+// Static initialiser for ThreadMutex - equivalient to threadMutexInitialize()
+#define VNThreadMutexInit         \
+    {                             \
+        PTHREAD_MUTEX_INITIALIZER \
+    }
+
 static inline int threadMutexInitialize(ThreadMutex* mutex)
 {
     return pthread_mutex_init(&mutex->mutex, NULL);
@@ -77,6 +83,12 @@ struct ThreadCondVar
 {
     pthread_cond_t condVar;
 };
+
+// Static initialiser for ThreadCondVar - equivalient to threadCondVarInitialize()
+#define VNThreadCondVarInit      \
+    {                            \
+        PTHREAD_COND_INITIALIZER \
+    }
 
 static inline int threadCondVarInitialize(ThreadCondVar* condVar)
 {

@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2024-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2024-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -75,6 +75,23 @@ bool diagnosticsTestCMetrics(void)
     VNMetricUInt64("u64", u64);
     VNMetricFloat32("f32", f32);
     VNMetricFloat64("f64", f64);
+
+    return true;
+}
+
+bool diagnosticsTestCTraceEvents(void)
+{
+    VNTraceBegin("Begin");
+    VNTraceBeginArgs("BeginArgs", "a", 1, "b", 2);
+    VNTraceEnd();
+    VNTraceEnd();
+    VNTraceInstant("Instant");
+    VNTraceInstantArgs("InstantArgs", "x", 7, "y", 8);
+    VNTraceAsyncBegin("AsyncBegin", 42);
+    VNTraceAsyncBeginArgs("AsyncBeginArgs", 42, "count", 1);
+    VNTraceAsyncEnd("AsyncEnd", 42);
+    VNTraceAsyncInstant("AsyncInstant", 42);
+    VNTraceAsyncInstantArgs("AsyncInstantArgs", 42, "count", 2);
 
     return true;
 }

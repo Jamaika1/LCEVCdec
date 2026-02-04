@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2024-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2024-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -116,6 +116,7 @@ bool ldeDecodeEnhancement(const LdeGlobalConfig* globalConfig, const LdeFrameCon
     Dequant dequant;
     calculateDequant(&dequant, globalConfig, frameConfig, planeIdx, loq);
     const bool temporalEnabled = globalConfig->temporalEnabled;
+    const bool temporalRefresh = temporalEnabled && frameConfig->temporalRefresh;
     const uint8_t numLayers = globalConfig->numLayers;
     const bool dds = globalConfig->transform == TransformDDS;
     const uint8_t tuWidthShift = dds ? 2 : 1;     /* The width, log2, of the transform unit */
@@ -295,8 +296,8 @@ bool ldeDecodeEnhancement(const LdeGlobalConfig* globalConfig, const LdeFrameCon
                 LdeCmdBufferCpuCmd command = CBCCAdd;
                 if (coeffsNonzeroMask == 0 && temporal == TSIntra) {
                     command = CBCCSetZero;
-                } else if (loq == LOQ0 &&
-                           (temporal == TSIntra || clearBlockQueue > 0 || clearBlockRemainder)) {
+                } else if (loq == LOQ0 && (temporalRefresh || temporal == TSIntra ||
+                                           clearBlockQueue > 0 || clearBlockRemainder)) {
                     command = CBCCSet;
                 }
                 if (!ldeCmdBufferCpuAppend(cmdBufferCpu, command, residuals, currentIndex - lastTuIndex)) {
@@ -308,7 +309,7 @@ bool ldeDecodeEnhancement(const LdeGlobalConfig* globalConfig, const LdeFrameCon
                 LdeCmdBufferGpuOperation operation = CBGOAdd;
                 if (coeffsNonzeroMask == 0 && temporal == TSIntra) {
                     operation = CBGOSetZero;
-                } else if (loq == LOQ0 && temporal == TSIntra) {
+                } else if (loq == LOQ0 && (temporalRefresh || temporal == TSIntra)) {
                     operation = CBGOSet;
                 }
                 if (!ldeCmdBufferGpuAppend(cmdBufferGpu, cmdBufferBuilder, operation, residuals,

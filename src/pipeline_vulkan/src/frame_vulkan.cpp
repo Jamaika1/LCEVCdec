@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2025-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -736,7 +736,7 @@ std::pair<uint32_t, uint32_t> FrameVulkan::temporalDimensions(uint32_t plane) co
     }
 }
 
-#ifdef VN_SDK_LOG_ENABLE_DEBUG
+#if VN_SDK_LOG(DEBUG)
 // Write description of frame into string buffer
 // Return number of characters written to buffer
 static const char* frameStateName(FrameState state)

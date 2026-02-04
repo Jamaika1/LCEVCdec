@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2023-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2023-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -16,7 +16,7 @@
 
 #include <LCEVC/build_config.h>
 
-#if VN_CORE_FEATURE(NEON)
+#if VN_SDK_FEATURE(NEON)
 
 #include "apply_cmdbuffer_common.h"
 #include "fp_types.h"

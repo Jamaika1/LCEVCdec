@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2024-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2024-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -14,11 +14,23 @@
 
 // Diagnostic handler that writes log records to a stdio FILE*
 //
-#include <assert.h>
+#include "string_format.h"
+//
 #include <LCEVC/common/diagnostics.h>
 #include <LCEVC/common/platform.h>
+#include <LCEVC/common/printf_macros.h>
+//
+#include <assert.h>
 #include <stdbool.h>
 #include <stdio.h>
+
+// Convert a log record to string
+//
+int ldcDiagnosticFormatLog(char* dst, uint32_t dstSize, const LdcDiagSite* site,
+                           const LdcDiagRecord* record, const LdcDiagValue* values)
+{
+    return (int)ldcFormat(dst, dstSize, site->str, site->argumentTypes, values, site->argumentCount);
+}
 
 bool ldcDiagHandlerStdio(void* user, const LdcDiagSite* site, const LdcDiagRecord* record,
                          const LdcDiagValue* values)

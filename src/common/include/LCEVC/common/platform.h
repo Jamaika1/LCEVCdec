@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2024-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2024-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -39,10 +39,15 @@
 
 // Thread local storage
 //
+#ifndef VNThreadLocal
 #if VN_COMPILER(MSVC)
-#define VNThreadLocal() __declspec(thread)
+#include <windows.h>
+#define VNThreadLocal __declspec(thread)
+#define VN_TO_THREAD_NAME(x) L##x
 #else
-#define VNThreadLocal() __thread
+#define VNThreadLocal __thread
+#define VN_TO_THREAD_NAME(x) x
+#endif
 #endif
 
 // Variable alignment, v can contain a normal variable declaration, a contains the

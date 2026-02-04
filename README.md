@@ -24,7 +24,7 @@ See [the build guide](docs/building.md) to get started.
 
 ## Notice
 
-Copyright © V-Nova Limited 2014-2025
+Copyright © V-Nova Limited 2014-2026
 
 Additional Information and Restrictions
 * The LCEVCdec software is licensed under the BSD-3-CLAUSE-CLEAR License
