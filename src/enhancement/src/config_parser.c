@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2024-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2024-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -36,6 +36,9 @@
 
 static bool parseConformanceValue(ByteStream* stream, uint16_t* dst, const char* debugLabel)
 {
+#if !VN_SDK_LOG(DEBUG)
+    VNUnused(debugLabel);
+#endif
     uint64_t value;
 
     VNCheckB(bytestreamReadMultiByte(stream, &value));
@@ -269,8 +272,6 @@ static void setUserDataConfig(LdeGlobalConfig* globalConfig, LdeUserDataMode mod
 {
     LdeUserDataConfig* userData = &globalConfig->userData;
     memset(userData, 0, sizeof(LdeUserDataConfig));
-
-    VNLogDebug("  User data mode: %s", userDataModeToString(mode));
 
     if (mode != UDMNone) {
         userData->enabled = true;
@@ -538,13 +539,12 @@ static bool parseBlockGlobalConfig(ByteStream* stream, LdeGlobalConfig* globalCo
 
             VNCheckB(bytestreamReadU16(stream, &coeff));
 
-            globalConfig->kernel.coeffs[0][i] = globalConfig->kernel.coeffs[1][kernelSize - 1 - i] =
-                (int16_t)(multiplier * coeff);
+            globalConfig->kernel.coeffs[i] = (int16_t)(multiplier * coeff);
         }
 
-        VNLogDebug("  Adaptive upsampler kernel: %d %d %d %d", globalConfig->kernel.coeffs[0][0],
-                   globalConfig->kernel.coeffs[0][1], globalConfig->kernel.coeffs[0][2],
-                   globalConfig->kernel.coeffs[0][3]);
+        VNLogDebug("  Adaptive upsampler kernel: %d %d %d %d", globalConfig->kernel.coeffs[0],
+                   globalConfig->kernel.coeffs[1], globalConfig->kernel.coeffs[2],
+                   globalConfig->kernel.coeffs[3]);
     } else {
         globalConfig->kernel = kKernels[upsample];
     }
@@ -659,6 +659,99 @@ static bool parseEncodedData(ByteStream* stream, LdeFrameConfig* frameConfig, co
     return true;
 }
 
+static bool parseEncodedDataTiledEntropyChunk(ByteStream* stream, LdeFrameConfig* frameConfig,
+                                              const LdeGlobalConfig* globalConfig,
+                                              TiledSizeDecoder* sizeDecoderPtr, uint8_t plane)
+{
+    for (int8_t loq = LOQ1; loq >= LOQ0; --loq) {
+        const uint32_t currentTileCount = globalConfig->numTiles[plane][loq];
+
+        for (uint8_t layer = 0; layer < globalConfig->numLayers; ++layer) {
+            if (globalConfig->tileSizeCompression != TCSPTTNone) {
+                /* Determine number of chunks enabled to know how many
+                 * sizes we want to decode. */
+                uint32_t numChunksEnabled = 0;
+
+                for (uint32_t tile = 0; tile < currentTileCount; ++tile) {
+                    const uint32_t chunkIndex = getLayerChunkIndex(
+                        frameConfig, globalConfig, (LdeLOQIndex)loq, plane, tile, layer);
+                    if (frameConfig->chunks[chunkIndex].entropyEnabled) {
+                        numChunksEnabled++;
+                    }
+                }
+
+                VNCheckB(tiledSizeDecoderInitialize(
+                    frameConfig->allocator, frameConfig->diagId, sizeDecoderPtr, numChunksEnabled,
+                    stream, globalConfig->tileSizeCompression, globalConfig->bitstreamVersion));
+            }
+
+            for (uint32_t tile = 0; tile < currentTileCount; ++tile) {
+                const int32_t chunkIndex =
+                    getLayerChunkIndex(frameConfig, globalConfig, (LdeLOQIndex)loq, plane, tile, layer);
+                LdeChunk* chunk = &frameConfig->chunks[chunkIndex];
+
+                VNLogVerbose("    [%d, %d, %2d, %3d] chunk %-4d: ", plane, loq, layer, tile, chunkIndex);
+                VNCheckB(parseChunk(stream, chunk, &frameConfig->loqEnabled[loq], sizeDecoderPtr));
+            }
+        }
+
+        VNLogVerbose("    %s enabled: %s", loqIndexToString((LdeLOQIndex)loq),
+                     frameConfig->loqEnabled[loq] ? "true" : "false");
+    }
+
+    return true;
+}
+
+static bool parseEncodedDataTiledTemporalChunk(ByteStream* stream, LdeFrameConfig* frameConfig,
+                                               const LdeGlobalConfig* globalConfig,
+                                               TiledSizeDecoder* sizeDecoderPtr, uint8_t plane)
+{
+    const uint32_t currentTileCount = globalConfig->numTiles[plane][LOQ0];
+    LdeChunk* temporalTileChunks = &frameConfig->chunks[frameConfig->tileChunkTemporalIndex[plane]];
+
+    if (globalConfig->tileSizeCompression != TCSPTTNone) {
+        uint32_t numChunksEnabled = 0;
+
+        for (uint32_t tile = 0; tile < currentTileCount; ++tile) {
+            if (temporalTileChunks[tile].entropyEnabled) {
+                numChunksEnabled++;
+            }
+        }
+
+        VNCheckB(tiledSizeDecoderInitialize(frameConfig->allocator, frameConfig->diagId, sizeDecoderPtr,
+                                            numChunksEnabled, stream, globalConfig->tileSizeCompression,
+                                            globalConfig->bitstreamVersion));
+    }
+
+    for (uint32_t tile = 0; tile < currentTileCount; ++tile) {
+        VNLogVerbose("    temporal: [%d, %3u]: ", plane, tile);
+        VNCheckB(parseChunk(stream, &temporalTileChunks[tile], &frameConfig->loqEnabled[LOQ0],
+                            sizeDecoderPtr));
+    }
+
+    return true;
+}
+
+static bool parseEncodedDataTiledChunk(ByteStream* stream, LdeFrameConfig* frameConfig,
+                                       const LdeGlobalConfig* globalConfig, TiledSizeDecoder* sizeDecoderPtr)
+{
+    VNLogVerbose("  Entropy Signal");
+    VNLogVerbose("  [Plane, LOQ, Layer, Tile] ");
+    for (uint8_t plane = 0; plane < globalConfig->numPlanes; ++plane) {
+        if (frameConfig->entropyEnabled) {
+            VNCheckB(parseEncodedDataTiledEntropyChunk(stream, frameConfig, globalConfig,
+                                                       sizeDecoderPtr, plane));
+        }
+
+        if (frameConfig->temporalSignallingPresent) {
+            VNCheckB(parseEncodedDataTiledTemporalChunk(stream, frameConfig, globalConfig,
+                                                        sizeDecoderPtr, plane));
+        }
+    }
+
+    return true;
+}
+
 static bool parseEncodedDataTiled(ByteStream* stream, LdeFrameConfig* frameConfig,
                                   const LdeGlobalConfig* globalConfig)
 {
@@ -677,192 +770,130 @@ static bool parseEncodedDataTiled(ByteStream* stream, LdeFrameConfig* frameConfi
         return false;
     }
 
+    if (!frameConfig->entropyEnabled && !frameConfig->temporalSignallingPresent) {
+        return true;
+    }
+
     /* Pre-calculate chunk offsets for quicker chunk lookup. */
     calculateTileChunkIndices(frameConfig, globalConfig);
     VNCheckB(chunkCheckAlloc(frameConfig, globalConfig));
 
-    if (frameConfig->entropyEnabled || frameConfig->temporalSignallingPresent) {
-        BitStream rleOnlyBS = {{0}};
-        uint8_t layerRLEOnly = 0;
+    BitStream rleOnlyBS = {{0}};
+    VNCheckB(bitstreamInitialize(&rleOnlyBS, bytestreamCurrent(stream), bytestreamRemaining(stream)));
 
-        BitStream entropyEnabledBS = {{0}};
-        TiledRLEDecoder entropyEnabledRLE = {0};
-        TiledSizeDecoder sizeDecoder = {0};
-        TiledSizeDecoder* sizeDecoderPtr =
-            (globalConfig->tileSizeCompression != TCSPTTNone) ? &sizeDecoder : NULL;
+    /* --- Read the RLE-only flags --- */
 
-        VNCheckB(bitstreamInitialize(&rleOnlyBS, bytestreamCurrent(stream), bytestreamRemaining(stream)));
+    VNLogVerbose("  RLE only flags");
+    VNLogVerbose("  [Plane, LoQ, Layer]");
 
-        /* --- Read the RLE-only flags --- */
+    for (uint8_t plane = 0; plane < globalConfig->numPlanes; ++plane) {
+        /* Whole surface RLE only flag per-layer */
+        if (frameConfig->entropyEnabled) {
+            for (int8_t loq = LOQ1; loq >= LOQ0; --loq) {
+                const uint32_t currentTileCount = globalConfig->numTiles[plane][loq];
 
-        VNLogVerbose("  RLE only flags");
-        VNLogVerbose("  [Plane, LoQ, Layer]");
+                for (uint8_t layer = 0; layer < globalConfig->numLayers; ++layer) {
+                    /* Read a bit for RLE signal. */
+                    uint8_t layerRLEOnly = 0;
+                    VNCheckB(bitstreamReadBit(&rleOnlyBS, &layerRLEOnly));
 
-        for (uint8_t plane = 0; plane < globalConfig->numPlanes; ++plane) {
-            /* Whole surface RLE only flag per-layer */
-            if (frameConfig->entropyEnabled) {
-                for (int8_t loq = LOQ1; loq >= LOQ0; --loq) {
-                    const uint32_t currentTileCount = globalConfig->numTiles[plane][loq];
+                    VNLogVerbose("  [%u, %d, %2u]: %u", plane, loq, layer, layerRLEOnly);
 
-                    for (uint8_t layer = 0; layer < globalConfig->numLayers; ++layer) {
-                        /* Read a bit for RLE signal. */
-                        VNCheckB(bitstreamReadBit(&rleOnlyBS, &layerRLEOnly));
-
-                        VNLogVerbose("  [%u, %d, %2u]: %u", plane, loq, layer, layerRLEOnly);
-
-                        /* Broadcast RLE only to all tiles for a layer. */
-                        for (uint32_t tile = 0; tile < currentTileCount; ++tile) {
-                            const uint32_t chunkIndex = getLayerChunkIndex(
-                                frameConfig, globalConfig, (LdeLOQIndex)loq, plane, tile, layer);
-                            frameConfig->chunks[chunkIndex].rleOnly = layerRLEOnly;
-                        }
-                    }
-                }
-            }
-
-            /* Temporal layer RLE only flag*/
-            if (frameConfig->temporalSignallingPresent) {
-                /* Read a bit for RLE signal. */
-                uint8_t temporalRLEOnly = 0;
-                const uint32_t currentTileCount = globalConfig->numTiles[plane][LOQ0];
-                LdeChunk* temporalTileChunks =
-                    &frameConfig->chunks[frameConfig->tileChunkTemporalIndex[plane]];
-
-                VNCheckB(bitstreamReadBit(&rleOnlyBS, &temporalRLEOnly));
-                VNLogVerbose("  [temporal: %u]: %u", plane, temporalRLEOnly);
-
-                /* Broadcast RLE only to all tiles for the temporal layer. */
-                for (uint32_t tile = 0; tile < currentTileCount; ++tile) {
-                    temporalTileChunks[tile].rleOnly = temporalRLEOnly;
-                }
-            }
-        }
-
-        /* Move bytestream forward with byte alignment */
-        bytestreamSeek(stream, bitstreamGetConsumedBytes(&rleOnlyBS));
-
-        /* --- Read the entropy enabled flags --- */
-        if (globalConfig->perTileCompressionEnabled) {
-            VNCheckB(tiledRLEDecoderInitialize(&entropyEnabledRLE, stream));
-        } else {
-            VNCheckB(bitstreamInitialize(&entropyEnabledBS, bytestreamCurrent(stream),
-                                         bytestreamRemaining(stream)));
-        }
-
-        for (uint8_t plane = 0; plane < globalConfig->numPlanes; ++plane) {
-            if (frameConfig->entropyEnabled) {
-                for (int8_t loq = LOQ1; loq >= LOQ0; --loq) {
-                    const uint32_t currentTileCount = globalConfig->numTiles[plane][loq];
-
-                    for (uint8_t layer = 0; layer < globalConfig->numLayers; ++layer) {
-                        for (uint32_t tile = 0; tile < currentTileCount; ++tile) {
-                            const uint32_t chunkIndex = getLayerChunkIndex(
-                                frameConfig, globalConfig, (LdeLOQIndex)loq, plane, tile, layer);
-                            LdeChunk* chunk = &frameConfig->chunks[chunkIndex];
-
-                            if (globalConfig->perTileCompressionEnabled) {
-                                VNCheckB(tiledRLEDecoderRead(&entropyEnabledRLE,
-                                                             (uint8_t*)&chunk->entropyEnabled));
-                            } else {
-                                VNCheckB(bitstreamReadBit(&entropyEnabledBS,
-                                                          (uint8_t*)&chunk->entropyEnabled));
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (frameConfig->temporalSignallingPresent) {
-                const uint32_t currentTileCount = globalConfig->numTiles[plane][LOQ0];
-                LdeChunk* temporalTileChunks =
-                    &frameConfig->chunks[frameConfig->tileChunkTemporalIndex[plane]];
-
-                for (uint32_t tile = 0; tile < currentTileCount; ++tile) {
-                    if (globalConfig->perTileCompressionEnabled) {
-                        VNCheckB(tiledRLEDecoderRead(
-                            &entropyEnabledRLE, (uint8_t*)&temporalTileChunks[tile].entropyEnabled));
-                    } else {
-                        VNCheckB(bitstreamReadBit(&entropyEnabledBS,
-                                                  (uint8_t*)&temporalTileChunks[tile].entropyEnabled));
-                    }
-                }
-            }
-        }
-
-        if (globalConfig->perTileCompressionEnabled == 0) {
-            /* Move bytestream forward with byte alignment */
-            bytestreamSeek(stream, bitstreamGetConsumedBytes(&entropyEnabledBS));
-        }
-
-        /* --- Read chunk data --- */
-
-        VNLogVerbose("  Entropy Signal");
-        VNLogVerbose("  [Plane, LOQ, Layer, Tile] ");
-        for (uint8_t plane = 0; plane < globalConfig->numPlanes; ++plane) {
-            if (frameConfig->entropyEnabled) {
-                for (int8_t loq = LOQ1; loq >= LOQ0; --loq) {
-                    const uint32_t currentTileCount = globalConfig->numTiles[plane][loq];
-
-                    for (uint8_t layer = 0; layer < globalConfig->numLayers; ++layer) {
-                        if (globalConfig->tileSizeCompression != TCSPTTNone) {
-                            /* Determine number of chunks enabled to know how many
-                             * sizes we want to decode. */
-                            uint32_t numChunksEnabled = 0;
-
-                            for (uint32_t tile = 0; tile < currentTileCount; ++tile) {
-                                const uint32_t chunkIndex = getLayerChunkIndex(
-                                    frameConfig, globalConfig, (LdeLOQIndex)loq, plane, tile, layer);
-                                LdeChunk* chunk = &frameConfig->chunks[chunkIndex];
-                                numChunksEnabled += chunk->entropyEnabled;
-                            }
-
-                            VNCheckB(tiledSizeDecoderInitialize(
-                                frameConfig->allocator, frameConfig->diagId, &sizeDecoder,
-                                numChunksEnabled, stream, globalConfig->tileSizeCompression,
-                                globalConfig->bitstreamVersion));
-                        }
-
-                        for (uint32_t tile = 0; tile < currentTileCount; ++tile) {
-                            const int32_t chunkIndex = getLayerChunkIndex(
-                                frameConfig, globalConfig, (LdeLOQIndex)loq, plane, tile, layer);
-                            LdeChunk* chunk = &frameConfig->chunks[chunkIndex];
-
-                            VNLogVerbose("    [%d, %d, %2d, %3d] chunk %-4d: ", plane, loq, layer,
-                                         tile, chunkIndex);
-                            VNCheckB(parseChunk(stream, chunk, &frameConfig->loqEnabled[loq], sizeDecoderPtr));
-                        }
-                    }
-
-                    VNLogVerbose("    %s enabled: %s", loqIndexToString((LdeLOQIndex)loq),
-                                 frameConfig->loqEnabled[loq] ? "true" : "false");
-                }
-            }
-
-            if (frameConfig->temporalSignallingPresent) {
-                const uint32_t currentTileCount = globalConfig->numTiles[plane][LOQ0];
-                LdeChunk* temporalTileChunks =
-                    &frameConfig->chunks[frameConfig->tileChunkTemporalIndex[plane]];
-
-                if (globalConfig->tileSizeCompression != TCSPTTNone) {
-                    uint32_t numChunksEnabled = 0;
-
+                    /* Broadcast RLE only to all tiles for a layer. */
                     for (uint32_t tile = 0; tile < currentTileCount; ++tile) {
-                        numChunksEnabled += temporalTileChunks[tile].entropyEnabled;
+                        const uint32_t chunkIndex = getLayerChunkIndex(
+                            frameConfig, globalConfig, (LdeLOQIndex)loq, plane, tile, layer);
+                        frameConfig->chunks[chunkIndex].rleOnly = layerRLEOnly;
                     }
-
-                    VNCheckB(tiledSizeDecoderInitialize(
-                        frameConfig->allocator, frameConfig->diagId, &sizeDecoder, numChunksEnabled,
-                        stream, globalConfig->tileSizeCompression, globalConfig->bitstreamVersion));
-                }
-                for (uint32_t tile = 0; tile < currentTileCount; ++tile) {
-                    VNLogVerbose("    temporal: [%d, %3u]: ", plane, tile);
-                    VNCheckB(parseChunk(stream, &temporalTileChunks[tile],
-                                        &frameConfig->loqEnabled[LOQ0], sizeDecoderPtr));
                 }
             }
         }
 
-        tiledSizeDecoderRelease(sizeDecoderPtr);
+        /* Temporal layer RLE only flag*/
+        if (frameConfig->temporalSignallingPresent) {
+            /* Read a bit for RLE signal. */
+            uint8_t temporalRLEOnly = 0;
+            const uint32_t currentTileCount = globalConfig->numTiles[plane][LOQ0];
+            LdeChunk* temporalTileChunks =
+                &frameConfig->chunks[frameConfig->tileChunkTemporalIndex[plane]];
+
+            VNCheckB(bitstreamReadBit(&rleOnlyBS, &temporalRLEOnly));
+            VNLogVerbose("  [temporal: %u]: %u", plane, temporalRLEOnly);
+
+            /* Broadcast RLE only to all tiles for the temporal layer. */
+            for (uint32_t tile = 0; tile < currentTileCount; ++tile) {
+                temporalTileChunks[tile].rleOnly = temporalRLEOnly;
+            }
+        }
+    }
+
+    /* Move bytestream forward with byte alignment */
+    bytestreamSeek(stream, bitstreamGetConsumedBytes(&rleOnlyBS));
+
+    /* --- Read the entropy enabled flags --- */
+    TiledRLEDecoder entropyEnabledRLE = {0};
+    BitStream entropyEnabledBS = {{0}};
+    if (globalConfig->perTileCompressionEnabled) {
+        VNCheckB(tiledRLEDecoderInitialize(&entropyEnabledRLE, stream));
+    } else {
+        VNCheckB(bitstreamInitialize(&entropyEnabledBS, bytestreamCurrent(stream),
+                                     bytestreamRemaining(stream)));
+    }
+
+    for (uint8_t plane = 0; plane < globalConfig->numPlanes; ++plane) {
+        if (frameConfig->entropyEnabled) {
+            for (int8_t loq = LOQ1; loq >= LOQ0; --loq) {
+                const uint32_t currentTileCount = globalConfig->numTiles[plane][loq];
+
+                for (uint8_t layer = 0; layer < globalConfig->numLayers; ++layer) {
+                    for (uint32_t tile = 0; tile < currentTileCount; ++tile) {
+                        const uint32_t chunkIndex = getLayerChunkIndex(
+                            frameConfig, globalConfig, (LdeLOQIndex)loq, plane, tile, layer);
+                        LdeChunk* chunk = &frameConfig->chunks[chunkIndex];
+
+                        if (globalConfig->perTileCompressionEnabled) {
+                            VNCheckB(tiledRLEDecoderRead(&entropyEnabledRLE,
+                                                         (uint8_t*)&chunk->entropyEnabled));
+                        } else {
+                            VNCheckB(bitstreamReadBit(&entropyEnabledBS, (uint8_t*)&chunk->entropyEnabled));
+                        }
+                    }
+                }
+            }
+        }
+
+        if (frameConfig->temporalSignallingPresent) {
+            const uint32_t currentTileCount = globalConfig->numTiles[plane][LOQ0];
+            LdeChunk* temporalTileChunks =
+                &frameConfig->chunks[frameConfig->tileChunkTemporalIndex[plane]];
+
+            for (uint32_t tile = 0; tile < currentTileCount; ++tile) {
+                if (globalConfig->perTileCompressionEnabled) {
+                    VNCheckB(tiledRLEDecoderRead(&entropyEnabledRLE,
+                                                 (uint8_t*)&temporalTileChunks[tile].entropyEnabled));
+                } else {
+                    VNCheckB(bitstreamReadBit(&entropyEnabledBS,
+                                              (uint8_t*)&temporalTileChunks[tile].entropyEnabled));
+                }
+            }
+        }
+    }
+
+    if (globalConfig->perTileCompressionEnabled == 0) {
+        /* Move bytestream forward with byte alignment */
+        bytestreamSeek(stream, bitstreamGetConsumedBytes(&entropyEnabledBS));
+    }
+
+    /* --- Read chunk data --- */
+
+    TiledSizeDecoder sizeDecoder = {0};
+    TiledSizeDecoder* sizeDecoderPtr =
+        (globalConfig->tileSizeCompression != TCSPTTNone) ? &sizeDecoder : NULL;
+    const bool parseSuccess =
+        parseEncodedDataTiledChunk(stream, frameConfig, globalConfig, sizeDecoderPtr);
+    tiledSizeDecoderRelease(sizeDecoderPtr);
+    if (!parseSuccess) {
+        return false;
     }
 
     return true;
@@ -1089,16 +1120,16 @@ static bool parseVUIParameters(ByteStream* stream, LdeVUIInfo* vuiInfo, uint32_t
     return bytestreamSeek(stream, vuiSize);
 }
 
-static bool parseSFilterPayload(ByteStream* stream, LdeFrameConfig* frameConfig)
+static bool parseSFilterPayload(ByteStream* stream, LdeGlobalConfig* globalConfig)
 {
     uint8_t sfilterByte;
     VNCheckB(bytestreamReadU8(stream, &sfilterByte));
 
-    frameConfig->sharpenType = (LdeSharpenType)((sfilterByte & 0xE0) >> 5);
+    globalConfig->sharpenType = (LdeSharpenType)((sfilterByte & 0xE0) >> 5);
     const uint8_t signalledSharpenStrength = (sfilterByte & 0x1F);
-    frameConfig->sharpenStrength = (signalledSharpenStrength + 1) * 0.01f;
-    VNLogVerbose("    sharpen_type: %s", sharpenTypeToString(frameConfig->sharpenType));
-    VNLogVerboseF("    sharpen_strength: %d [%f]", signalledSharpenStrength, frameConfig->sharpenStrength);
+    globalConfig->sharpenStrength = (signalledSharpenStrength + 1) * 0.01f;
+    VNLogVerbose("    sharpen_type: %s", sharpenTypeToString(globalConfig->sharpenType));
+    VNLogVerboseF("    sharpen_strength: %d [%f]", signalledSharpenStrength, globalConfig->sharpenStrength);
     return true;
 }
 
@@ -1191,7 +1222,7 @@ static bool parseBlockAdditionalInfo(ByteStream* stream, uint32_t blockSize, Lde
         case AIT_VUI:
             VNCheckB(parseVUIParameters(stream, &globalConfig->vuiInfo, blockSize - 1));
             break;
-        case AIT_SFilter: VNCheckB(parseSFilterPayload(stream, frameConfig)); break;
+        case AIT_SFilter: VNCheckB(parseSFilterPayload(stream, globalConfig)); break;
         case AIT_HDR:
             *globalConfigModified = true;
             VNCheckB(parseHDRPayload(stream, globalConfig));

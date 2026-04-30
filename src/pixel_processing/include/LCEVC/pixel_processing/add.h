@@ -16,7 +16,7 @@
 #define VN_LCEVC_PIXEL_PROCESSING_ADD_H
 
 #include <LCEVC/common/task_pool.h>
-#include <LCEVC/pipeline/picture.h>
+#include <LCEVC/pipeline/picture_layout.h>
 
 #ifdef __cplusplus
 extern "C"
@@ -27,14 +27,16 @@ extern "C"
  *         temporal buffer to the upscaled base and save the result to the output buffer.
  *
  * \param taskPool       The task pool to create a sliced blit task from
+ * \param parent         If not NULL, task that deferred tasks inherit dependencies from
  * \param planeIndex     The plane index in src/dst layout
  * \param srcLayout      The source plane picture layout
  * \param dstLayout      The destination picture layout
  * \param srcPlane1      The first source plane to blit from.
  * \param srcPlane2      The second source plane to blit from.
  * \param dstPlane       The destination plane to blit to.
+ * \param diagInfo       Any diagnostic information for tracing.
  *
- * \return True if the blit operation was successful. */
+ * \return True if the add operation was successful. */
 bool ldppPlaneAdd(LdcTaskPool* taskPool, LdcTask* parent, uint32_t planeIndex,
                   const LdpPictureLayout* srcLayout, const LdpPictureLayout* dstLayout,
                   LdpPicturePlaneDesc* srcPlane1, LdpPicturePlaneDesc* srcPlane2,

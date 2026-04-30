@@ -157,7 +157,7 @@ bool ldeDecodeEnhancement(const LdeGlobalConfig* globalConfig, const LdeFrameCon
     int32_t coeffsNonzeroMask = 0;
     bool clearBlockRemainder = false;
     uint8_t bitstreamVersion = globalConfig->bitstreamVersion;
-    TransformFunction transformFn = transformGetFunction(globalConfig->transform, scaling, false);
+    TransformFunction transformFn = transformGetFunction(globalConfig->transform, scaling);
 
     /* Setup decoders */
     EntropyDecoder residualDecoders[RCLayerCountDDS] = {{0}};
@@ -177,7 +177,8 @@ bool ldeDecodeEnhancement(const LdeGlobalConfig* globalConfig, const LdeFrameCon
     uint16_t tileStartX = 0;
     uint16_t tileStartY = 0;
     if (tileIdx > 0) {
-        ldeTileStartFromConfig(globalConfig, loq, planeIdx, tileIdx, &tileStartX, &tileStartY);
+        ldeTileStartFromConfig(globalConfig, loq, (uint16_t)planeIdx, (uint16_t)tileIdx,
+                               &tileStartX, &tileStartY);
     }
     VNCheckB(ldeTuStateInitialize(&tuState, width, height, tileStartX, tileStartY, tuWidthShift));
 

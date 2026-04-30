@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2025-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -15,159 +15,168 @@
 #ifndef VN_LCEVC_PIPELINE_VULKAN_BACKEND_VULKAN_H
 #define VN_LCEVC_PIPELINE_VULKAN_BACKEND_VULKAN_H
 
+#include "compute_vulkan.h"
+#include "render_vulkan.h"
+
+#include <LCEVC/common/class_utils.hpp>
+#include <LCEVC/common/log.h>
+#include <LCEVC/enhancement/bitstream_types.h>
 #include <vulkan/vulkan.h>
 
-#if defined(ANDROID)
-// #define ANDROID_BUFFERS
-#include <android/log.h>
+#if VN_OS(ANDROID)
 #include <vulkan/vulkan_android.h>
 
 #if defined(ANDROID_BUFFERS)
 #include <android/hardware_buffer.h>
 #include <android/hardware_buffer_jni.h>
 #endif
-
-#if defined(DEBUG_LOGGING)
-#define COUT_STR(x) __android_log_print(ANDROID_LOG_DEBUG, "vulkan_upscale", "%s", (x).c_str());
-#else
-#define COUT_STR(x)
 #endif
 
-#else
-
-#if defined(DEBUG_LOGGING)
-#define COUT_STR(x) std::cout << (x) << std::endl;
-#else
-#define COUT_STR(x)
-#endif
-
-#endif
-
-#include <LCEVC/enhancement/bitstream_types.h>
+#include <vk_mem_alloc.h>
 
 #include <cstring>
-#include <string>
+#include <optional>
 #include <vector>
 
 namespace lcevc_dec::pipeline_vulkan {
+
 class PipelineVulkan;
-struct VulkanApplyArgs;
-struct VulkanBlitArgs;
+struct VulkanApplyCommonArgs;
+struct VulkanAddArgs;
 struct VulkanConversionArgs;
 struct VulkanUpscaleArgs;
+
+struct QueueFamilyIndices
+{
+    std::optional<uint32_t> graphicsFamily;
+    std::optional<uint32_t> presentFamily;
+    std::optional<uint32_t> computeFamily;
+
+    bool isComplete(bool renderingEnabled, bool requirePresent) const
+    {
+        bool r = computeFamily.has_value();
+        if (renderingEnabled) {
+            r = r && graphicsFamily.has_value();
+            if (requirePresent) {
+                r = r && presentFamily.has_value();
+            }
+        }
+        return r;
+    }
+};
 
 class BackendVulkan
 {
 public:
-    BackendVulkan(PipelineVulkan& pipeline)
-        : m_pipeline(pipeline){};
+    BackendVulkan(bool renderingEnabled, int32_t deviceOverride, bool enableValidationLayers,
+                  int32_t timestampsLimit, int32_t contextCount);
     ~BackendVulkan() = default;
 
-    bool init();
+    bool applyCommon(VulkanApplyCommonArgs* params) { return m_compute.applyCommon(params); };
+    bool applyTile(VulkanApplyTileArgs* params) { return m_compute.applyTile(params); };
+    bool add(VulkanAddArgs* params) { return m_compute.add(params); };
+    bool conversion(VulkanConversionArgs* params) { return m_compute.conversion(params); };
+    bool upscaleVertical(const LdeKernel* kernel, VulkanUpscaleArgs* params)
+    {
+        return m_compute.upscaleVertical(kernel, params);
+    };
+    bool upscaleHorizontal(const LdeKernel* kernel, VulkanUpscaleArgs* params)
+    {
+        return m_compute.upscaleHorizontal(kernel, params);
+    };
+    bool upscaleFrame(const LdeKernel* kernel, VulkanUpscaleArgs* params)
+    {
+        return m_compute.upscaleFrame(kernel, params);
+    };
 
-    bool apply(VulkanApplyArgs* params);
-    bool blit(VulkanBlitArgs* params);
-    bool conversion(VulkanConversionArgs* params);
-    bool upscaleVertical(const LdeKernel* kernel, VulkanUpscaleArgs* params);
-    bool upscaleHorizontal(const LdeKernel* kernel, VulkanUpscaleArgs* params);
-    bool upscaleFrame(const LdeKernel* kernel, VulkanUpscaleArgs* params);
+    bool initVulkan();
+    bool initRemaningRender();
     void destroy();
 
-    bool checkValidationLayerSupport();
-    std::vector<const char*> getRequiredExtensions();
-    void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo);
+    uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
+    VkInstance& getInstance() { return m_instance; }
+    VkDevice& getDevice() { return m_device; }
+    VkPhysicalDevice& getPhysicalDevice() { return m_physicalDevice; }
+    QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device, bool renderingRequired,
+                                         VkSurfaceKHR surface = VK_NULL_HANDLE);
+
+    bool renderingEnabled() const { return m_renderingEnabled; }
+    ComputeVulkan& compute() { return m_compute; }
+    RenderVulkan& getRenderer() { return m_render; }
+    VkQueue& getComputeQueue() { return m_computeQueue; }
+    VkQueue& getGraphicsQueue() { return m_graphicsQueue; }
+    VkQueue& getPresentQueue() { return m_presentQueue; }
+    const QueueFamilyIndices& getQueueFamilies() { return m_indices; }
+
+    VmaAllocator getVmaAllocator() { return m_allocator; }
+
+    int32_t getTimestampsLimit() { return m_timestampsLimit; }
+
+    const VkPhysicalDeviceProperties& physicalDeviceProperties()
+    {
+        return m_physicalDeviceProperties;
+    }
+
+    VNNoCopyNoMove(BackendVulkan);
+
+private:
+    // Vulkan common
     bool createInstance();
+    bool setupDebugMessenger();
+    bool pickPhysicalDevice();
+    bool createLogicalDeviceAndQueues();
+    bool finalisePresentQueueAfterSurface();
+
+    // Helpers - building
+    bool checkValidationLayerSupport() const;
+    std::vector<const char*> getRequiredInstanceExtensions();
+    void populateDebugMessengerCreateInfo(VkDebugUtilsMessengerCreateInfoEXT& createInfo);
     VkResult CreateDebugUtilsMessengerEXT(VkInstance instance,
                                           const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo,
                                           const VkAllocationCallbacks* pAllocator,
                                           VkDebugUtilsMessengerEXT* pDebugMessenger);
+
     void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT debugMessenger,
                                        const VkAllocationCallbacks* pAllocator);
-    bool setupDebugMessenger();
-    bool isDeviceSuitable(VkPhysicalDevice device);
-    static VkPhysicalDevice pickBestDevice(const std::vector<VkPhysicalDevice>& devices);
-    bool pickPhysicalDevice();
-    bool createLogicalDeviceAndQueue();
-    bool createBindingsAndPipelineLayout(uint32_t numBuffers, uint32_t pushConstantsSize,
-                                         VkDescriptorSetLayout& setLayout,
-                                         VkPipelineLayout& pipelineLayout);
-    bool createComputePipeline(const unsigned char* shaderName, size_t shaderSize,
-                               VkPipelineLayout& layout, VkPipeline& pipe, int wgSize);
 
-    bool allocateDescriptorSets();
-    void updateComputeDescriptorSets(VkBuffer src, VkBuffer dst, VkDescriptorSet descriptorSet);
-    void updateComputeDescriptorSets(VkBuffer src, VkBuffer dst1, VkBuffer dst2,
-                                     VkDescriptorSet descriptorSet);
-    bool createCommandPoolAndBuffer();
+    bool isDeviceSuitableHeadless(VkPhysicalDevice device);
+    bool isDeviceSuitableWithSurface(VkPhysicalDevice device);
+    VkPhysicalDevice pickBestDevice(const std::vector<VkPhysicalDevice>& devices);
+    bool checkDeviceExtensionSupport(VkPhysicalDevice device) const;
+
     static VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
                                                         VkDebugUtilsMessageTypeFlagsEXT messageType,
                                                         const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
                                                         void* pUserData);
 
-    void dispatchCompute(int width, int height, VkCommandBuffer& cmdBuf, int wgSize, int packDensity = 2);
-
-    bool mapMemory(VkDeviceMemory& memory, uint8_t* mappedPtr);
-    bool unmapMemory(VkDeviceMemory& memory, uint8_t* mappedPtr);
-
-    uint32_t findMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties);
-    VkDevice& getDevice() { return m_device; }
-    uint32_t getQueueFamilyIndex() const { return m_queueFamilyIndex; }
-
-private:
-    static const int NUM_PLANES = 3;
-    const int workGroupSize = 1;
-    const int workGroupSizeDebug = 1;
-    bool m_realGpu = false;
-
     const std::vector<const char*> validationLayers = {"VK_LAYER_KHRONOS_validation"};
-
-    const std::vector<const char*> deviceExtensions = {
-#if defined(ANDROID)
+    std::vector<const char*> deviceExtensions = {
+#if VN_OS(ANDROID)
     //"VK_ANDROID_external_memory_android_hardware_buffer",
     //"VK_EXT_queue_family_foreign"
 #endif
     };
 
-    VkInstance m_instance = VK_NULL_HANDLE;
+    bool m_renderingEnabled{};
+    int32_t m_deviceOverride{};
+    bool m_enableValidationLayers{};
+    int32_t m_timestampsLimit{};
+    QueueFamilyIndices m_indices;
+    VkInstance m_instance{VK_NULL_HANDLE};
     VkDebugUtilsMessengerEXT m_debugMessenger;
-    VkPhysicalDevice m_physicalDevice = VK_NULL_HANDLE;
-    uint32_t m_queueFamilyIndex = 0;
-    VkDevice m_device;
-    VkQueue m_queue;
-    VkQueue m_queueIntermediate;
-    VkDescriptorSetLayout m_setLayoutVertical;
-    VkDescriptorSetLayout m_setLayoutHorizontal;
-    VkDescriptorSetLayout m_setLayoutApply;
-    VkDescriptorSetLayout m_setLayoutConversion;
-    VkDescriptorSetLayout m_setLayoutBlit;
-    VkPipelineLayout m_pipelineLayoutVertical;
-    VkPipelineLayout m_pipelineLayoutHorizontal;
-    VkPipelineLayout m_pipelineLayoutApply;
-    VkPipelineLayout m_pipelineLayoutConversion;
-    VkPipelineLayout m_pipelineLayoutBlit;
-    VkPipeline m_pipelineVertical;
-    VkPipeline m_pipelineHorizontal;
-    VkPipeline m_pipelineApply;
-    VkPipeline m_pipelineConversion;
-    VkPipeline m_pipelineBlit;
-    VkDescriptorPool m_descriptorPool;
-    VkDescriptorSet m_descriptorSetSrcMid; // 2 buffers: 1.base -> VERTICAL -> 2.output
-    VkDescriptorSet m_descriptorSetMidDst; // 3 buffers: 1.vertical + 2.base -> HORIZONTAL -> 3.output
-    VkDescriptorSet m_descriptorSetApply;      // 2 buffers: 1.commands -> APPLY -> 2.output plane
-    VkDescriptorSet m_descriptorSetConversion; // 2 buffers: 1.input -> CONVERSION -> 2.output plane
-    VkDescriptorSet m_descriptorSetBlit;       // 2 buffers: 1.input -> BLIT -> 2.output plane
-    VkCommandPool m_commandPool;
-    VkCommandBuffer m_commandBuffer;
-    VkCommandBuffer m_commandBufferIntermediate;
+    VkPhysicalDevice m_physicalDevice{VK_NULL_HANDLE};
+    VkPhysicalDeviceProperties m_physicalDeviceProperties{};
 
-#if defined(ANDROID_BUFFERS)
-    AHardwareBuffer* srcHardwareBuffer[NUM_PLANES];
-    AHardwareBuffer* midHardwareBuffer[NUM_PLANES];
-    AHardwareBuffer* dstHardwareBuffer[NUM_PLANES];
-#endif
+    VkDevice m_device{};
+    VkQueue m_computeQueue{};
+    VkQueue m_graphicsQueue{};
+    VkQueue m_presentQueue{};
+    ComputeVulkan m_compute;
+    RenderVulkan m_render;
 
-    PipelineVulkan& m_pipeline;
+    VmaAllocator m_allocator{};
 };
+
 } // namespace lcevc_dec::pipeline_vulkan
 
 #endif // VN_LCEVC_PIPELINE_VULKAN_BACKEND_VULKAN_H

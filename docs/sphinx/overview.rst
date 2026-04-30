@@ -159,7 +159,7 @@ Destruction
 
 Once decoding is finished - the LCEVC enhancement decoder is released using ``LCEVC_DestroyDecoder()``. All outstanding pictures that have been allocated using the decoder, and not freed will be released.
 
-If an :cpp:enumerator`LCEVC_Exit` event has been registered, then any event callback will be triggered.
+If an :cpp:enumerator:`LCEVC_Exit` event has been registered, then any event callback will be triggered.
 The event callback will be made *before* the ``LCEVC_DestroyDecoder()`` function returns.
 
 .. literalinclude:: doc_sample.cpp
@@ -185,7 +185,7 @@ Video images are moved in and out of the LCEVC enhancement decoder using ``Pictu
 
 The picture format is described by the :cpp:struct:`LCEVC_PictureDesc` structure. The can hold *YUV*, *RGB*, and greyscale formats with between 8 to 16 bits per component.
 
-The underlying picture data is read and written using ``PictureLock`` objects. THis can then be queried for pointers and strides per plane. The lock should only be held whist the data is being accessed- a picture with any outstanding locks cannot be sent to the decoder.
+The underlying picture data is read and written using ``PictureLock`` objects. This can then be queried for pointers and strides per plane. The lock should only be held whist the data is being accessed- a picture with any outstanding locks cannot be sent to the decoder.
 
 If decode performance is not an issue, then the pictures can be allocated and freed during the decode process:
 
@@ -355,7 +355,7 @@ Whilst it is possible to write generic image copy routines completely based on t
   return **LCEVC_PictureLockHandle**
   |||
   loop For each plane
-    Integration -> Decoder: **LCEVC_SendDecoderEnhancementData(decoderHandle, pictureLockHandle, ...)**
+    Integration -> Decoder: **LCEVC_GetPictureLockBufferDesc(decoderHandle, pictureLockHandle, ...)**
     return **LCEVC_Success** and **LCEVC_PicturePlaneDesc**
 
     Integration -> Integration: **memcpy**

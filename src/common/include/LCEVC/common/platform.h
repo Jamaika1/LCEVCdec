@@ -34,7 +34,6 @@
 
 #include <limits.h>
 
-#define VN_UNUSED(x) (void)(x) // Deprecated
 #define VNUnused(x) (void)(x)
 
 // Thread local storage
@@ -77,6 +76,7 @@
 
 // Thread and process ID
 //
+#if VN_SDK_FEATURE(THREADING)
 #if VN_OS(WINDOWS)
 #define VNGetThreadId() GetCurrentThreadId()
 #define VNGetProcessId() GetCurrentProcessId()
@@ -102,6 +102,10 @@ static inline uint64_t VNGetThreadId(void)
 #include <unistd.h>
 #define VNGetThreadId() syscall(SYS_gettid)
 #define VNGetProcessId() getpid()
+#endif
+#else
+#define VNGetThreadId() 0
+#define VNGetProcessId() 0
 #endif
 
 // alloca

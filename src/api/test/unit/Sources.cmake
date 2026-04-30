@@ -1,4 +1,4 @@
-# Copyright (c) V-Nova International Limited 2022-2025. All rights reserved.
+# Copyright (c) V-Nova International Limited 2022-2026. All rights reserved.
 # This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
 # No patent licenses are granted under this license. For enquiries about patent licenses,
 # please contact legal@v-nova.com.
@@ -21,6 +21,7 @@ set(SOURCES
     "src/test_api_bad_streams.cpp"
     "src/test_api_events_threaded.cpp"
     "src/test_event_dispatcher.cpp"
+    "src/test_event_log.cpp"
     "src/test_pipeline_types.cpp"
     "src/test_pool.cpp"
     "src/utils.cpp")

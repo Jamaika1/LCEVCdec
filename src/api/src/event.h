@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2023-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2023-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -20,6 +20,12 @@
 #include "handle.h"
 #include "interface.h"
 
+#include <LCEVC/common/constants.h>
+
+#include <cstring>
+#include <memory>
+#include <vector>
+
 // ------------------------------------------------------------------------------------------------
 
 struct LCEVC_DecoderHandle;
@@ -38,23 +44,25 @@ struct Event
     // The constructor parameters are in a different order to the member variables, because the
     // parameters are designed to let you do "Event e(LCEVC_EventType)", whereas the member
     // variables are in memory alignment order.
-    constexpr Event(uint8_t eventTypeIn, struct LdpPicture* pictureIn = nullptr,
-                    const LdpDecodeInformation* decodeInfoIn = nullptr,
-                    const uint8_t* dataIn = nullptr, uint32_t dataSizeIn = 0)
+    Event(uint8_t eventTypeIn, struct LdpPicture* pictureIn = nullptr,
+          const LdpDecodeInformation* decodeInfoIn = nullptr)
         : picture(pictureIn)
-        , decodeInfo(decodeInfoIn ? *decodeInfoIn : LdpDecodeInformation{})
-        , data(dataIn)
-        , dataSize(dataSizeIn)
+        , decodeInfo(decodeInfoIn ? *decodeInfoIn : LdpDecodeInformation{kInvalidTimestamp})
         , eventType(eventTypeIn)
     {}
 
-    bool isValid() const;
-    bool isFlush() const;
+    // Construct an event with an additional data block, typically EventLog
+    Event(uint8_t eventTypeIn, struct LdpPicture* pictureIn,
+          const LdpDecodeInformation* decodeInfoIn, const uint8_t* dataIn, uint32_t dataSizeIn)
+        : picture(pictureIn)
+        , decodeInfo(decodeInfoIn ? *decodeInfoIn : LdpDecodeInformation{kInvalidTimestamp})
+        , data(dataIn, dataIn + dataSizeIn)
+        , eventType(eventTypeIn)
+    {}
 
     LdpPicture* picture;
     LdpDecodeInformation decodeInfo; // Must be a copy (not pointer or reference) so that it's valid until received
-    const uint8_t* data;
-    uint32_t dataSize;
+    std::vector<uint8_t> data;
     uint8_t eventType;
 
     // picture handle resolved at event trigger time

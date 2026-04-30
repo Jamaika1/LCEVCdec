@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2024-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2024-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -420,8 +420,10 @@ TEST(ThreadsTest, CondVarProdCons)
     Thread threadConsume;
     EXPECT_EQ(threadCreate(&threadConsume, threadCVConsumer, (void*)&data), ThreadResultSuccess);
 
+#if VN_SDK_FEATURE(THREADING)
     EXPECT_EQ(threadJoin(&threadProduce, NULL), ThreadResultSuccess);
     EXPECT_EQ(threadJoin(&threadConsume, NULL), ThreadResultSuccess);
+#endif
 
     EXPECT_EQ(data.produceCount, data.consumeCount);
     EXPECT_EQ(data.pending, 0);
@@ -450,8 +452,10 @@ TEST(ThreadsTest, CondVarProdConsSCSP)
     Thread threadConsume;
     EXPECT_EQ(threadCreate(&threadConsume, threadCVConsumerSP, (void*)&data), ThreadResultSuccess);
 
+#if VN_SDK_FEATURE(THREADING)
     EXPECT_EQ(threadJoin(&threadProduce, NULL), ThreadResultSuccess);
     EXPECT_EQ(threadJoin(&threadConsume, NULL), ThreadResultSuccess);
+#endif
 
     EXPECT_EQ(data.produceCount, data.consumeCount);
     EXPECT_EQ(data.pending, 0);
@@ -489,10 +493,12 @@ TEST(ThreadsTest, CondVarManyProdCons)
     EXPECT_EQ(threadCreate(&threadConsume, threadCVConsumer, (void*)&data), ThreadResultSuccess);
     threadSetPriority(&threadConsume, ThreadPriorityIdle);
 
+#if VN_SDK_FEATURE(THREADING)
     for (uint32_t i = 0; i < kNumProducers; ++i) {
         EXPECT_EQ(threadJoin(&threadProducers[i], NULL), ThreadResultSuccess);
     }
     EXPECT_EQ(threadJoin(&threadConsume, NULL), ThreadResultSuccess);
+#endif
 }
 
 // NB: helgrind get confused by this - it can handle pthread conditional variables perfectly.
@@ -528,8 +534,10 @@ TEST(ThreadsTest, CondVarManyProdConsBroadcast)
     EXPECT_EQ(threadCreate(&threadConsume, threadCVConsumerBroadcast, (void*)&data), ThreadResultSuccess);
     threadSetPriority(&threadConsume, ThreadPriorityIdle);
 
+#if VN_SDK_FEATURE(THREADING)
     for (uint32_t i = 0; i < kNumProducers; ++i) {
         EXPECT_EQ(threadJoin(&threadProducers[i], NULL), ThreadResultSuccess);
     }
     EXPECT_EQ(threadJoin(&threadConsume, NULL), ThreadResultSuccess);
+#endif
 }

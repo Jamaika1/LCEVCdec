@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2024-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2024-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -18,6 +18,10 @@
 #include <LCEVC/common/platform.h>
 #include <stdbool.h>
 #include <stdint.h>
+
+#ifndef VN_SDK_FEATURE_PRIVATE_DEF_THREADING
+#define VN_SDK_FEATURE_PRIVATE_DEF_THREADING() 1
+#endif
 
 /*! @file
  * @brief Threads and inter-thread communications.
@@ -43,10 +47,14 @@ typedef enum ThreadPriority
     ThreadPriorityHigh = 3,
 } ThreadPriority;
 
-/*! Opaque type for threads.
- *
- */
+/*! Opaque type for threads. */
 typedef struct Thread Thread;
+
+/*! Opaque type for mutexes. */
+typedef struct ThreadMutex ThreadMutex;
+
+/*! Opaque type for condition Variables. */
+typedef struct ThreadCondVar ThreadCondVar;
 
 /*! Type for thread functions
  *
@@ -55,6 +63,7 @@ typedef struct Thread Thread;
  */
 typedef intptr_t (*ThreadFunction)(void* argument);
 
+#if VN_SDK_FEATURE(THREADING) || VN_OS(WINDOWS) || VN_SDK_FEATURE(THREADS_CUSTOM)
 /*! Create a new thread, given a thread function and an argument.
  *
  * @param[in] thread        An unused thread object.
@@ -111,12 +120,7 @@ void threadSetName(const char* name);
  */
 int32_t threadNumCores(void);
 
-/*! Opaque type for mutexes.
- *
- */
-typedef struct ThreadMutex ThreadMutex;
-
-/*! Initialise a mutex.
+/*! Initialize a mutex.
  *
  * @param[in] mutex         An unused mutex object.
  * @return                  0 if successful, an error otherwise.
@@ -156,10 +160,6 @@ static inline int threadMutexTrylock(ThreadMutex* mutex);
  */
 static inline int threadMutexUnlock(ThreadMutex* mutex);
 
-/*! Opaque type for condition Variables.
- */
-typedef struct ThreadCondVar ThreadCondVar;
-
 /*! Initialise a condition variable.
  *
  * @param[in] condvar       An unused condition variable object.
@@ -193,10 +193,10 @@ static inline int threadCondVarSignal(ThreadCondVar* condvar);
  */
 static inline int threadCondVarBroadcast(ThreadCondVar* condvar);
 
-/*! Wait to be signalled by another thread.
+/*! Wait to be signaled by another thread.
  *
  * Given a locked mutex and a condition variable, the mutex will be unlocked,
- * and the thread will be put to sleep to wait for a signal. Once signalled, the mutex
+ * and the thread will be put to sleep to wait for a signal. Once signaled, the mutex
  * will be relocked, ant the thread woken.
  *
  * If there are several threads waiting on the same variable and mutex - more that one may get
@@ -208,12 +208,12 @@ static inline int threadCondVarBroadcast(ThreadCondVar* condvar);
  */
 static inline int threadCondVarWait(ThreadCondVar* condvar, ThreadMutex* mutex);
 
-/*! Wait to be signalled by another thread, with a timeout
+/*! Wait to be signaled by another thread, with a timeout
  *
  * Given a locked mutex and a condition variable, the mutex will be unlocked,
- * and the thread will be put to sleep to wait for a signal. Once signalled, the mutex
+ * and the thread will be put to sleep to wait for a signal. Once signaled, the mutex
  * will be relocked, ant the thread woken. If a signal has not arrived within the given timeout,
- * the function will unblock, lock the mutex and return.
+ * the function will unblock, lock the mutex, and return.
  *
  * If there are several threads waiting on the same variable and mutex - more that one may get
  * woken up by a signal. They will each get their turn with the locked state.
@@ -232,10 +232,13 @@ int threadCondVarWaitDeadline(ThreadCondVar* condVar, ThreadMutex* mutex, uint64
  * @param[in] microseconds      Offset from current time
  */
 uint64_t threadTimeMicroseconds(int32_t microseconds);
+#endif
 
 // Implementation specific declarations
 //
-#if VN_SDK_FEATURE(THREADS_CUSTOM)
+#if !VN_SDK_FEATURE(THREADING)
+#include "detail/threads_off.h"
+#elif VN_SDK_FEATURE(THREADS_CUSTOM)
 #include "threads_custom.h"
 #elif VN_OS(WINDOWS)
 #include "detail/threads_win32.h"

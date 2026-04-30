@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2024-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2024-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -22,6 +22,7 @@
 #include <LCEVC/build_config.h>
 #include <LCEVC/common/class_utils.hpp>
 #include <LCEVC/common/configure.hpp>
+#include <LCEVC/common/log.h>
 #include <LCEVC/lcevc_dec.h>
 #include <LCEVC/pipeline/picture.h>
 #include <LCEVC/pipeline/pipeline.h>
@@ -207,6 +208,7 @@ static inline LCEVC_ReturnCode withLockedDecoderAndPicture(const Handle<DecoderC
 
     LdpPicture* ldpPicture = lockedDecoder.context()->picturePool().lookup(picHandle);
     if (ldpPicture == nullptr) {
+        VNLogError("Couldn't lookup picture handle %d", picHandle.handle);
         return LCEVC_InvalidParam;
     }
 

@@ -16,7 +16,7 @@
 #define VN_LCEVC_PIXEL_PROCESSING_APPLY_CMDBUFFER_H
 
 #include <LCEVC/common/task_pool.h>
-#include <LCEVC/pipeline/frame.h>
+#include <LCEVC/pipeline/enhancement_tile.h>
 #include <LCEVC/pipeline/types.h>
 
 #ifdef __cplusplus
@@ -26,20 +26,21 @@ extern "C"
 
 /*! \brief Applies a CPU cmdbuffer to a plane
  *
- * \param[in]    taskPool        A task pool for multi-threaded apply of a cmdbuffer with entrypoints,
- *                               can be null if cmdbuffer doesn't have entrypoints
- * \param[in]    enhancementTile Structure containing CPU cmdbuffer and tile metadata for tiling mode
- * \param[in]    fixedPoint      Datatype of the plane
- * \param[inout] plane           Plane of pixels to apply residuals to
- * \param[in]    rasterOrder     Toggle between block order or raster order apply, given by
- *                               `temporalEnabled` in the global config
- * \param[in]    forceScalar     Set to true to disable SIMD
- * \param[in]    highlight       Set to true to ignore residual values and apply maximum values at
- *                               residual locations for debugging residual distribution
+ * \param taskPool        A task pool for multi-threaded apply of a cmdbuffer with entry points.
+ *                        Can be NULL if the cmdbuffer does not have entry points.
+ * \param parent          If not NULL, task that deferred tasks inherit dependencies from.
+ * \param enhancementTile Structure containing CPU cmdbuffer and tile metadata for tiling mode.
+ * \param fixedPoint      Datatype of the plane.
+ * \param plane           Plane of pixels to apply residuals to.
+ * \param rasterOrder     Toggle between block-order or raster-order apply, given by
+ *                        `temporalEnabled` in the global config.
+ * \param highlight       Set to true to ignore residual values and apply maximum values at
+ *                        residual locations for debugging residual distribution.
+ * \param diagInfo        Any diagnostic information for tracing.
  */
 bool ldppApplyCmdBuffer(LdcTaskPool* taskPool, LdcTask* parent, LdpEnhancementTile* enhancementTile,
-                        LdpFixedPoint fixedPoint, const LdpPicturePlaneDesc* plane, bool rasterOrder,
-                        bool forceScalar, bool highlight, const LdpPipelineDiagInfo* diagInfo);
+                        LdpFixedPoint fixedPoint, const LdpPicturePlaneDesc* plane,
+                        bool rasterOrder, bool highlight, const LdpPipelineDiagInfo* diagInfo);
 
 #ifdef __cplusplus
 }

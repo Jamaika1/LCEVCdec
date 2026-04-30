@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2025-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -15,39 +15,11 @@
 #ifndef VN_LCEVC_PIPELINE_FRAME_H
 #define VN_LCEVC_PIPELINE_FRAME_H
 
-#include <LCEVC/common/memory.h>
-#include <LCEVC/enhancement/cmdbuffer_cpu.h>
-#include <LCEVC/enhancement/cmdbuffer_gpu.h>
 #include <LCEVC/enhancement/config_types.h>
+#include <LCEVC/pipeline/enhancement_tile.h>
 #include <LCEVC/pipeline/picture.h>
-#include <stdint.h>
 
 // NOLINTBEGIN(modernize-use-using)
-
-// Forward declarations
-//
-typedef struct LdpPicture LdpPicture;
-
-typedef struct LdpEnhancementTile
-{
-    // Location of this command buffer in decode structure
-    uint32_t tile;
-    LdeLOQIndex loq;
-    uint8_t plane;
-
-    // Tile location in plane
-    uint16_t tileX;
-    uint16_t tileY;
-    uint16_t tileWidth;
-    uint16_t tileHeight;
-    uint16_t planeWidth;
-    uint16_t planeHeight;
-
-    // The command buffer data
-    LdeCmdBufferCpu buffer;
-    LdeCmdBufferGpu bufferGpu;
-    LdeCmdBufferGpuBuilder bufferGpuBuilder;
-} LdpEnhancementTile;
 
 // Frame
 //

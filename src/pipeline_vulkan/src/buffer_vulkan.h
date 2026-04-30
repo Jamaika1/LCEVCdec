@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2025-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -17,9 +17,8 @@
 
 #include "backend_vulkan.h"
 
-#include <LCEVC/common/class_utils.hpp>
-#include <LCEVC/common/memory.h>
-#include <LCEVC/pipeline/buffer.h>
+#include <LCEVC/pipeline/buffer_base.h>
+#include <vk_mem_alloc.h>
 
 namespace lcevc_dec::pipeline_vulkan {
 
@@ -29,38 +28,48 @@ static const auto kVulkanBufferRowAlignment = 4;
 class PictureVulkan;
 class BackendVulkan;
 
-class BufferVulkan : public LdpBuffer
+class BufferVulkan : public pipeline::BufferBase
 {
 public:
-    BufferVulkan(BackendVulkan& pipeline, uint32_t size);
+    BufferVulkan(BackendVulkan& pipeline, uint32_t size, pipeline::BufferUsage usage);
     ~BufferVulkan();
 
-    bool map(LdpBufferMapping* mapping, int32_t offset, uint32_t size, LdpAccess access);
-    void unmap(const LdpBufferMapping* mapping);
+    uint32_t size() const override;
+    pipeline::BufferUsage usage() const override;
 
-    void clear();
+    bool resize(uint32_t size) override;
 
-    uint8_t* ptr() const;
-    uint32_t size() const;
+    bool map(LdpBufferMapping* mapping, int32_t offset, uint32_t size, LdpAccess access) override;
+    void unmap(const LdpBufferMapping* mapping) override;
 
-    bool resize(uint32_t size);
+    void clear() override;
+    void copyIn(uint32_t dstOffset, const void* src, uint32_t size) override;
+    void copyOut(void* dst, uint32_t srcOffset, uint32_t size) override;
+
+    // Add 'clear to zero' to Vulkan comamnd buffer via vkCmdFillBuffer.
+    void clearCmd(VkCommandBuffer commandBuffer);
 
     VkBuffer& getVkBuffer() { return m_buffer; }
-    void* getBuffer() { return m_allocation.ptr; }
 
     VNNoCopyNoMove(BufferVulkan);
 
 private:
+    friend PictureVulkan;
     bool createBufferAndMemory(uint32_t size);
     void destroy();
 
-    VkBuffer m_buffer;
-    VkDeviceMemory m_memory;
-
     BackendVulkan& m_pipeline;
-    LdcMemoryAllocation m_allocation = {0};
 
-    bool m_mapped = false;
+    uint32_t m_size{};
+    pipeline::BufferUsage m_usage{};
+
+    VkBuffer m_buffer{VK_NULL_HANDLE};
+    VmaAllocation m_vmaAllocation{};
+
+    bool m_mapped{false};
+
+    // Mapped pointer (only valid for host-visible (UsageIn/UsageOut) buffers)
+    uint8_t* m_ptr{};
 };
 
 } // namespace lcevc_dec::pipeline_vulkan

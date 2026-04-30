@@ -44,10 +44,10 @@ static bool quantMatrixParseLOQ(ByteStream* stream, LdeLOQIndex loq, LdeFrameCon
     return true;
 }
 
+#if VN_SDK_LOG(VERBOSE)
 static void quantMatrixDebugLog(const LdeQuantMatrix* quantMatrix, const LdeTransformType transform,
                                 const LdeLOQIndex loq)
 {
-#if VN_SDK_LOG(VERBOSE)
     const uint8_t* values = quantMatrixGetValuesConst(quantMatrix, loq);
 
     if (transform == TransformDD) {
@@ -61,8 +61,8 @@ static void quantMatrixDebugLog(const LdeQuantMatrix* quantMatrix, const LdeTran
     } else {
         VNLogVerbose("  Unknown layer count for quant-matrix");
     }
-#endif
 }
+#endif
 
 void calculateTileChunkIndices(LdeFrameConfig* frameConfig, const LdeGlobalConfig* globalConfig)
 {
@@ -218,8 +218,10 @@ static bool parseBlockPictureConfigMisc(ByteStream* stream, LdeQuantMatrixMode q
     VNLogVerbose("  Step-width LOQ-1: %d", frameConfig->stepWidths[LOQ1]);
 
     VNCheckB(parseBlockPictureConfigQuantMatrix(stream, qmMode, frameConfig, globalConfig));
+#if VN_SDK_LOG(VERBOSE)
     quantMatrixDebugLog(&frameConfig->quantMatrix, globalConfig->transform, LOQ0);
     quantMatrixDebugLog(&frameConfig->quantMatrix, globalConfig->transform, LOQ1);
+#endif
 
     if (dequantOffsetEnabled) {
         /* dequant_offset_mode_flag: 1 bit

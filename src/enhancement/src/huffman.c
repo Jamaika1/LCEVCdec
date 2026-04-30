@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2022-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2022-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -143,8 +143,9 @@ static uint8_t generateCodesAndLut(HuffmanListEntry entriesIn[VN_MAX_NUM_SYMBOLS
             entry->code = currCode;
             minOversizedCodeIdx = (uint8_t)idx;
         } else {
-            uint16_t tableIdx = currCode << (VN_SMALL_TABLE_MAX_SIZE - entry->bits);
-            const uint16_t tableIdxEnd = tableIdx + (1 << (VN_SMALL_TABLE_MAX_SIZE - entry->bits));
+            uint16_t tableIdx = (uint16_t)(currCode << (VN_SMALL_TABLE_MAX_SIZE - entry->bits));
+            const uint16_t tableIdxEnd =
+                tableIdx + (uint16_t)(1 << (VN_SMALL_TABLE_MAX_SIZE - entry->bits));
             for (; tableIdx < tableIdxEnd; tableIdx++) {
                 tableOut->code[tableIdx].symbol = entry->symbol;
                 tableOut->code[tableIdx].bits = entry->bits;
@@ -291,26 +292,28 @@ static uint16_t huffmanIterateRlsLoopBody(HuffmanTripleTable* huffmanTableOut,
                                           uint8_t codeSizeInStream, uint16_t newRlCode,
                                           uint8_t newRlSymbol, uint8_t newRlBits, uint8_t recursionLevel)
 {
-    const uint8_t codeSizeInTable = codeSizeInStream - (parentStartIdx >> VN_BIG_TABLE_MAX_CODE_SIZE);
+    const uint8_t codeSizeInTable =
+        codeSizeInStream - (uint8_t)(parentStartIdx >> VN_BIG_TABLE_MAX_CODE_SIZE);
     const uint8_t bitsLeft = VN_BIG_TABLE_MAX_CODE_SIZE - codeSizeInTable;
     const uint8_t bitsLeftByRl1 = bitsLeft - newRlBits;
-    const uint16_t startIdxRl1 = parentStartIdx | (newRlCode << bitsLeftByRl1);
-    const uint16_t endIdxRl1 = startIdxRl1 + (1 << bitsLeftByRl1);
+    const uint16_t startIdxRl1 = parentStartIdx | (uint16_t)(newRlCode << bitsLeftByRl1);
+    const uint16_t endIdxRl1 = startIdxRl1 + (uint16_t)(1 << bitsLeftByRl1);
     codeSizeInStream += newRlBits;
 
     /* recursive case: */
     if (nextSymbolIsRL(newRlSymbol)) {
-        const uint16_t out = huffmanIterateRls(huffmanTableOut, rlTable, rlList, startIdxRl1, endIdxRl1,
-                                               lsbSymbol, (rlSymbol << 7) | (newRlSymbol & 0x7f),
-                                               codeSizeInStream, recursionLevel + 1);
+        const uint16_t out =
+            huffmanIterateRls(huffmanTableOut, rlTable, rlList, startIdxRl1, endIdxRl1, lsbSymbol,
+                              (uint16_t)((rlSymbol << 7) | (newRlSymbol & 0x7f)), codeSizeInStream,
+                              recursionLevel + 1);
         return minU16(lowestValidIdxYet, out);
     }
 
     /* non-recursive case: */
     for (uint16_t idx = startIdxRl1; idx < endIdxRl1; idx++) {
         huffmanTableOut->code[idx].lsb = lsbSymbol;
-        huffmanTableOut->code[idx].rl = (rlSymbol << 7) | (newRlSymbol & 0x7f);
-        huffmanTableOut->code[idx].contents = codeSizeInStream << 3;
+        huffmanTableOut->code[idx].rl = (uint16_t)((rlSymbol << 7) | (newRlSymbol & 0x7f));
+        huffmanTableOut->code[idx].contents = (uint8_t)(codeSizeInStream << 3);
     }
     return minU16(lowestValidIdxYet, startIdxRl1);
 }
@@ -324,7 +327,8 @@ static uint16_t huffmanIterateRls(HuffmanTripleTable* huffmanTableOut, const Huf
 {
     uint16_t lowestValidlySetIdx = parentEndIdx;
     // Code's size in table is its size in the stream, minus the number of leading zeroes.
-    const uint8_t codeSizeInTable = codeSizeInStream - (parentStartIdx >> VN_BIG_TABLE_MAX_CODE_SIZE);
+    const uint8_t codeSizeInTable =
+        codeSizeInStream - (uint8_t)(parentStartIdx >> VN_BIG_TABLE_MAX_CODE_SIZE);
     const uint8_t bitsLeft = VN_BIG_TABLE_MAX_CODE_SIZE - codeSizeInTable;
 
     if (recursionLevel < 2) {
@@ -370,7 +374,7 @@ static uint16_t huffmanIterateRls(HuffmanTripleTable* huffmanTableOut, const Huf
     for (uint16_t idx = parentStartIdx; idx < lowestValidlySetIdx; idx++) {
         huffmanTableOut->code[idx].lsb = lsbSymbol;
         huffmanTableOut->code[idx].rl = rlSymbol;
-        huffmanTableOut->code[idx].contents = (codeSizeInStream << 3) | 0x01;
+        huffmanTableOut->code[idx].contents = (uint8_t)((codeSizeInStream << 3) | 0x01);
     }
     /* Experimentally, the LUT always seems to be compact at high indices: there are never gaps at
      * the top. I think this is a genuine property of Huffman codes, but it might need some more
@@ -394,13 +398,13 @@ static void huffmanTripleTableAssign(HuffmanTripleTable* huffmanTableOut,
             break;
         }
 
-        uint16_t startIdx = (lsbEntry->code << bitsLeftByLsb);
+        uint16_t startIdx = (uint16_t)(lsbEntry->code << bitsLeftByLsb);
         startIdx |= (leadingZeroes << VN_BIG_TABLE_MAX_CODE_SIZE);
-        const uint16_t endIdx = startIdx + (1 << bitsLeftByLsb);
+        const uint16_t endIdx = startIdx + (uint16_t)(1 << bitsLeftByLsb);
         if (nextSymbolIsMSB(lsbEntry->symbol)) {
             for (uint16_t outIdx = startIdx; outIdx < endIdx; outIdx++) {
                 huffmanTableOut->code[outIdx].lsb = lsbEntry->symbol;
-                huffmanTableOut->code[outIdx].contents = (lsbEntry->bits << 3) | 0x02;
+                huffmanTableOut->code[outIdx].contents = (uint8_t)((lsbEntry->bits << 3) | 0x02);
             }
             continue;
         }
@@ -408,7 +412,7 @@ static void huffmanTripleTableAssign(HuffmanTripleTable* huffmanTableOut,
         if (!nextSymbolIsRL(lsbEntry->symbol)) {
             for (uint16_t outIdx = startIdx; outIdx < endIdx; outIdx++) {
                 huffmanTableOut->code[outIdx].lsb = lsbEntry->symbol;
-                huffmanTableOut->code[outIdx].contents = (lsbEntry->bits << 3);
+                huffmanTableOut->code[outIdx].contents = (uint8_t)(lsbEntry->bits << 3);
             }
             continue;
         }
@@ -420,7 +424,7 @@ static void huffmanTripleTableAssign(HuffmanTripleTable* huffmanTableOut,
     /* These are all the entries where the LSB is too long to fit in a LUT entry. Some may be
      * shorter than expected, if the max num of leading zeroes is low enough. */
     if (fullLsbListIn->size > lsbIdx) {
-        const uint8_t additionalEntries = (fullLsbListIn->size - lsbIdx);
+        const uint8_t additionalEntries = (uint8_t)(fullLsbListIn->size - lsbIdx);
         const uint16_t curSize = overflowLsbListOut->size;
         memcpy(overflowLsbListOut->list + curSize, (fullLsbListIn->list + lsbIdx),
                additionalEntries * sizeof(HuffmanListEntry));

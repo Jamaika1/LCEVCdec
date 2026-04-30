@@ -48,6 +48,8 @@ void ldcMemoryAllocate(LdcMemoryAllocator* allocator, LdcMemoryAllocation* alloc
     allocation->site = site;
     const size_t valueSize = sizeof(diagId) + sizeof(uint32_t) + sizeof(void*);
     ldcDiagEvent(site, valueSize, diagId, (uint32_t)size, allocation->ptr);
+#else
+    VNUnused(diagId);
 #endif
 
     if (allocation->ptr && clearToZero) {
@@ -73,6 +75,8 @@ void ldcMemoryReallocate(LdcMemoryAllocator* allocator, LdcMemoryAllocation* all
     allocation->site = site;
     const size_t valueSize = sizeof(diagId) + sizeof(uint32_t) + sizeof(void*) + sizeof(void*);
     ldcDiagEvent(site, valueSize, diagId, (uint32_t)size, allocation->ptr, beforePtr);
+#else
+    VNUnused(diagId);
 #endif
 }
 
@@ -87,6 +91,8 @@ void ldcMemoryFree(LdcMemoryAllocator* allocator, LdcMemoryAllocation* allocatio
 #if VN_SDK_FEATURE(MEMORY_DIAGNOSTICS)
     const size_t valueSize = sizeof(diagId) + sizeof(uint32_t) + sizeof(void*);
     ldcDiagEvent(site, valueSize, diagId, (uint32_t)allocation->size, allocation->ptr);
+#else
+    VNUnused(diagId);
 #endif
 
     allocator->functions->free(allocator, allocation, site);

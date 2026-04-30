@@ -285,15 +285,15 @@ typedef struct LCEVC_HDRStaticInfo
 } LCEVC_HDRStaticInfo;
 
 /*!
- * This structure captures properties related to the decoding process at a particular timestamp.
+ * Output information about a successfully decoded frame
  */
 typedef struct LCEVC_DecodeInformation
 {
     uint64_t  timestamp;          /**< Presentation timestamp of picture */
     bool      hasBase;            /**< Base data is available for this picture */
-    bool      hasEnhancement;     /**< Enhancement data is available for this picture */
+    bool      hasEnhancement;     /**< Enhancement data is available for this picture, false when upscaled but no residuals are applied */
     bool      skipped;            /**< LCEVC_SkipDecoder was requested for this timestamp */
-    bool      enhanced;           /**< The picture has been enhanced by lcevc decoding */
+    bool      enhanced;           /**< The picture has been upscaled and enhanced by lcevc decoding, false for passthrough mode */
 
     uint32_t  baseWidth;          /**< Width of base picture */
     uint32_t  baseHeight;         /**< Height of base picture */
@@ -714,7 +714,7 @@ LCEVC_API LCEVC_ReturnCode LCEVC_ConfigureDecoderStringArray( LCEVC_DecoderHandl
  *
  * Logging:
  * As soon as the 'loglevel' configuration parameter is set, log messages may be produced by any
- * subsequent configuration calls. The decoder initialisation will then produce log message
+ * subsequent configuration calls. The decoder initialization will then produce log message
  * accordingly.
  *
  * @param[in]    decHandle           Decoder handle instance returned by CreateDecoder
@@ -933,6 +933,8 @@ typedef enum LCEVC_Event {
     LCEVC_CanReceive         = 5,  /**< ReceiveDecoderPicture will not return LCEVC_Again */
     LCEVC_BasePictureDone    = 6,  /**< A base picture is no longer needed by decoder */
     LCEVC_OutputPictureDone  = 7,  /**< An output picture has been completed by the decoder */
+    LCEVC_CanSendRender      = 8,  /**< RenderSendPicture will not return LCEVC_Again */
+    LCEVC_CanReceiveRender   = 9,  /**< RenderReceivePicture will not return LCEVC_Again */
 
     LCEVC_EventCount,
 
@@ -973,6 +975,77 @@ LCEVC_ReturnCode LCEVC_SetDecoderEventCallback( LCEVC_DecoderHandle decHandle,
                                                 LCEVC_EventCallback callback,
                                                 void* userData );
 
+
+// Render API
+//
+/*! Initialize the rendering backend
+ *
+ * @param[in]     decHandle            LCEVC Decoder instance
+ * @return                             LCEVC_Success on success
+ */
+LCEVC_API
+LCEVC_ReturnCode LCEVC_RenderInit( LCEVC_DecoderHandle decHandle );
+
+/*! Set the output window or resize if window has changed
+ *
+ * @param[in]     decHandle          LCEVC Decoder instance
+ * @param[in]     externalWindow     pointer to destination window
+ * @param[in]     secure             true if the destination window is secure
+ * @return                           LCEVC_Success on success
+ */
+LCEVC_API
+LCEVC_ReturnCode LCEVC_RenderSetWindow( LCEVC_DecoderHandle decHandle, void* externalWindow, bool secure );
+
+/*! LCEVC_RenderSendInformation struct
+ *
+ * This structure captures the properties related to the (on screen) window rendering,
+ * they do not apply for buffer or texture output (off screen).
+ * NOTE: rotation is a per frame property because it may change frame by frame due to the device
+ *       changing orientation.
+ */
+typedef struct LCEVC_RenderSendInformation
+{
+    uint32_t rotation; /**< Degrees of rotation for the final rendering on the destination window, in 90 unit increments clockwise */
+} LCEVC_RenderSendInformation;
+
+/*! Render to back buffer a previously decoded LCEVC_PictureHandle
+ *
+ * @param[in]     decHandle               LCEVC Decoder instance
+ * @param[in]     timestamp               time reference of the picture to be rendered
+ * @param[in]     image                   pointer to a picture to be rendered to back buffer
+ * @param[in]     renderSendInformation   pointer to a render send information structure
+ * @param[in]     delayUs                 time in microseconds to wait before executing the render
+ *                                        (0 to render immediately)
+ * @return                                LCEVC_Success on success
+ */
+LCEVC_API
+LCEVC_ReturnCode LCEVC_RenderSendPicture( LCEVC_DecoderHandle                  decHandle,
+                                          uint64_t                             timestamp,
+                                          LCEVC_PictureHandle                  image,
+                                          const LCEVC_RenderSendInformation*   renderSendInformation,
+                                          uint64_t                              delayUs );
+
+/*! LCEVC_RenderReceiveInformation struct
+ *
+ * This structure captures the properties related to the completed (on screen) window rendering,
+ * they do not apply for buffer or texture output (off screen).
+ */
+typedef struct LCEVC_RenderReceiveInformation
+{
+    bool rendered; /**< true if the received picture was rendered */
+} LCEVC_RenderReceiveInformation;
+
+/*! Recieve the rendered picture
+ *
+ * @param[in]     decHandle                  LCEVC Decoder instance
+ * @param[in]     output                     the rendered picture
+ * @param[in]     renderReceiveInformation   pointer to a render receive information structure
+ * @return                                   LCEVC_Success on success
+ */
+LCEVC_API
+LCEVC_ReturnCode LCEVC_RenderReceivePicture( LCEVC_DecoderHandle decHandle,
+                                             LCEVC_PictureHandle* output,
+                                             LCEVC_RenderReceiveInformation* renderReceiveInformation );
 
 #ifdef __cplusplus
 }

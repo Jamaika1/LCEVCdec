@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2022-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2022-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -100,7 +100,7 @@ static inline bool huffmanSingleDecode(const HuffmanSingleDecoder* decoder, Huff
     return false;
 }
 
-static inline int32_t getNextSymbolRLEOnly(EntropyDecoder* state)
+static inline uint8_t getNextSymbolRLEOnly(EntropyDecoder* state)
 {
     return state->rleData[state->rawOffset++];
 }
@@ -116,14 +116,14 @@ static inline void toggleTemporalState(EntropyDecoder* state, const uint8_t symb
     }
 }
 
-static int32_t getNextSymbolTemporalAndRLEOnly(EntropyDecoder* state)
+static uint8_t getNextSymbolTemporalAndRLEOnly(EntropyDecoder* state)
 {
     const uint8_t symbol = getNextSymbolRLEOnly(state);
     toggleTemporalState(state, symbol);
     return symbol;
 }
 
-static int32_t getNextSymbolTemporalAndHuffman(EntropyDecoder* state)
+static uint8_t getNextSymbolTemporalAndHuffman(EntropyDecoder* state)
 {
     uint8_t symbol = 0;
 
@@ -176,7 +176,7 @@ bool entropyInitialize(EntropyDecoder* state, const LdeChunk* chunk, const Entro
     {                                                                                  \
         int16_t value = 0;                                                             \
         int32_t zeros = 0;                                                             \
-        int32_t symbol = 0;                                                            \
+        uint8_t symbol = 0;                                                            \
                                                                                        \
         if ((symbol = symbolGetterFn(state)) < 0) {                                    \
             return symbol;                                                             \
@@ -219,7 +219,7 @@ VN_ENTROPY_DECODE_DEFINE(getNextSymbolRLEOnly)
          * we leave this function */                                                                  \
         uint8_t value = state->currHuff;                                                              \
         int32_t count = 0;                                                                            \
-        int32_t symbol = 0;                                                                           \
+        uint8_t symbol = 0;                                                                           \
                                                                                                       \
         /* First symbol is always sent as raw, so we know which state we are starting with */         \
         if (state->rawOffset == 0) {                                                                  \

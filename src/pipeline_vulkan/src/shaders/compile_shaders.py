@@ -1,4 +1,4 @@
-# Copyright (c) V-Nova International Limited 2025. All rights reserved.
+# Copyright (c) V-Nova International Limited 2025-2026. All rights reserved.
 # This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
 # No patent licenses are granted under this license. For enquiries about patent licenses,
 # please contact legal@v-nova.com.
@@ -119,7 +119,8 @@ def build_shader(input_shader, glslangvalidator_path, shader_build_dir):
     spv_dir = os.path.join(shader_build_dir, shader_dir, 'spv')
     os.makedirs(spv_dir, exist_ok=True)
     output_shader = os.path.join(spv_dir, f"{input_shader_name}.spv")
-    subprocess.run([glslangvalidator_path, '-V', input_shader_processed,
+    subprocess.run([glslangvalidator_path, '-V', '--target-env', 'vulkan1.1',
+                   input_shader_processed,
                    '-o', output_shader], check=True)
     print(f"SPIR-V shader written to {output_shader}")
 
@@ -151,4 +152,6 @@ if __name__ == "__main__":
     build_shader("src/upscale_horizontal.comp", glslang_validator_path, shader_build_dir)
     build_shader("src/apply.comp", glslang_validator_path, shader_build_dir)
     build_shader("src/conversion.comp", glslang_validator_path, shader_build_dir)
-    build_shader("src/blit.comp", glslang_validator_path, shader_build_dir)
+    build_shader("src/add.comp", glslang_validator_path, shader_build_dir)
+    build_shader("src/render_vertex.vert", glslang_validator_path, shader_build_dir)
+    build_shader("src/render_fragment.frag", glslang_validator_path, shader_build_dir)

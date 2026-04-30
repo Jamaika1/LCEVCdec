@@ -16,10 +16,8 @@
 //
 #include "pipeline_cpu.h"
 
-#include <LCEVC/pipeline_cpu/create_pipeline.h>
-//
 #include <LCEVC/common/acceleration.h>
-#include <LCEVC/common/diagnostics.h>
+#include <LCEVC/pipeline_cpu/create_pipeline.h>
 
 namespace lcevc_dec::pipeline_cpu {
 using namespace common;
@@ -27,36 +25,14 @@ using namespace common;
 // PipelineBuilderCPU
 //
 static const ConfigMemberMap<PipelineConfigCPU> kConfigMemberMap = {
-    {"allow_dithering", makeBinding(&PipelineConfigCPU::ditherEnabled)},
-    {"default_max_reorder", makeBinding(&PipelineConfigCPU::defaultMaxReorder)},
-    {"dither_seed", makeBinding(&PipelineConfigCPU::setDitherSeed)},
-    {"dither_strength", makeBinding(&PipelineConfigCPU::ditherOverrideStrength)},
-    {"enhancement_delay", makeBinding(&PipelineConfigCPU::enhancementDelay)},
-    {"force_bitstream_version", makeBinding(&PipelineConfigCPU::forceBitstreamVersion)},
-    {"force_scalar", makeBinding(&PipelineConfigCPU::forceScalar)},
-    {"highlight_residuals", makeBinding(&PipelineConfigCPU::highlightResiduals)},
-    {"log_tasks", makeBinding(&PipelineConfigCPU::showTasks)},
-    {"max_latency", makeBinding(&PipelineConfigCPU::maxLatency)},
-    {"min_latency", makeBinding(&PipelineConfigCPU::minLatency)},
-    {"temporal_buffers", makeBinding(&PipelineConfigCPU::numTemporalBuffers)},
-    {"passthrough_mode", makeBinding(&PipelineConfigCPU::setPassthroughMode)},
-    {"s_filter_strength", makeBinding(&PipelineConfigCPU::sharpeningOverrideStrength)},
-    {"threads", makeBinding(&PipelineConfigCPU::numThreads)},
     {"use_system_allocator", makeBinding(&PipelineConfigCPU::useSystemAllocator)},
 };
 
 PipelineBuilderCPU::PipelineBuilderCPU(LdcMemoryAllocator* allocator)
-    : m_allocator(allocator)
-    , m_configurableMembers(kConfigMemberMap, m_configuration)
-{
-#if VN_OS(ANDROID)
-    // Special case for Android, single threaded operation often gives better performance on mobile
-    m_configuration.numThreads = 1;
-#else
-    // Set default thread count - number of platform cores, plus 1 for main thread
-    m_configuration.numThreads = threadNumCores();
-#endif
-}
+    : pipeline::PipelineBuilderBase(allocator, m_configuration)
+    , m_allocator(allocator)
+    , m_configurableMembersCPU(kConfigMemberMap, m_configuration)
+{}
 
 PipelineBuilderCPU::~PipelineBuilderCPU() {}
 
@@ -67,41 +43,39 @@ std::unique_ptr<pipeline::Pipeline> PipelineBuilderCPU::finish(pipeline::EventSi
     return pipeline;
 }
 
-// Forward configuration to default config mapping mechanism.
+// Forward configuration to default config mapping mechanism, then base
 //
 bool PipelineBuilderCPU::configure(std::string_view name, bool val)
 {
-    return m_configurableMembers.configure(name, val);
+    return m_configurableMembersCPU.configure(name, val) || PipelineBuilderBase::configure(name, val);
 }
-
 bool PipelineBuilderCPU::configure(std::string_view name, int32_t val)
 {
-    return m_configurableMembers.configure(name, val);
+    return m_configurableMembersCPU.configure(name, val) || PipelineBuilderBase::configure(name, val);
 }
 bool PipelineBuilderCPU::configure(std::string_view name, float val)
 {
-    return m_configurableMembers.configure(name, val);
+    return m_configurableMembersCPU.configure(name, val) || PipelineBuilderBase::configure(name, val);
 }
 bool PipelineBuilderCPU::configure(std::string_view name, const std::string& val)
 {
-    return m_configurableMembers.configure(name, val);
+    return m_configurableMembersCPU.configure(name, val) || PipelineBuilderBase::configure(name, val);
 }
-
 bool PipelineBuilderCPU::configure(std::string_view name, const std::vector<bool>& arr)
 {
-    return m_configurableMembers.configure(name, arr);
+    return m_configurableMembersCPU.configure(name, arr) || PipelineBuilderBase::configure(name, arr);
 }
 bool PipelineBuilderCPU::configure(std::string_view name, const std::vector<int32_t>& arr)
 {
-    return m_configurableMembers.configure(name, arr);
+    return m_configurableMembersCPU.configure(name, arr) || PipelineBuilderBase::configure(name, arr);
 }
 bool PipelineBuilderCPU::configure(std::string_view name, const std::vector<float>& arr)
 {
-    return m_configurableMembers.configure(name, arr);
+    return m_configurableMembersCPU.configure(name, arr) || PipelineBuilderBase::configure(name, arr);
 }
 bool PipelineBuilderCPU::configure(std::string_view name, const std::vector<std::string>& arr)
 {
-    return m_configurableMembers.configure(name, arr);
+    return m_configurableMembersCPU.configure(name, arr) || PipelineBuilderBase::configure(name, arr);
 }
 
 } // namespace lcevc_dec::pipeline_cpu

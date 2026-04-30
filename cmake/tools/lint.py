@@ -35,26 +35,28 @@ licensor of the software ONLY UNDER the BSD-3-Clause-Clear license (not the comp
 ANY ONWARD DISTRIBUTION, WHETHER STAND-ALONE OR AS PART OF ANY OTHER PROJECT, REMAINS SUBJECT TO
 THE EXCLUSION OF PATENT LICENSES PROVISION OF THE BSD-3-CLAUSE-CLEAR LICENSE.'''
 THIS_YEAR = str(datetime.datetime.now().year)
-COPYRIGHT_TYPES = ('*.cpp', '*.c', '*.h', '*.py', '*.js',
-                   '*.cmake', 'CMakeLists.txt', 'build_config.h.in', '*.yml', '*.glsl', '*.comp')
+COPYRIGHT_TYPES = ('*.cpp', '*.c', '*.h', '*.py', '*.js', '*.java', '*.gradle', '*.cmake',
+                   'CMakeLists.txt', 'build_config.h.in', '*.yml', '*.glsl', '*.comp', '*.frag', '*.vert')
 CLANG_FORMAT_TYPES = ('*.cpp', '*.c', '*.h')
 CMAKE_TYPES = ('*.cmake', 'CMakeLists.txt')
 PYTHON_TYPES = ('*.py',)
 WORKFLOW_TYPES = ('*.yml', '*.yaml')
 GLOB_DIRS = ('src/**/', 'cmake/**/', 'conan/lcevc_dec_headers/*', 'conan/ffmpeg/[!conanfile.py]*'
-             'include/**/', 'docs/sphinx/**', '.github/**/', '')
+             'include/**/', 'docs/sphinx/**', '.github/**/', 'wrappers/**/', '')
 CLANG_FORMAT_ENV_VAR = 'CLANG_FORMAT_PATH'
 WIN_CLANG_FORMAT_ENV_VAR = 'CLANG_FORMAT_PATH'
 WIN_DEFAULT_CLANG_FORMAT_PATH = r'C:\Program Files\LLVM\bin\clang-format.exe'
 # These files are copied from other sources and have their own copyrights,
 # find associated licenses in the licenses folder
 EXCLUDED_GLOBS = ('cmake/toolchains/ios.toolchain.cmake',
-                  'cmake/toolchains/Emscripten.*', '.github/workflows/cla.yml')
-INCLUDE_GUARD_OVERRIDES = {'include/LCEVC/lcevc.h': 'LCEVC_H',
-                           'src/api/include/LCEVC/lcevc_dec.h': 'LCEVC_DEC_H',
-                           'src/legacy/decoder/include/LCEVC/legacy/PerseusDecoder.h': 'PERSEUS_DECODER'}
+                  'cmake/toolchains/Emscripten.*', '.github/workflows/cla.yml',
+                  'src/pipeline_vulkan/src/vma/vk_mem_alloc.h',
+                  'src/pipeline_vulkan/src/shaders/src/specialization_ids.h')
+INCLUDE_GUARD_OVERRIDES = {'src/api/include/LCEVC/lcevc_dec.h': 'LCEVC_DEC_H',
+                           'wrappers/jni/library/src/main/jni/lcevc_dec_jni.h': 'LCEVC_DEC_JNI_H',
+                           'src/pixel_processing/src/upscale_macros': None}
 TRAILING_SPACE_GLOB_DIRS = ('src/**/', 'cmake/**/', 'conan/**/', 'include/**/',
-                            'docs/', 'docs/sphinx/**', '.github/**/', 'licenses/**/', '')
+                            'docs/', 'docs/sphinx/**', '.github/**/', 'licenses/**/', 'wrappers/', '')
 
 
 def run_cmd(cmd):
@@ -131,7 +133,7 @@ def format_comment(path):
     filename = os.path.basename(path)
     file_extension = filename.split('.')[-1] if '.' in filename else None
     ret = list()
-    if file_extension in ('cpp', 'c', 'h', 'in', 'js', 'glsl', 'comp'):
+    if file_extension in ('cpp', 'c', 'h', 'in', 'js', 'java', 'glsl', 'comp', 'gradle', 'frag', 'vert'):
         ret = format_cpp_comment(COPYRIGHT_MSG).splitlines(keepends=True)
     elif file_extension in ('py', 'cmake', 'yml') or filename == 'CMakeLists.txt':
         for line in COPYRIGHT_MSG.splitlines():
@@ -142,8 +144,8 @@ def format_comment(path):
 
 def format_include_guard(path, check_only=False):
     path_parts = Path(path).parts
-    if any(Path(path) == Path(override_path) for override_path in INCLUDE_GUARD_OVERRIDES.keys()):
-        correct_guard = INCLUDE_GUARD_OVERRIDES[path.replace('\\', '/')]
+    if any(Path(path).is_relative_to(Path(override_path := override)) for override in INCLUDE_GUARD_OVERRIDES.keys()):
+        correct_guard = INCLUDE_GUARD_OVERRIDES[override_path]
     elif path_parts[2] == 'include' and path_parts[3] == 'LCEVC':
         assert len(path_parts) >= 6, f"Invalid folder structure for interfaces in {path}, " \
             f"should be src/<target>/include/LCEVC/<target>/..."
@@ -151,6 +153,10 @@ def format_include_guard(path, check_only=False):
     else:
         assert path_parts[0] == 'src', f"Header file {path} outside of 'src' dir, unsure how to format guards"
         correct_guard = f"VN_LCEVC_{path_parts[1].upper()}_{path_parts[-1].replace('.h', '').upper()}_H"
+
+    if not correct_guard:
+        print(f'\033[0;33m!>>\033[0m Auto include guard disabled in {path}')
+        return 0
 
     with open(path, 'r') as f:
         file_contents = f.read()
@@ -232,7 +238,7 @@ def copyright_file(path, check_only=False):
         if check_only:
             print(f'\033[0;33m!>>\033[0m Incorrect copyright header in {path}')
             return False
-        print(f'Adding copyright header to {path}')
+        print(f'\033[0;32m!>>\033[0m Added copyright header to {path}')
         with open(path, 'w', newline='') as f:
             f.writelines(copyright_msg)
             f.writelines(file_contents)
@@ -448,9 +454,8 @@ def main():
         if not remove_trailing_spaces(path, args.check_only):
             errors += 1
 
-    zizmor_exe = find_formatter('zizmor', '1.3.0')
     for path in get_paths(WORKFLOW_TYPES, changed_files, global_dirs=['.github/workflows/**'], excluded_dirs=None):
-        cmd = [zizmor_exe, path]
+        cmd = ['zizmor', path]
         process = run_cmd(cmd)
         if process.returncode != 0:
             print(f"\033[0;33m!>>\033[0m zizmor \033[0;31mFAILED\033[0m "

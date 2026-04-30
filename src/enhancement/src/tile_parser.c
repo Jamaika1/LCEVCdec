@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2024-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2024-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -68,10 +68,6 @@ bool tiledSizeDecoderInitialize(LdcMemoryAllocator* allocator, uint64_t diagId,
         VNReallocateIdArray(allocator, &decoder->allocation, int16_t, numSizes, "TileSizes", diagId);
         int16_t* newSizes = VNAllocationPtr(decoder->allocation, int16_t);
         if (!newSizes) {
-            /* Clean up.*/
-            VNFree(allocator, &decoder->allocation);
-            decoder->sizes = NULL;
-
             VNLogError("Unable to allocate tile sizes buffer");
             return false;
         }

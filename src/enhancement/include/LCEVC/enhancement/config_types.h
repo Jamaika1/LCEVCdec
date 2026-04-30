@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2024-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2024-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -81,6 +81,9 @@ typedef struct LdeGlobalConfig
     LdeTileCompressionSizePerTile tileSizeCompression; /**< Tracks if the custom tile sizes themselves are compressed - not needed past config parsing */
     bool perTileCompressionEnabled; /**< True if each tile is encoded separately */
     uint32_t numTiles[RCMaxPlanes][LOQEnhancedCount]; /**< Helper to track the total number of tiles on each LOQ and plane */
+
+    LdeSharpenType sharpenType; /**< Sharpening type */
+    float sharpenStrength;      /**< Sharpening strength of the frame, if enabled */
 } LdeGlobalConfig;
 
 /*! \brief Parameters that relevant to an individual frame and may either inherit or change the to
@@ -117,11 +120,9 @@ typedef struct LdeFrameConfig
     int32_t dequantOffset;                  /**< Offset constant required for dequant functions */
     bool deblockEnabled;                    /**< Flag to enable deblocking */
 
-    bool ditherEnabled;         /**< Flag to enable dithering */
-    LdeDitherType ditherType;   /**< Dithering mode, if enabled */
-    uint8_t ditherStrength;     /**< Dithering strength of the frame, if enabled */
-    LdeSharpenType sharpenType; /**< Sharpening type */
-    float sharpenStrength;      /**< Sharpening strength of the frame, if enabled */
+    bool ditherEnabled;       /**< Flag to enable dithering */
+    LdeDitherType ditherType; /**< Dithering mode, if enabled */
+    uint8_t ditherStrength;   /**< Dithering strength of the frame, if enabled */
 } LdeFrameConfig;
 
 #endif // VN_LCEVC_ENHANCEMENT_CONFIG_TYPES_H

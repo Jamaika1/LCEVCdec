@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2024-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2024-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -61,16 +61,31 @@ static inline int compareOffsets(size_t lhs, size_t rhs)
     return 0;
 }
 
+static inline uint32_t ldcDiagnosticsBufferNextPushSlot(LdcDiagnosticsBuffer* buffer)
+{
+    uint32_t next = (buffer->front + 1) & buffer->ringMask;
+
+#if !VN_SDK_FEATURE(THREADING)
+    if (next == buffer->back) {
+        buffer->back = (buffer->back + 1) & buffer->ringMask;
+    }
+#else
+    while (next == buffer->back) {
+        threadCondVarWait(&buffer->notFull, &buffer->mutex);
+        next = (buffer->front + 1) & buffer->ringMask;
+    }
+#endif
+
+    return next;
+}
+
 static inline void ldcDiagnosticsBufferPush(LdcDiagnosticsBuffer* buffer, const LdcDiagRecord* diagRecord,
                                             const uint8_t* varData, size_t varSize)
 {
     threadMutexLock(&buffer->mutex);
 
-    // Wait while buffer is full
-    uint32_t next = 0;
-    while ((next = (buffer->front + 1) & buffer->ringMask) == buffer->back) {
-        threadCondVarWait(&buffer->notFull, &buffer->mutex);
-    }
+    // Wait while buffer is full. Without threading, keep the latest records and drop the oldest.
+    const uint32_t next = ldcDiagnosticsBufferNextPushSlot(buffer);
 
     // Signal consumer if buffer was empty
     // NB: this assumes a single consumer - which is true for diagnostics
@@ -182,11 +197,8 @@ static inline LdcDiagRecord* ldcDiagnosticsBufferPushBegin(LdcDiagnosticsBuffer*
 
     threadMutexLock(&buffer->mutex);
 
-    // Wait while buffer is full
-    uint32_t next = 0;
-    while ((next = (buffer->front + 1) & buffer->ringMask) == buffer->back) {
-        threadCondVarWait(&buffer->notFull, &buffer->mutex);
-    }
+    // Wait while buffer is full. Without threading, keep the latest records and drop the oldest.
+    const uint32_t next = ldcDiagnosticsBufferNextPushSlot(buffer);
 
     // Signal consumer if buffer was empty
     // NB: this assumes a single consumer - which is true for the diagnostics implementation

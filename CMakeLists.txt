@@ -1,4 +1,4 @@
-# Copyright (c) V-Nova International Limited 2022-2025. All rights reserved.
+# Copyright (c) V-Nova International Limited 2022-2026. All rights reserved.
 # This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
 # No patent licenses are granted under this license. For enquiries about patent licenses,
 # please contact legal@v-nova.com.
@@ -26,7 +26,7 @@ include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules/CMakeSetup.cmake")
 project(
     LCEVCdec_SDK
     DESCRIPTION "The Open Source LCEVC Decoder SDK"
-    VERSION 4.0.5
+    VERSION 4.1.0
     LANGUAGES CXX C)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake/modules")
@@ -37,7 +37,6 @@ option(VN_SDK_SAMPLE_SOURCE "Include sample sources in SDK installations" ON)
 option(VN_SDK_UNIT_TESTS "Enable unit test executables" OFF)
 option(VN_SDK_API_LAYER "Include API layer library in SDK installations" ON)
 option(VN_SDK_PIPELINE_CPU "Enable the CPU pipeline" ON)
-option(VN_SDK_PIPELINE_LEGACY "Enable the legacy pipeline" ON)
 option(VN_SDK_PIPELINE_VULKAN "Enable the Vulkan pipeline" OFF)
 option(VN_SDK_JSON_CONFIG "Allow decoder to be configured with JSON, requires nlohmann-json" OFF)
 option(VN_SDK_DOCS "Build Doxygen and Sphinx documentation" OFF)
@@ -80,7 +79,6 @@ if (EMSCRIPTEN)
     set(BUILD_SHARED_LIBS OFF)
     set(VN_SDK_API_LAYER OFF)
     set(VN_SDK_PIPELINE_CPU OFF)
-    set(VN_SDK_PIPELINE_LEGACY OFF)
 endif ()
 
 if (VN_SDK_PIPELINE_VULKAN
@@ -97,12 +95,15 @@ option(VN_SDK_THREADS_CUSTOM "Use a custom threading implementation." OFF)
 option(VN_SDK_GENERATE_PGO "Make an instrumented build for profile-guided optimization (PGO)." OFF)
 option(VN_SDK_USE_PGO "Use previously-generated PGO profiles to optimize this build." OFF)
 option(VN_SDK_BENCHMARK "Build benchmark google benchmark tests" OFF)
-option(VN_SDK_FORCE_OVERLAY "Enable forced overlay" OFF)
+
+if (NOT VN_SDK_THREADING AND VN_SDK_DIAGNOSTICS_ASYNC)
+    message(STATUS "VN_SDK_DIAGNOSTICS_ASYNC cannot be enabled without threading, disabling")
+    set(VN_SDK_DIAGNOSTICS_ASYNC OFF)
+endif ()
 
 # Module Versions
 set(PIPELINE_CPU_VERSION 1)
 set(PIPELINE_VULKAN_VERSION 1)
-set(PIPELINE_LEGACY_VERSION 1)
 set(UTILITY_VERSION 1)
 set(EXTRACT_VERSION 1)
 
@@ -143,30 +144,13 @@ if (VN_SDK_PIPELINE_CPU)
     lcevc_add_subdirectory_if(src/pipeline_cpu/test/unit VN_SDK_UNIT_TESTS)
 endif ()
 
-if (VN_SDK_PIPELINE_LEGACY)
-    lcevc_add_subdirectory(src/legacy/decoder)
-    lcevc_add_subdirectory(src/legacy/sequencer)
-    lcevc_add_subdirectory(src/overlay_images)
-    lcevc_add_subdirectory_if(src/legacy/test/decoder_unit VN_SDK_UNIT_TESTS)
-    lcevc_add_subdirectory_if(src/legacy/test/sequencer_unit VN_SDK_UNIT_TESTS)
-    lcevc_add_subdirectory_if(src/legacy/test/sequencing_unit VN_SDK_UNIT_TESTS)
-    lcevc_add_subdirectory_if(src/legacy/test/benchmark VN_SDK_BENCHMARK)
-
-    if (VN_SDK_API_LAYER)
-        lcevc_add_subdirectory(src/color_conversion)
-
-        lcevc_add_subdirectory(src/pipeline_legacy)
-        lcevc_add_subdirectory_if(src/pipeline_legacy/test/unit VN_SDK_UNIT_TESTS)
-    endif ()
-endif ()
-
 if (VN_SDK_PIPELINE_VULKAN)
     lcevc_add_subdirectory(src/pipeline_vulkan)
     lcevc_add_subdirectory_if(src/pipeline_vulkan/test/unit VN_SDK_UNIT_TESTS)
 endif ()
 
 if (EMSCRIPTEN)
-    lcevc_add_subdirectory(src/emscripten)
+    lcevc_add_subdirectory(wrappers/wasm)
 endif ()
 
 # Utility

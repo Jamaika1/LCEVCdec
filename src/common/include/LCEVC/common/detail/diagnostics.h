@@ -21,6 +21,7 @@
 //
 #include <stdarg.h>
 #include <stdio.h>
+#include <time.h>
 #ifdef __cplusplus
 #include <atomic>
 #else
@@ -236,6 +237,33 @@ struct LdcDiagArgumentTraits<const void*>
         Type = LdcDiagArgConstVoidPtr
     };
 };
+template <>
+struct LdcDiagArgumentTraits<float>
+{
+    enum
+    {
+        Type = LdcDiagArgFloat32
+    };
+};
+template <>
+struct LdcDiagArgumentTraits<double>
+{
+    enum
+    {
+        Type = LdcDiagArgFloat64
+    };
+};
+
+#if VN_OS(BROWSER)
+template <>
+struct LdcDiagArgumentTraits<unsigned long>
+{
+    enum
+    {
+        Type = LdcDiagArgUInt32
+    };
+};
+#endif
 
 template <typename T>
 constexpr LdcDiagArg LdcDiagArgumentType(T t)
@@ -288,6 +316,8 @@ struct LdcDiagArgumentTraits<unsigned long>
         uint32_t: LdcDiagArgUInt32,             \
         int64_t: LdcDiagArgInt64,               \
         uint64_t: LdcDiagArgUInt64,             \
+        float: LdcDiagArgFloat32,               \
+        double: LdcDiagArgFloat64,              \
         _VNTASizeType char*: LdcDiagArgCharPtr, \
         const char*: LdcDiagArgConstCharPtr,    \
         void*: LdcDiagArgVoidPtr,               \

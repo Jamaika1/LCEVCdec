@@ -1,4 +1,4 @@
-# Copyright (c) V-Nova International Limited 2023-2025. All rights reserved.
+# Copyright (c) V-Nova International Limited 2023-2026. All rights reserved.
 # This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
 # No patent licenses are granted under this license. For enquiries about patent licenses,
 # please contact legal@v-nova.com.
@@ -38,7 +38,7 @@ list(
 if (NOT VN_SDK_THREADS_CUSTOM)
     if (WIN32)
         list(APPEND SOURCES "src/threads_win32.c")
-    else ()
+    elseif (VN_SDK_THREADING)
         list(APPEND SOURCES "src/threads_pthread.c")
     endif ()
 endif ()

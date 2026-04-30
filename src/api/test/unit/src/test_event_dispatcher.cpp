@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2023-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2023-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -20,6 +20,8 @@
 #include "event_dispatcher.h"
 #include "pool.h"
 #include "utils.h"
+
+#include <LCEVC/common/memory.h>
 //
 #include <gtest/gtest.h>
 
@@ -30,7 +32,7 @@ using namespace lcevc_dec::decoder;
 
 // - Constants ------------------------------------------------------------------------------------
 
-static const std::vector<int32_t> kArbitraryEvents = {LCEVC_CanSendBase, LCEVC_Exit, LCEVC_OutputPictureDone};
+static const int32_t kArbitraryEvents[] = {LCEVC_CanSendBase, LCEVC_Exit, LCEVC_OutputPictureDone};
 
 // - Fixtures -------------------------------------------------------------------------------------
 
@@ -41,7 +43,7 @@ public:
 
     void SetUp() override
     {
-        m_dispatcher->enableEvents(kArbitraryEvents);
+        m_dispatcher->enableEvents(kArbitraryEvents, VNArraySize(kArbitraryEvents));
         m_dispatcher->setEventCallback(EventDispatcherFixture::callback, this);
     }
 
@@ -68,24 +70,6 @@ private:
 
 // - Tests ----------------------------------------------------------------------------------------
 
-// - Event --------------------------------------
-
-TEST(eventTests, validEvent)
-{
-    Event validEvent(LCEVC_Exit);
-    EXPECT_EQ(validEvent.eventType, LCEVC_Exit);
-    EXPECT_TRUE(validEvent.isValid());
-    EXPECT_FALSE(validEvent.isFlush());
-}
-
-TEST(eventTests, invalidEvent)
-{
-    Event invalidEvent(LCEVC_EventCount);
-    EXPECT_EQ(invalidEvent.eventType, LCEVC_EventCount);
-    EXPECT_FALSE(invalidEvent.isValid());
-    EXPECT_FALSE(invalidEvent.isFlush());
-}
-
 // - EventDispatcher -------------------------------
 
 // Meta tests
@@ -94,9 +78,10 @@ TEST(eventManagerInit, init)
 {
     std::unique_ptr<EventDispatcher> dispatcher(createEventDispatcher(nullptr));
 
-    dispatcher->enableEvents(kArbitraryEvents);
+    dispatcher->enableEvents(kArbitraryEvents, VNArraySize(kArbitraryEvents));
     for (int32_t event = 0; event < LCEVC_EventCount; event++) {
-        const bool wasEnabled = (std::count(kArbitraryEvents.begin(), kArbitraryEvents.end(), event) > 0);
+        const bool wasEnabled =
+            (std::count(kArbitraryEvents, kArbitraryEvents + VNArraySize(kArbitraryEvents), event) > 0);
         EXPECT_EQ(dispatcher->isEventEnabled(event), wasEnabled);
     }
 }
@@ -114,7 +99,7 @@ TEST(eventManagerInit, noCallbackUntilInit)
     dispatcher->generate(LCEVC_Exit);
     EXPECT_EQ(callbackCounts[LCEVC_Exit], 0);
 
-    dispatcher->enableEvents(kArbitraryEvents);
+    dispatcher->enableEvents(kArbitraryEvents, VNArraySize(kArbitraryEvents));
 
     auto callback = [](LCEVC_DecoderHandle, LCEVC_Event event, LCEVC_PictureHandle,
                        const LCEVC_DecodeInformation*, const uint8_t*, uint32_t, void* userData) {

@@ -23,18 +23,21 @@ list(
     "src/apply_cmdbuffer_neon.c"
     "src/apply_cmdbuffer_scalar.c"
     "src/apply_cmdbuffer_sse.c"
-    "src/dither.c"
-    "src/dither.c"
     "src/convert_neon.c"
     "src/convert_scalar.c"
     "src/convert_sse.c"
     "src/convert.c"
-    "src/upscale_neon.c"
+    "src/dither.c"
+    "src/dither.c"
+    "src/fp_types.c"
+    "src/upscale.c"
     "src/upscale_scalar.c"
     "src/upscale_sse.c"
-    "src/upscale_common.c"
-    "src/upscale.c"
-    "src/fp_types.c")
+    "src/upscale_neon.c"
+    "src/sharpen.c"
+    "src/sharpen_neon.c"
+    "src/sharpen_scalar.c"
+    "src/sharpen_sse.c")
 
 list(
     APPEND
@@ -45,9 +48,7 @@ list(
     "src/convert_common.h"
     "src/fp_types.h"
     "src/upscale_common.h"
-    "src/upscale_neon.h"
-    "src/upscale_scalar.h"
-    "src/upscale_sse.h")
+    "src/sharpen_common.h")
 
 list(
     APPEND
@@ -56,11 +57,8 @@ list(
     "include/LCEVC/pixel_processing/apply_cmdbuffer.h"
     "include/LCEVC/pixel_processing/dither.h"
     "include/LCEVC/pixel_processing/convert.h"
-    "include/LCEVC/pixel_processing/upscale.h")
-
-list(APPEND INTERFACES_DETAIL "include/LCEVC/pixel_processing/detail/apply_dither_scalar.h"
-     "include/LCEVC/pixel_processing/detail/apply_dither_sse.h"
-     "include/LCEVC/pixel_processing/detail/apply_dither_neon.h")
+    "include/LCEVC/pixel_processing/upscale.h"
+    "include/LCEVC/pixel_processing/sharpen.h")
 
 set(ALL_FILES ${SOURCES} ${HEADERS} ${INTERFACES} "Sources.cmake")
 

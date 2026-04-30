@@ -42,10 +42,10 @@ PlaneAddFunction planeAddGetFunction(LdpFixedPoint dstFP)
     }
 
     /* Find a SIMD function */
-    if (acceleration->SSE) {
+    if (acceleration->hasSSE) {
         res = planeAddGetFunctionSSE(dstFP);
     }
-    if (acceleration->NEON) {
+    if (acceleration->hasNeon) {
         assert(res == NULL);
         res = planeAddGetFunctionNEON(dstFP);
     }

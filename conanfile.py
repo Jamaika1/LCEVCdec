@@ -1,4 +1,4 @@
-# Copyright (c) V-Nova International Limited 2022-2025. All rights reserved.
+# Copyright (c) V-Nova International Limited 2022-2026. All rights reserved.
 # This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
 # No patent licenses are granted under this license. For enquiries about patent licenses,
 # please contact legal@v-nova.com.
@@ -36,7 +36,6 @@ class LCEVCDecoderSDK(ConanFile):
         "vulkan": [True, False],
         "benchmark": [True, False],
         "simd": [True, False],
-        "debug_syntax": [True, False],
         "api_layer": [True, False],
         "json_config": [True, False],
         "base_decoder": ["ffmpeg", "libav", "manual", "none"],
@@ -48,7 +47,6 @@ class LCEVCDecoderSDK(ConanFile):
         "unit_tests": True,
         "benchmark": False,
         "simd": True,
-        "debug_syntax": False,
         "api_layer": True,
         "json_config": True,
         "fmt:header_only": True,
@@ -148,8 +146,12 @@ class LCEVCDecoderSDK(ConanFile):
             if self.options.unit_tests:
                 reqs.extend(['gtest/1.12.1', 'range-v3/0.12.0'])
 
-        if self.options.vulkan and self.settings.os != "Android":
-            reqs.extend(['vulkan-loader/1.4.313', 'vulkan-headers/1.4.313'])
+        if self.options.vulkan:
+            if self.settings.os != "Android":
+                reqs.extend(['vulkan-loader/1.4.313', 'vulkan-headers/1.4.313'])
+
+                if self.options.executables:
+                    reqs.append('glfw/3.3.8')
 
         for package in reqs:
             self.requires(package)
@@ -256,20 +258,26 @@ class LCEVCDecoderSDK(ConanFile):
         cmake.install()
 
     def package_info(self):
-        self.cpp_info.components["common"].libs = ["lcevc_dec_common"]
-        self.cpp_info.components["pixel_processing"].libs = ["lcevc_dec_pixel_processing"]
-        self.cpp_info.components["enhancement"].libs = ["lcevc_dec_enhancement"]
-        self.cpp_info.components["pipeline"].libs = ["lcevc_dec_pipeline"]
-        self.cpp_info.components["sequencer"].libs = ["lcevc_dec_sequencer"]
-        self.cpp_info.components["legacy"].libs = ["lcevc_dec_legacy"]
-        self.cpp_info.components["pipeline_legacy"].libs = ["lcevc_dec_pipeline_legacy"]
-        if self.options.vulkan:
-            self.cpp_info.components["pipeline_vulkan"].libs = ["lcevc_dec_pipeline_vulkan"]
-        self.cpp_info.components["pipeline_cpu"].libs = ["lcevc_dec_pipeline_cpu"]
-        self.cpp_info.components["extract"].libs = ["lcevc_dec_extract"]
-        if self.options.api_layer:
-            self.cpp_info.components["api_utility"].libs = ["lcevc_dec_api_utility"]
-        if self.options.executables or self.options.unit_tests:
-            self.cpp_info.components["utility"].libs = ["lcevc_dec_utility"]
+        # Core API library
         if self.options.api_layer:
             self.cpp_info.components["api"].libs = ["lcevc_dec_api"]
+
+        # Extract library used by most integrations
+        self.cpp_info.components["extract"].libs = ["lcevc_dec_extract"]
+
+        # Static libraries
+        if not self.options.shared:
+            self.cpp_info.components["common"].libs = ["lcevc_dec_common"]
+            self.cpp_info.components["pixel_processing"].libs = ["lcevc_dec_pixel_processing"]
+            self.cpp_info.components["enhancement"].libs = ["lcevc_dec_enhancement"]
+            self.cpp_info.components["pipeline"].libs = ["lcevc_dec_pipeline"]
+            self.cpp_info.components["api_utility"].libs = ["lcevc_dec_api_utility"]
+            self.cpp_info.components["pipeline_cpu"].libs = ["lcevc_dec_pipeline_cpu"]
+            if self.options.vulkan:
+                self.cpp_info.components["pipeline_vulkan"].libs = ["lcevc_dec_pipeline_vulkan"]
+
+        # Utility library
+        if self.options.executables or self.options.unit_tests:
+            self.cpp_info.components["utility"].libs = ["lcevc_dec_utility"]
+            if self.options.shared:
+                self.cpp_info.components["api_utility"].libs = ["lcevc_dec_api_utility"]

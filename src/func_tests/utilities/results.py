@@ -1,4 +1,4 @@
-# Copyright (c) V-Nova International Limited 2023-2025. All rights reserved.
+# Copyright (c) V-Nova International Limited 2023-2026. All rights reserved.
 # This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
 # No patent licenses are granted under this license. For enquiries about patent licenses,
 # please contact legal@v-nova.com.
@@ -100,7 +100,7 @@ def save_regenerated_hashes(results, definitions_dir):
 
 
 def get_library_sizes():
-    LIBS = ('api', 'pipeline_cpu', 'pipeline_vulkan', 'pipeline_legacy')
+    LIBS = ('api', 'pipeline_cpu', 'pipeline_vulkan')
     PATTERNS = {'Windows': ['lcevc_dec_{lib}.dll'],
                 'Darwin': ['lcevc_dec_{lib}.framework/lcevc_dec_{lib}', 'liblcevc_dec_{lib}.dylib'],
                 'Other': ['liblcevc_dec_{lib}.*']}

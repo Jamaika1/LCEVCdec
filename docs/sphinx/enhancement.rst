@@ -197,7 +197,7 @@ The :cpp:struct:`LdeGlobalConfig` contains some helpers for working with tiling 
 Memory
 ######
 
-The enhancement module (as well as all non-legacy LCEVCdec modules) uses the ``common`` (LDC) memory API to allocate, reallocate and free memory. The API allows the C standard library memory functions to be replaced with custom functions depending on platform and toolchain requirements. Use :cpp:func:`ldcMemoryAllocatorMalloc` to return a C standard library populated :cpp:struct:`LdcMemoryAllocator` or build your own as documented below. All the following data structures, functions and macros can be included from ``LCEVC/common/memory.h``.
+The enhancement module uses the ``common`` (LDC) memory API to allocate, reallocate and free memory. The API allows the C standard library memory functions to be replaced with custom functions depending on platform and toolchain requirements. Use :cpp:func:`ldcMemoryAllocatorMalloc` to return a C standard library populated :cpp:struct:`LdcMemoryAllocator` or build your own as documented below. All the following data structures, functions and macros can be included from ``LCEVC/common/memory.h``.
 
 Data Structures
 ---------------

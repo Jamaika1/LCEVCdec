@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2025-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -18,67 +18,12 @@
 
 namespace lcevc_dec::pipeline_cpu {
 
-namespace {
-    extern const LdpPictureLockFunctions kPictureLockFunctions;
-}
+class PictureCPU;
 
-PictureLock::PictureLock(PictureCPU* src, LdpAccess access)
-    : LdpPictureLock{&kPictureLockFunctions}
-{
-    this->picture = src;
-    this->access = access;
-}
+PictureLockCPU::PictureLockCPU(PictureCPU* src, LdpAccess access)
+    : PictureLockBase(src, access)
+{}
 
-PictureLock::~PictureLock() { assert(this->picture); }
-
-bool PictureLock::getBufferDesc(LdpPictureBufferDesc* desc) const
-{
-    assert(desc);
-
-    if (mapping.ptr == nullptr) {
-        return false;
-    }
-
-    // Transcribe stuff from mapping into a LdpPictureBufferDesc
-    desc->data = mapping.ptr + mapping.offset;
-    desc->byteSize = mapping.size;
-    desc->access = access;
-    desc->accelBuffer = nullptr;
-
-    return true;
-}
-
-bool PictureLock::getPlaneDesc(uint32_t planeIndex, LdpPicturePlaneDesc* planeDescOut) const
-{
-    assert(planeIndex < kLdpPictureMaxColorComponents);
-    assert(planeDescOut);
-
-    if (planeIndex >= kLdpPictureMaxColorComponents) {
-        return false;
-    }
-
-    static_cast<PictureCPU*>(picture)->getPlaneDescInternal(planeIndex, *planeDescOut);
-    return true;
-}
-
-// C function table to connect to C++ class
-//
-namespace {
-    bool getBufferDesc(const LdpPictureLock* pictureLock, LdpPictureBufferDesc* desc)
-    {
-        return static_cast<const PictureLock*>(pictureLock)->getBufferDesc(desc);
-    }
-
-    bool getPlaneDesc(const LdpPictureLock* pictureLock, uint32_t planeIndex,
-                      LdpPicturePlaneDesc planeDescOut[kLdpPictureMaxNumPlanes])
-    {
-        return static_cast<const PictureLock*>(pictureLock)->getPlaneDesc(planeIndex, planeDescOut);
-    }
-
-    const LdpPictureLockFunctions kPictureLockFunctions = {
-        getBufferDesc,
-        getPlaneDesc,
-    };
-} // namespace
+PictureLockCPU::~PictureLockCPU() { assert(this->picture); }
 
 } // namespace lcevc_dec::pipeline_cpu

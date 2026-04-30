@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2024-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2024-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -26,9 +26,6 @@
 #endif
 #if VN_SDK_PIPELINE(VULKAN)
 #include <LCEVC/pipeline_vulkan/create_pipeline.h>
-#endif
-#if VN_SDK_PIPELINE(LEGACY)
-#include <LCEVC/pipeline_legacy/create_pipeline.h>
 #endif
 #else
 #include <LCEVC/common/shared_library.h>
@@ -102,7 +99,16 @@ DecoderContext::DecoderContext()
 {}
 
 //
-DecoderContext::~DecoderContext() { VNLogVerbose("DecodeContext destroyed"); }
+DecoderContext::~DecoderContext()
+{
+    // Tear down the pipeline before the dispatcher so EventExit can still be delivered, then drain
+    // the dispatcher while the pools it consults are still alive.
+    m_pipeline.reset();
+    m_pipelineBuilder.reset();
+    m_eventDispatcher.reset();
+
+    VNLogVerbose("DecodeContext destroyed");
+}
 
 //
 void DecoderContext::releasePools()
@@ -151,11 +157,6 @@ pipeline::PipelineBuilder* DecoderContext::pipelineBuilder()
             pb = createPipelineBuilderVulkan(ldcDiagnosticsStateGet(), (void*)ldcAccelerationGet());
         }
 #endif
-#if VN_SDK_PIPELINE(LEGACY)
-        if (m_pipelineName == "legacy") {
-            pb = createPipelineBuilderLegacy(ldcDiagnosticsStateGet(), (void*)ldcAccelerationGet());
-        }
-#endif
 #else
         std::string libraryName = "lcevc_dec_pipeline_";
         libraryName.append(m_pipelineName);
@@ -190,6 +191,7 @@ bool DecoderContext::initializeDecoder()
     if (!m_pipeline) {
         return false;
     }
+    VNLogInfo("Initialzed LCEVCdec API");
 
     m_pipelineBuilder.reset();
     return true;
@@ -229,7 +231,7 @@ bool DecoderContext::configure(std::string_view name, const std::vector<int32_t>
     }
 
     if (name == "events") {
-        m_eventDispatcher->enableEvents(arr);
+        m_eventDispatcher->enableEvents(arr.data(), static_cast<uint32_t>(arr.size()));
         return true;
     }
 

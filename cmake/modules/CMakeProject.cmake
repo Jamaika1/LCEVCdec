@@ -1,4 +1,4 @@
-# Copyright (c) V-Nova International Limited 2022-2025. All rights reserved.
+# Copyright (c) V-Nova International Limited 2022-2026. All rights reserved.
 # This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
 # No patent licenses are granted under this license. For enquiries about patent licenses,
 # please contact legal@v-nova.com.
@@ -71,8 +71,8 @@ endif ()
 #
 add_library(lcevc_dec::compiler INTERFACE IMPORTED)
 
-target_include_directories(lcevc_dec::compiler INTERFACE ${CMAKE_BINARY_DIR}/generated)
-target_include_directories(lcevc_dec::compiler INTERFACE "${CMAKE_SOURCE_DIR}/include")
+target_include_directories(lcevc_dec::compiler INTERFACE ${CMAKE_CURRENT_BINARY_DIR}/generated)
+target_include_directories(lcevc_dec::compiler INTERFACE "${LCEVC_ROOT_DIR}/include")
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
@@ -101,6 +101,9 @@ endif ()
 
 message(
     STATUS "Target: Platform=${TARGET_PLATFORM} Arch=${TARGET_ARCH} Compiler=${TARGET_COMPILER}")
+if (ANDROID_PLATFORM)
+    message(STATUS "Android API Level=${ANDROID_PLATFORM}")
+endif ()
 
 # Setup LTO
 if (VN_SDK_LTO)

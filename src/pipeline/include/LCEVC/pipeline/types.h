@@ -223,6 +223,18 @@ typedef struct LdpDecodeInformation
     void* userData;
 } LdpDecodeInformation;
 
+// Matches LCEVC_RenderSendInformation
+typedef struct LdpRenderSendInformation
+{
+    uint32_t rotation;
+} LdpRenderSendInformation;
+
+// Matches LCEVC_RenderReceiveInformation
+typedef struct LdpRenderReceiveInformation
+{
+    bool rendered;
+} LdpRenderReceiveInformation;
+
 // Stores sample_aspect_ratio_num and sample_aspect_ratio_den
 typedef struct LdpAspectRatio
 {

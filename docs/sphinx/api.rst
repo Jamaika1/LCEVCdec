@@ -145,8 +145,7 @@ The following options are not specific to any given pipeline and may need to be 
 =========================== ========== ================ ===============================================================
 Option                      Type       Default          Description
 =========================== ========== ================ ===============================================================
-``pipeline``                string     cpu              The decode pipeline to use, options are ‘cpu’, ‘vulkan’
-                                                        or ‘legacy’.
+``pipeline``                string     cpu              The decode pipeline to use, options are ‘cpu’ or ‘vulkan’.
 ``events``                  intArray   \-               Array of :cpp:enum:`LCEVC_Event`. The events that will be
                                                         generated via the event callback.
 ``threads``                 int        physical threads The number of threads to spawn for parallel tasks.
@@ -157,18 +156,11 @@ Option                      Type       Default          Description
                                                         `os_log_with_type` (Apple), or else `stderr` only for severe
                                                         logs (Windows, Linux). Windows also always prints logs to the
                                                         Debugger (e.g. the Visual Studio console).
+``disable_simd``            boolean    false            If true, no SIMD (SSE, NEON, etc.) will be used.
 ``passthrough_mode``        int        0                Determines if the Decoder runs in passthrough mode never (-1),
                                                         always (1), or only when LCEVC Enhancement data is missing (0).
                                                         Passthrough mode means that no LCEVC is applied whatsoever: the
                                                         base is simply copied to the output picture.
-=========================== ========== ================ ===============================================================
-
-CPU Pipeline Options
-....................
-
-=========================== ========== ================ ===============================================================
-Option                      Type       Default          Description
-=========================== ========== ================ ===============================================================
 ``default_max_reorder``     int        16               The number of frames to buffer in the re-ordering queue. Can be
                                                         set lower for latency-critical applications where b-frames are
                                                         not used.
@@ -180,57 +172,39 @@ Option                      Type       Default          Description
 ``min_latency``             int        0                The number of frames that the decoder may buffer before
                                                         `LCEVC_ReceiveDecoderPicture` will block waiting for a picture
                                                         to complete.
+``use_system_allocator``    boolean    false            A debug option to make all  allocations in pipeline go through
+                                                        system malloc/free instead of to internal arenas. This is useful
+                                                        when running under valgrind or other memory checkers.
+=========================== ========== ================ ===============================================================
+
+CPU Pipeline Options
+....................
+
+=========================== ========== ================ ===============================================================
+Option                      Type       Default          Description
+=========================== ========== ================ ===============================================================
 ``temporal_buffers``        int        1                A temporal buffer requires a full size 16-bit plane for each
                                                         enhanced plane. Increasing this value to 2 allows the next GOP
                                                         to start processing before the last has finished to reduce
                                                         stuttering at the cost of additional memory.
 ``log_tasks``               boolean    false            Debug parameter for logging the task pool during decoding.
                                                         This causes blocking in the pipeline and requires log_level=debug
-``use_system_allocator``    boolean    false            A debug option to make all  allocations in pipeline go through
-                                                        system malloc/free instead of to internal arenas. This is useful
-                                                        when running under valgrind or other memory checkers.
 =========================== ========== ================ ===============================================================
-
-Legacy Pipeline Options
-.......................
-
-============================= ========== ================ ===============================================================
-Option                        Type       Default          Description
-============================= ========== ================ ===============================================================
-``enable_logo_overlay``       boolean    false            Adds a V-Nova logo over the decoded output.
-``generate_cmdbuffers``       boolean    true             Generate CPU cmdbuffers and apply to the plane as a separate
-                                                          step rather than directly applying during decode loop.
-``high_precision``            boolean    false            Use a 16-bit temporal plane for 8-bit decoding as required by
-                                                          the LCEVC standard. Otherwise uses a 8-bit temporal plane which
-                                                          can cause rounding errors but is slightly faster/lower memory.
-``predicted_average_method``  int        1                Whether to apply predicted average directly (1) or
-                                                          approximately, using the upsampling kernel (2). Predicted
-                                                          average is a step of upsampling, in which the upsampled 2x2
-                                                          pixel is normalized to the same magnitude as the original source
-                                                          pixel.
-``logo_overlay_delay_frames`` int        0                Wait a given number of frames before applying logo overlay.
-``logo_overlay_position_x``   int        auto             Change the logo overlay X pixel position.
-``logo_overlay_position_y``   int        auto             Change the logo overlay Y pixel position.
-``loq_unprocessed_cap``       int        100              The number of frames of raw LCEVC Enhancement data to store
-                                                          before rejecting it. Use -1 to wrap around to infinity for
-                                                          "no cap".
-``parallel_decode``           boolean    false            Enable multi-threaded huffman layer decoding.
-``predicted_average_method``  int        1                Three options: 0 - PA off, 1 - standard conformant PA,
-                                                          2 - approximate PA where the upscale coefficients are adjusted
-                                                          to improve speed - not conformant to LCEVC standard.
-``pss_surface_fp_setting``    int        1                This determines whether residuals are stored in S16 (0) or U8
-                                                          (1) surfaces. The default (-1) is to use U8 surfaces if and only
-                                                          if all LOQs are 8bit.
-``results_queue_cap``         int        24               The number of decoding results (either decoded pictures or
-                                                          decode failures) to store. This queue is cleared by calling
-                                                          :cpp:func:`LCEVC_ReceiveDecoderPicture`. Use -1 to wrap around
-                                                          to infinity for "no cap".
-============================= ========== ================ ===============================================================
 
 Vulkan Pipeline Options
 .......................
 
-TODO - Vulkan is still in development and not all options are defined yet.
+=========================== ========== ================ ===============================================================
+Option                      Type       Default          Description
+=========================== ========== ================ ===============================================================
+``vulkan_device``           int        -1               If greater or equal to zero - choose the indexed Vulkan device,
+                                                        otherwise choose the 'best' device.
+``vulkan_validation``       boolean    isDebugBuild     True if any available Vulkan vaildation layer should be used.
+``vulkan_timestamps``       int        0                If greater than 0, the number of shader timestamps to record
+                                                        and report in Debug log.
+``vulkan_contexts``         int        4                The number of distinct coupule contexts that can be in-flight.
+``will_render``             bool       false            Informs the Vulkan pipeline at initialization to setup for
+=========================== ========== ================ ===============================================================
 
 Debug Configuration Options
 ...........................
@@ -250,7 +224,6 @@ Option                      Type       Default       Pipelines   Description
 ``force_bitstream_version`` int        -1 (auto)     all         Override bitstream version information. Version information is
                                                                  typically present in streams encoded by V-Nova, but absent in
                                                                  LTM-encoded streams.
-``force_scalar``            boolean    false         cpu, legacy If true, no SIMD (SSE, NEON, etc.) will be used.
 ``highlight_residuals``     boolean    false         all         If true, residuals will appear as saturated squares.
 ``s_filter_strength``       float      -1 (disabled) all         If provided, this overrides the stream's S-Filter strength.
                                                                  S-Filter is a sharpening modification to the upsampling step.

@@ -75,8 +75,12 @@ static void copyU8_S16_NEON(const LdppConvertArgs* args)
                  vreinterpretq_s16_u16(vsubq_u16(vshll_n_u8(in.val[1], 7), kMidpoint))}};
 
             /* Store 16-pixels */
+#if defined(__aarch64__)
+            vst1q_s16_x2(dstPixel, rounded);
+#else
             vst1q_s16(dstPixel, rounded.val[0]);
             vst1q_s16(dstPixel + 8, rounded.val[1]);
+#endif
         }
 
         for (; x < width; x++, srcPixel++, dstPixel++) {
@@ -99,13 +103,21 @@ static void copyU16_S16_NEON(const LdppConvertArgs* args, const int16_t shift, U
 
         for (; x < simdWidth; x += kStep, srcPixel += kStep, dstPixel += kStep) {
             /* Load 16-pixels & split */
+#if defined(__aarch64__)
+            uint16x8x2_t in = vld1q_u16_x2(srcPixel);
+#else
             uint16x8x2_t in = {{vld1q_u16(srcPixel), vld1q_u16(srcPixel + 8)}};
+#endif
 
             int16x8x2_t rounded = {{convert(in.val[0]), convert(in.val[1])}};
 
             /* Store 16-pixels */
+#if defined(__aarch64__)
+            vst1q_s16_x2(dstPixel, rounded);
+#else
             vst1q_s16(dstPixel, rounded.val[0]);
             vst1q_s16(dstPixel + 8, rounded.val[1]);
+#endif
         }
 
         for (; x < width; x++, srcPixel++, dstPixel++) {

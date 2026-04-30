@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2025-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -16,7 +16,12 @@
 
 #version 450
 
-layout(local_size_x_id = 0, local_size_y_id = 1, local_size_z_id = 2) in;
+#include "specialization_ids.h"
+
+// Specialized workgropup size
+layout(local_size_x_id = SPECID_LOCAL_SIZE_X,
+       local_size_y_id = SPECID_LOCAL_SIZE_Y,
+       local_size_z_id = SPECID_LOCAL_SIZE_Z) in;
 
 layout(std430, set = 0, binding = 0) buffer restrict readonly SrcImageBuffer {
     uint samples[];
@@ -30,19 +35,50 @@ layout(std430, set = 0, binding = 2) buffer restrict writeonly BaseImageBuffer {
     uint samples[];
 } base;
 
+layout(constant_id = SPECID_PA) const int pa = 0;
+
 #include "common.glsl"
 #include "upscale_constants.glsl"
+
+ivec2 readSrc(uint x, uint y) {
+    return  unpack16bitInternals(src.samples[containerOffsetIn + y * containerStrideIn + x]);
+}
+
+void writeDst(uint x, uint y, ivec2 pels)
+{
+    dst.samples[containerOffsetOut + y * containerStrideOut + x]  = pack16bitInternals(pels);
+}
 
 void main()
 {
     const uint x = gl_GlobalInvocationID.x;
     const uint y = gl_GlobalInvocationID.y;
 
+    // Guard against out-of-bounds invocations.
+    // Each invocation processes rows 2*y and 2*y+1.
+    if (x * 2  >= srcWidth) {
+        return;
+    }
+    if (y * 2 >= srcHeight) {
+        return;
+    }
+
+    // When srcHeight is odd, the last invocation only has one row.
+    // Use row 2*y for both row1 and row2 to avoid out-of-bounds reads.
+    const bool hasSecondRow = (2 * y + 1 < srcHeight);
+    const uint row1Y = 2 * y;
+    const uint row2Y = hasSecondRow ? (2 * y + 1) : row1Y;
+
+    // Last valid uint32 column indices based on pixel width (not stride which includes padding).
+    // Each uint32 holds 2 int16 pixels. srcWidth is in pixels.
+    const uint lastSrcCol = uint((srcWidth - 1) / 2);        // last uint32 column in source
+    const uint lastDstCol = uint(srcWidth - 1);               // last uint32 column in output (2x width)
+
     ivec4 adjust = ivec4(0, 0, 0, 0); // PA adjustments for a 2x2 set of output pixels
     if (x == 0) { // first four pixels performed for two rows
         // 1st row
-        const ivec2 leftRow1 = unpack16bitInternals(src.samples[containerOffsetIn + 2 * y * containerStrideIn]);
-        const ivec2 rightRow1 = unpack16bitInternals(src.samples[containerOffsetIn + 1 + 2 * y * containerStrideIn]);
+        const ivec2 leftRow1 = unpack16bitInternals(src.samples[containerOffsetIn + row1Y * containerStrideIn]);
+        const ivec2 rightRow1 = unpack16bitInternals(src.samples[containerOffsetIn + 1 + row1Y * containerStrideIn]);
         const ivec4 row1 = ivec4(leftRow1, rightRow1);
 
         ivec4 dstRow1;
@@ -52,8 +88,8 @@ void main()
         dstRow1.w = clamp_s15(ds + kernel[0] * row1.x + kernel[1] * row1.y + kernel[2] * row1.z + kernel[3] * row1.w);
 
         // 2nd row
-        const ivec2 leftRow2 = unpack16bitInternals(src.samples[containerOffsetIn + (2 * y + 1) * containerStrideIn]);
-        const ivec2 rightRow2 = unpack16bitInternals(src.samples[containerOffsetIn + 1 + (2 * y + 1) * containerStrideIn]);
+        const ivec2 leftRow2 = unpack16bitInternals(src.samples[containerOffsetIn + row2Y * containerStrideIn]);
+        const ivec2 rightRow2 = unpack16bitInternals(src.samples[containerOffsetIn + 1 + row2Y * containerStrideIn]);
         const ivec4 row2 = ivec4(leftRow2, rightRow2);
 
         ivec4 dstRow2;
@@ -64,11 +100,11 @@ void main()
 
         // PA
         if(pa == 1) {
-            const ivec2 basePels1 = unpack16bitInternals(base.samples[containerOffsetBase + 2*y*containerStrideBase]);
+            const ivec2 basePels1 = unpack16bitInternals(base.samples[containerOffsetBase + row1Y*containerStrideBase]);
             adjust.x = basePels1.x - ((dstRow1.x + dstRow1.y + 1) >> 1);
             adjust.y = basePels1.y - ((dstRow1.z + dstRow1.w + 1) >> 1);
 
-            const ivec2 basePels2 = unpack16bitInternals(base.samples[containerOffsetBase + (2*y + 1)*containerStrideBase]);
+            const ivec2 basePels2 = unpack16bitInternals(base.samples[containerOffsetBase + row2Y*containerStrideBase]);
             adjust.z = basePels2.x - ((dstRow2.x + dstRow2.y + 1) >> 1);
             adjust.w = basePels2.y - ((dstRow2.z + dstRow2.w + 1) >> 1);
         }
@@ -80,23 +116,25 @@ void main()
             adjust.w = adjust.y;
         }
 
-        dst.samples[containerOffsetOut + 2 * y * containerStrideOut] = pack16bitInternals(saturateS16(dstRow1.xy + adjust.x));
-        dst.samples[containerOffsetOut + 1 + 2 * y * containerStrideOut] = pack16bitInternals(saturateS16(dstRow1.zw + adjust.y));
-        dst.samples[containerOffsetOut + (2 * y + 1) * containerStrideOut] = pack16bitInternals(saturateS16(dstRow2.xy + adjust.z));
-        dst.samples[containerOffsetOut + 1 + (2 * y + 1) * containerStrideOut] = pack16bitInternals(saturateS16(dstRow2.zw + adjust.w));
-    } else if (x == containerStrideIn - 1) { // last four pixels performed for two rows
+        dst.samples[containerOffsetOut + row1Y * containerStrideOut] = pack16bitInternals(saturateS16(dstRow1.xy + adjust.x));
+        dst.samples[containerOffsetOut + 1 + row1Y * containerStrideOut] = pack16bitInternals(saturateS16(dstRow1.zw + adjust.y));
+        if (hasSecondRow) {
+            dst.samples[containerOffsetOut + row2Y * containerStrideOut] = pack16bitInternals(saturateS16(dstRow2.xy + adjust.z));
+            dst.samples[containerOffsetOut + 1 + row2Y * containerStrideOut] = pack16bitInternals(saturateS16(dstRow2.zw + adjust.w));
+        }
+    } else if (x == lastSrcCol) { // last four pixels performed for two rows
         // 1st row
         const bool srcWidthEven = (srcWidth & 1) == 0;
         ivec4 row1;
         if(srcWidthEven) {
-            const ivec2 leftRow1 = unpack16bitInternals(src.samples[containerOffsetIn + containerStrideIn - 2 + 2 * y * containerStrideIn]);
-            const ivec2 rightRow1 = unpack16bitInternals(src.samples[containerOffsetIn + containerStrideIn - 1 + 2 * y * containerStrideIn]);
+            const ivec2 leftRow1 = unpack16bitInternals(src.samples[containerOffsetIn + lastSrcCol - 1 + row1Y * containerStrideIn]);
+            const ivec2 rightRow1 = unpack16bitInternals(src.samples[containerOffsetIn + lastSrcCol + row1Y * containerStrideIn]);
             row1 = ivec4(leftRow1, rightRow1);
         }
         else {
-            const ivec2 leftRow1 = unpack16bitInternals(src.samples[containerOffsetIn + containerStrideIn - 3 + 2 * y * containerStrideIn]);
-            const ivec2 middleRow1 = unpack16bitInternals(src.samples[containerOffsetIn + containerStrideIn - 2 + 2 * y * containerStrideIn]);
-            const ivec2 rightRow1 = unpack16bitInternals(src.samples[containerOffsetIn + containerStrideIn - 1 + 2 * y * containerStrideIn]);
+            const ivec2 leftRow1 = unpack16bitInternals(src.samples[containerOffsetIn + lastSrcCol - 2 + row1Y * containerStrideIn]);
+            const ivec2 middleRow1 = unpack16bitInternals(src.samples[containerOffsetIn + lastSrcCol - 1 + row1Y * containerStrideIn]);
+            const ivec2 rightRow1 = unpack16bitInternals(src.samples[containerOffsetIn + lastSrcCol + row1Y * containerStrideIn]);
             row1 = ivec4(leftRow1.y, middleRow1.x, middleRow1.y, rightRow1.x);
         }
 
@@ -109,14 +147,14 @@ void main()
         // 2nd row
         ivec4 row2;
         if(srcWidthEven) {
-            const ivec2 leftRow2 = unpack16bitInternals(src.samples[containerOffsetIn + containerStrideIn - 2 + (2 * y + 1) * containerStrideIn]);
-            const ivec2 rightRow2 = unpack16bitInternals(src.samples[containerOffsetIn + containerStrideIn - 1 + (2 * y + 1) * containerStrideIn]);
+            const ivec2 leftRow2 = unpack16bitInternals(src.samples[containerOffsetIn + lastSrcCol - 1 + row2Y * containerStrideIn]);
+            const ivec2 rightRow2 = unpack16bitInternals(src.samples[containerOffsetIn + lastSrcCol + row2Y * containerStrideIn]);
             row2 = ivec4(leftRow2, rightRow2);
         }
         else{
-            const ivec2 leftRow2 = unpack16bitInternals(src.samples[containerOffsetIn + containerStrideIn - 3 + (2 * y + 1) * containerStrideIn]);
-            const ivec2 middleRow2 = unpack16bitInternals(src.samples[containerOffsetIn + containerStrideIn - 2 + (2 * y + 1) * containerStrideIn]);
-            const ivec2 rightRow2 = unpack16bitInternals(src.samples[containerOffsetIn + containerStrideIn - 1 + (2 * y + 1) * containerStrideIn]);
+            const ivec2 leftRow2 = unpack16bitInternals(src.samples[containerOffsetIn + lastSrcCol - 2 + row2Y * containerStrideIn]);
+            const ivec2 middleRow2 = unpack16bitInternals(src.samples[containerOffsetIn + lastSrcCol - 1 + row2Y * containerStrideIn]);
+            const ivec2 rightRow2 = unpack16bitInternals(src.samples[containerOffsetIn + lastSrcCol + row2Y * containerStrideIn]);
             row2 = ivec4(leftRow2.y, middleRow2.x, middleRow2.y, rightRow2.x);
         }
 
@@ -130,17 +168,17 @@ void main()
         if(pa == 1) {
             ivec2 basePels1, basePels2;
             if(srcWidthEven) { // baseWidth == srcWidth
-                basePels1 = unpack16bitInternals(base.samples[containerOffsetBase + x + 2*y*containerStrideBase]);
+                basePels1 = unpack16bitInternals(base.samples[containerOffsetBase + x + row1Y*containerStrideBase]);
 
-                basePels2 = unpack16bitInternals(base.samples[containerOffsetBase + x + (2*y + 1)*containerStrideBase]);
+                basePels2 = unpack16bitInternals(base.samples[containerOffsetBase + x + row2Y*containerStrideBase]);
             }
             else {
-                const ivec2 basePels1Left = unpack16bitInternals(base.samples[containerOffsetBase + x - 1 + 2*y*containerStrideBase]);
-                const ivec2 basePels1Right = unpack16bitInternals(base.samples[containerOffsetBase + x + 2*y*containerStrideBase]);
+                const ivec2 basePels1Left = unpack16bitInternals(base.samples[containerOffsetBase + x - 1 + row1Y*containerStrideBase]);
+                const ivec2 basePels1Right = unpack16bitInternals(base.samples[containerOffsetBase + x + row1Y*containerStrideBase]);
                 basePels1 = ivec2(basePels1Left.y, basePels1Right.x);
 
-                const ivec2 basePels2Left = unpack16bitInternals(base.samples[containerOffsetBase + x - 1 + (2*y + 1)*containerStrideBase]);
-                const ivec2 basePels2Right = unpack16bitInternals(base.samples[containerOffsetBase + x + (2*y + 1)*containerStrideBase]);
+                const ivec2 basePels2Left = unpack16bitInternals(base.samples[containerOffsetBase + x - 1 + row2Y*containerStrideBase]);
+                const ivec2 basePels2Right = unpack16bitInternals(base.samples[containerOffsetBase + x + row2Y*containerStrideBase]);
                 basePels2 = ivec2(basePels2Left.y, basePels2Right.x);
             }
             adjust.x = basePels1.x - ((dstRow1.x + dstRow1.y + 1) >> 1);
@@ -165,15 +203,17 @@ void main()
             adjust.w = adjust.y;
         }
 
-        dst.samples[containerOffsetOut + containerStrideOut - 2 + 2 * y * containerStrideOut] = pack16bitInternals(saturateS16(dstRow1.xy + adjust.x));
-        dst.samples[containerOffsetOut + containerStrideOut - 1 + 2 * y * containerStrideOut] = pack16bitInternals(saturateS16(dstRow1.zw + adjust.y));
-        dst.samples[containerOffsetOut + containerStrideOut - 2 + (2 * y + 1) * containerStrideOut] = pack16bitInternals(saturateS16(dstRow2.xy + adjust.z));
-        dst.samples[containerOffsetOut + containerStrideOut - 1 + (2 * y + 1) * containerStrideOut] = pack16bitInternals(saturateS16(dstRow2.zw + adjust.w));
-    } else if (x < containerStrideIn - 1) { // middle pixels in fours performed for two rows.
+        dst.samples[containerOffsetOut + lastDstCol - 1 + row1Y * containerStrideOut] = pack16bitInternals(saturateS16(dstRow1.xy + adjust.x));
+        dst.samples[containerOffsetOut + lastDstCol + row1Y * containerStrideOut] = pack16bitInternals(saturateS16(dstRow1.zw + adjust.y));
+        if (hasSecondRow) {
+            dst.samples[containerOffsetOut + lastDstCol - 1 + row2Y * containerStrideOut] = pack16bitInternals(saturateS16(dstRow2.xy + adjust.z));
+            dst.samples[containerOffsetOut + lastDstCol + row2Y * containerStrideOut] = pack16bitInternals(saturateS16(dstRow2.zw + adjust.w));
+        }
+    } else if (x < lastSrcCol) { // middle pixels in fours performed for two rows.
         // 1st row
-        const ivec2 firstRow1 = unpack16bitInternals(src.samples[containerOffsetIn + x - 1 + 2 * y * containerStrideIn]);
-        const ivec2 secondRow1 = unpack16bitInternals(src.samples[containerOffsetIn + x + 2 * y * containerStrideIn]);
-        const ivec2 thirdRow1 = unpack16bitInternals(src.samples[containerOffsetIn + x + 1 + 2 * y * containerStrideIn]);
+        const ivec2 firstRow1 = unpack16bitInternals(src.samples[containerOffsetIn + x - 1 + row1Y * containerStrideIn]);
+        const ivec2 secondRow1 = unpack16bitInternals(src.samples[containerOffsetIn + x + row1Y * containerStrideIn]);
+        const ivec2 thirdRow1 = unpack16bitInternals(src.samples[containerOffsetIn + x + 1 + row1Y * containerStrideIn]);
 
         ivec4 dstRow1;
         dstRow1.x = clamp_s15(ds + kernel[3] * firstRow1.x + kernel[2] * firstRow1.y + kernel[1] * secondRow1.x + kernel[0] * secondRow1.y);
@@ -182,9 +222,9 @@ void main()
         dstRow1.w = clamp_s15(ds + kernel[0] * secondRow1.x + kernel[1] * secondRow1.y + kernel[2] * thirdRow1.x + kernel[3] * thirdRow1.y);
 
         // 2nd row
-        const ivec2 firstRow2 = unpack16bitInternals(src.samples[containerOffsetIn + x - 1 + (2 * y + 1) * containerStrideIn]);
-        const ivec2 secondRow2 = unpack16bitInternals(src.samples[containerOffsetIn + x + (2 * y + 1) * containerStrideIn]);
-        const ivec2 thirdRow2 = unpack16bitInternals(src.samples[containerOffsetIn + x + 1 + (2 * y + 1) * containerStrideIn]);
+        const ivec2 firstRow2 = unpack16bitInternals(src.samples[containerOffsetIn + x - 1 + row2Y * containerStrideIn]);
+        const ivec2 secondRow2 = unpack16bitInternals(src.samples[containerOffsetIn + x + row2Y * containerStrideIn]);
+        const ivec2 thirdRow2 = unpack16bitInternals(src.samples[containerOffsetIn + x + 1 + row2Y * containerStrideIn]);
 
         ivec4 dstRow2;
         dstRow2.x = clamp_s15(ds + kernel[3] * firstRow2.x + kernel[2] * firstRow2.y + kernel[1] * secondRow2.x + kernel[0] * secondRow2.y);
@@ -194,11 +234,11 @@ void main()
 
         // PA
         if(pa == 1) {
-            const ivec2 basePels1 = unpack16bitInternals(base.samples[containerOffsetBase + x + 2*y*containerStrideBase]);
+            const ivec2 basePels1 = unpack16bitInternals(base.samples[containerOffsetBase + x + row1Y*containerStrideBase]);
             adjust.x = basePels1.x - ((dstRow1.x + dstRow1.y + 1) >> 1);
             adjust.y = basePels1.y - ((dstRow1.z + dstRow1.w + 1) >> 1);
 
-            const ivec2 basePels2 = unpack16bitInternals(base.samples[containerOffsetBase + x + (2*y + 1)*containerStrideBase]);
+            const ivec2 basePels2 = unpack16bitInternals(base.samples[containerOffsetBase + x + row2Y*containerStrideBase]);
             adjust.z = basePels2.x - ((dstRow2.x + dstRow2.y + 1) >> 1);
             adjust.w = basePels2.y - ((dstRow2.z + dstRow2.w + 1) >> 1);
         }
@@ -210,11 +250,15 @@ void main()
             adjust.w = adjust.y;
         }
 
-        dst.samples[containerOffsetOut + 2 * x + containerStrideOut * 2 * y] = pack16bitInternals(saturateS16(dstRow1.xy + adjust.x));
-        dst.samples[containerOffsetOut + 2 * x + containerStrideOut * (2 * y + 1)] = pack16bitInternals(saturateS16(dstRow2.xy + adjust.z));
+        dst.samples[containerOffsetOut + 2 * x + containerStrideOut * row1Y] = pack16bitInternals(saturateS16(dstRow1.xy + adjust.x));
+        if (hasSecondRow) {
+            dst.samples[containerOffsetOut + 2 * x + containerStrideOut * row2Y] = pack16bitInternals(saturateS16(dstRow2.xy + adjust.z));
+        }
         if(2 * x + 3 < srcWidth) {
-            dst.samples[containerOffsetOut + 2 * x + 1 + containerStrideOut * 2 * y] = pack16bitInternals(saturateS16(dstRow1.zw + adjust.y));
-            dst.samples[containerOffsetOut + 2 * x + 1 + containerStrideOut * (2 * y + 1)] = pack16bitInternals(saturateS16(dstRow2.zw + adjust.w));
+            dst.samples[containerOffsetOut + 2 * x + 1 + containerStrideOut * row1Y] = pack16bitInternals(saturateS16(dstRow1.zw + adjust.y));
+            if (hasSecondRow) {
+                dst.samples[containerOffsetOut + 2 * x + 1 + containerStrideOut * row2Y] = pack16bitInternals(saturateS16(dstRow2.zw + adjust.w));
+            }
         }
     }
 }

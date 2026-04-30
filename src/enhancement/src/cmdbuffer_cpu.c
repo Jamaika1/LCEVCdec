@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2022-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2022-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -219,16 +219,16 @@ bool ldeCmdBufferCpuAppend(LdeCmdBufferCpu* cmdBuffer, LdeCmdBufferCpuCmd comman
     LdeCmdBufferCpuStorage* dataStore = &cmdBuffer->data;
 
     if (jump < CBCKBigJumpSignal) {
-        *dataStore->currentCommand = command | (uint8_t)jump;
+        *dataStore->currentCommand = (uint8_t)command | (uint8_t)jump;
         dataStore->currentCommand++;
     } else if (jump < CBCKExtraBigJump) {
-        dataStore->currentCommand[0] = command | (uint8_t)CBCKBigJumpSignal;
+        dataStore->currentCommand[0] = (uint8_t)command | (uint8_t)CBCKBigJumpSignal;
         dataStore->currentCommand[1] = jump & 0xff;
         dataStore->currentCommand[2] = (jump >> 8) & 0xff;
         dataStore->currentCommand += 3;
     } else {
         assert(jump < 0x1000000);
-        dataStore->currentCommand[0] = command | (uint8_t)CBCKExtraBigJumpSignal;
+        dataStore->currentCommand[0] = (uint8_t)command | (uint8_t)CBCKExtraBigJumpSignal;
         dataStore->currentCommand[1] = jump & 0xff;
         dataStore->currentCommand[2] = (jump >> 8) & 0xff;
         dataStore->currentCommand[3] = (jump >> 16) & 0xff;

@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2025-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -73,12 +73,6 @@ public:
         return true;
     }
 
-    bool setLogLevels(const std::vector<int32_t>& arr)
-    {
-        VNLogError("Diagnostics does not support separate log levels.");
-        return false;
-    }
-
 private:
     bool m_logStdout = false;
     std::string m_traceFile;
@@ -89,7 +83,6 @@ static const common::ConfigMemberMap<CommonConfiguration> kConfigMemberMap = {
     {"disable_simd", makeBinding(&CommonConfiguration::setDisableSIMD)},
     {"log_level", makeBinding(&CommonConfiguration::setLogLevel)},
     {"trace_file", makeBinding(&CommonConfiguration::setTraceFile)},
-    {"log_levels", makeBinding(&CommonConfiguration::setLogLevels)},
 };
 //
 //

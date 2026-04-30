@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2023-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2023-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -306,6 +306,10 @@ static constexpr EnumMapArr<LCEVC_Event, LCEVC_EventCount> kEventTable{
     "BasePictureDone",
     LCEVC_OutputPictureDone,
     "OutputPictureDone",
+    LCEVC_CanSendRender,
+    "CanSendRender",
+    LCEVC_CanReceiveRender,
+    "CanReceiveRender",
 };
 static_assert(!kEventTable.isMissingEnums(), "kEventTable is missing a string for an event type.");
 

@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2024-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2024-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -12,157 +12,506 @@
  * ANY ONWARD DISTRIBUTION, WHETHER STAND-ALONE OR AS PART OF ANY OTHER PROJECT, REMAINS SUBJECT TO
  * THE EXCLUSION OF PATENT LICENSES PROVISION OF THE BSD-3-CLAUSE-CLEAR LICENSE. */
 
+#include "buffer_vulkan.h"
+#include "picture_vulkan.h"
+#include "pipeline_vulkan.h"
 #include "test_utility.h"
-
-#include <buffer_vulkan.h>
-#include <fmt/core.h>
-#include <gtest/gtest.h>
+//
 #include <LCEVC/common/acceleration.h>
-#include <LCEVC/common/cpp_tools.h>
-#include <LCEVC/common/diagnostics.h>
+#include <LCEVC/pipeline/buffer_alignment.h>
 #include <LCEVC/pipeline/event_sink.h>
+#include <LCEVC/pipeline/picture_layout.h>
 #include <LCEVC/pipeline/pipeline.h>
 #include <LCEVC/pipeline/types.h>
 #include <LCEVC/pipeline_vulkan/create_pipeline.h>
 #include <LCEVC/pipeline_vulkan/types_vulkan.h>
-#include <picture_vulkan.h>
-#include <pipeline_vulkan.h>
-
+//
+#include <fmt/core.h>
+#include <gtest/gtest.h>
+//
+#include <cstring>
 #include <memory>
+#include <random>
+#include <sstream>
 #include <vector>
+
+// CPU scalar convert function - declared in pixel_processing but not in a public header.
+extern "C"
+{
+typedef struct LdpPicturePlaneDesc LdpPicturePlaneDesc;
+
+typedef struct LdppConvertArgs
+{
+    const LdpPicturePlaneDesc* src;
+    const LdpPicturePlaneDesc* dst;
+    uint32_t minWidth;
+    uint32_t offset;
+    uint32_t count;
+} LdppConvertArgs;
+
+typedef void (*PlaneConvertFunction)(const LdppConvertArgs* args);
+
+PlaneConvertFunction planeConvertGetFunctionScalar(LdpFixedPoint srcFP, LdpFixedPoint dstFP,
+                                                   uint32_t planeIndex, bool isNV12);
+}
 
 using namespace lcevc_dec::pipeline;
 using namespace lcevc_dec::pipeline_vulkan;
 
-class PipelineVulkanConversionFixture : public testing::Test
+// -----------------------------------------------------------------------------
+
+namespace {
+
+// Resolutions to test. For 420 chroma, both dimensions must be even.
+// Chosen to exercise: workgroup-alignment boundaries, small sizes, non-power-of-2,
+// and typical production resolutions.
+struct Resolution
 {
-public:
-    PipelineVulkanConversionFixture() noexcept {};
+    uint32_t width;
+    uint32_t height;
 
-    std::unique_ptr<Pipeline> mPipeline;
+    std::string toString() const { return std::to_string(width) + "x" + std::to_string(height); }
+};
 
-    void SetUp() override
-    {
-        buildPipeline();
+constexpr Resolution kResolutions[] = {
+    {960, 540},   // Standard qHD
+    {1920, 1080}, // Full HD
+    {128, 128},   // Small power-of-2
+    {66, 34},     // Small non-aligned, even
+    {254, 130},   // Non-power-of-2, not workgroup-aligned
+    {2, 2},       // Minimum valid 420 size
+};
 
-        auto* pipeline = static_cast<PipelineVulkan*>(mPipeline.get());
-        if (!pipeline) {
-            GTEST_SKIP() << "Skipping test due to lack of Vulkan support";
+// Map a bit depth to the corresponding unsigned and signed fixed-point types.
+LdpFixedPoint unsignedFPFromBitDepth(uint8_t bitDepth)
+{
+    switch (bitDepth) {
+        case 8: return LdpFPU8;
+        case 10: return LdpFPU10;
+        case 12: return LdpFPU12;
+        case 14: return LdpFPU14;
+        default: return LdpFPU8;
+    }
+}
+
+LdpFixedPoint signedFPFromBitDepth(uint8_t bitDepth)
+{
+    switch (bitDepth) {
+        case 8: return LdpFPS8;
+        case 10: return LdpFPS10;
+        case 12: return LdpFPS12;
+        case 14: return LdpFPS14;
+        default: return LdpFPS8;
+    }
+}
+
+bool isNV12Format(LdpColorFormat format)
+{
+    return format == LdpColorFormatNV12_8 || format == LdpColorFormatNV21_8;
+}
+
+// Fill a buffer with random values appropriate for the given fixed-point type.
+void fillBufferWithNoise(uint8_t* data, uint32_t sizeBytes, LdpFixedPoint fp, std::mt19937& rng)
+{
+    if (fp == LdpFPU8) {
+        std::uniform_int_distribution<int> dist(0, 255);
+        for (uint32_t i = 0; i < sizeBytes; ++i) {
+            data[i] = static_cast<uint8_t>(dist(rng));
+        }
+    } else if (fp == LdpFPU10) {
+        std::uniform_int_distribution<int> dist(0, 1023);
+        auto* data16 = reinterpret_cast<uint16_t*>(data);
+        for (uint32_t i = 0; i < sizeBytes / 2; ++i) {
+            data16[i] = static_cast<uint16_t>(dist(rng));
+        }
+    } else if (fp == LdpFPU12) {
+        std::uniform_int_distribution<int> dist(0, 4095);
+        auto* data16 = reinterpret_cast<uint16_t*>(data);
+        for (uint32_t i = 0; i < sizeBytes / 2; ++i) {
+            data16[i] = static_cast<uint16_t>(dist(rng));
+        }
+    } else if (fp == LdpFPU14) {
+        std::uniform_int_distribution<int> dist(0, 16383);
+        auto* data16 = reinterpret_cast<uint16_t*>(data);
+        for (uint32_t i = 0; i < sizeBytes / 2; ++i) {
+            data16[i] = static_cast<uint16_t>(dist(rng));
+        }
+    } else {
+        // Signed types (S8.7, S10.5, S12.3, S14.1) - all stored as int16_t in range [-16384, 16383]
+        std::uniform_int_distribution<int> dist(-16384, 16383);
+        auto* data16 = reinterpret_cast<int16_t*>(data);
+        for (uint32_t i = 0; i < sizeBytes / 2; ++i) {
+            data16[i] = static_cast<int16_t>(dist(rng));
         }
     }
+}
 
-    void TearDown() override {}
+} // namespace
 
-    void buildPipeline()
+// -----------------------------------------------------------------------------
+
+struct ConversionTestParams
+{
+    LdpColorFormat externalFormat; // The non-internal format (e.g. I420_8, NV12_8)
+    bool toInternal;               // Direction of conversion
+    uint8_t bitDepth;              // Bit depth of the external picture
+    LdeChroma chroma;
+    Resolution resolution;
+
+    // For test naming
+    std::string name() const
+    {
+        std::stringstream ss;
+        ss << (toInternal ? "ToInternal" : "FromInternal") << "_" << static_cast<int>(bitDepth) << "bit";
+        if (isNV12Format(externalFormat)) {
+            ss << "_NV12";
+        }
+        switch (chroma) {
+            case LdeChroma::CT420: ss << "_420"; break;
+            case LdeChroma::CT422: ss << "_422"; break;
+            case LdeChroma::CT444: ss << "_444"; break;
+            case LdeChroma::CTMonochrome: ss << "_Mono"; break;
+            default: break;
+        }
+        ss << "_" << resolution.toString();
+        return ss.str();
+    }
+};
+
+// Helper for printing a meaningful name for the test parameter
+std::string ConversionTestName(const testing::TestParamInfo<ConversionTestParams>& info)
+{
+    return info.param.name();
+}
+
+// -----------------------------------------------------------------------------
+
+class PipelineVulkanConversionTest : public testing::TestWithParam<ConversionTestParams>
+{
+public:
+    void SetUp() override
     {
         auto* pipelineBuilder =
             new lcevc_dec::pipeline_vulkan::PipelineBuilderVulkan(ldcMemoryAllocatorMalloc());
         ASSERT_TRUE(pipelineBuilder);
 
         EventSink* eventSink = nullptr;
-        mPipeline = pipelineBuilder->finish(eventSink);
-
+        m_pipeline = pipelineBuilder->finish(eventSink);
         delete pipelineBuilder;
+
+        m_vulkanPipeline = static_cast<PipelineVulkan*>(m_pipeline.get());
+        if (!m_vulkanPipeline) {
+            GTEST_SKIP() << "Skipping test due to lack of Vulkan support";
+        }
+
+        // Ensure CPU scalar path is available
+        ldcAccelerationInitialize(false);
     }
 
-    template <typename T>
-    void testConversionFromGenerated(uint32_t width, uint32_t height, LdpColorFormat srcColor,
-                                     LdpColorFormat dstColor, bool toInternal,
-                                     const std::string& expectedHash) const
+    void TearDown() override {}
+
+protected:
+    // Determine the internal color format that matches the chroma type.
+    static LdpColorFormat internalFormatForChroma(LdeChroma chroma)
     {
-        const auto data = vulkan_test_util::generateYUV420FromFixedSeed<T>(width, height);
-        testConversion(data, width, height, srcColor, dstColor, toInternal, expectedHash);
+        switch (chroma) {
+            case LdeChroma::CTMonochrome: return LdpColorFormatGRAY_16_LE;
+            case LdeChroma::CT420: return LdpColorFormatI420_16_LE;
+            case LdeChroma::CT422: return LdpColorFormatI422_16_LE;
+            case LdeChroma::CT444: return LdpColorFormatI444_16_LE;
+            default: return LdpColorFormatI420_16_LE;
+        }
     }
 
-    void testConversionWithAsset(const std::string& filename, uint32_t width, uint32_t height,
-                                 LdpColorFormat srcColor, LdpColorFormat dstColor, bool toInternal,
-                                 const std::string& expectedHash) const
+    // Run the GPU conversion and return the dst buffer contents.
+    std::vector<uint8_t> runGPUConversion(const uint8_t* srcData, uint32_t srcDataSize,
+                                          LdpColorFormat srcFormat, LdpColorFormat dstFormat,
+                                          uint32_t width, uint32_t height, bool toInternal,
+                                          uint8_t bitDepth, LdeChroma chroma) const
     {
-        const auto data = vulkan_test_util::readRaw(filename.c_str());
-        testConversion(data, width, height, srcColor, dstColor, toInternal, expectedHash);
-    }
-
-    template <typename T>
-    void testConversion(T data, uint32_t width, uint32_t height, LdpColorFormat srcColor,
-                        LdpColorFormat dstColor, bool toInternal, const std::string& expectedHash) const
-    {
-        auto* pipeline = static_cast<PipelineVulkan*>(mPipeline.get());
-
-        const LdpPictureDesc srcDesc{width, height, srcColor};
-        auto* src = static_cast<PictureVulkan*>(pipeline->allocPicture(srcDesc));
+        auto* src =
+            vulkan_test_util::allocateTestPictureAndBuffer(m_vulkanPipeline, srcFormat, width, height);
         auto* srcBuffer = static_cast<BufferVulkan*>(src->buffer);
-        std::memcpy(srcBuffer->ptr(), data.data(), data.size() * sizeof(data[0]));
+        srcBuffer->copyIn(0, srcData, srcDataSize);
 
-        const LdpPictureDesc dstDesc{width, height, dstColor};
-        auto* dst = static_cast<PictureVulkan*>(pipeline->allocPicture(dstDesc));
+        auto* dst =
+            vulkan_test_util::allocateTestPictureAndBuffer(m_vulkanPipeline, dstFormat, width, height);
         auto* dstBuffer = static_cast<BufferVulkan*>(dst->buffer);
 
         VulkanConversionArgs args{};
         args.src = src;
         args.dst = dst;
         args.toInternal = toInternal;
-        args.chroma = LdeChroma::CT420;
+        args.bitDepth = bitDepth;
+        args.chroma = chroma;
 
-        EXPECT_TRUE(pipeline->getCore().conversion(&args));
+        auto& compute = m_vulkanPipeline->backend().compute();
+        VulkanFrameContext* frameContext = compute.acquireFrameContext(nullptr);
+        EXPECT_NE(frameContext, nullptr);
+        args.context = frameContext;
+        compute.beginCompute(frameContext);
+        EXPECT_TRUE(m_vulkanPipeline->backend().conversion(&args));
+        compute.endCompute(frameContext);
+        m_vulkanPipeline->addCompletionContext(frameContext);
+        m_vulkanPipeline->waitCompletionContextIdle();
 
-        const std::string hash = vulkan_test_util::hashMd5(dstBuffer->ptr(), dstBuffer->size());
-        EXPECT_EQ(hash, expectedHash);
+        // Read back result
+        uint32_t dstSize = dstBuffer->size();
+        std::vector<uint8_t> result(dstSize);
+        dstBuffer->copyOut(result.data(), 0, dstSize);
+
+        m_vulkanPipeline->freePicture(src);
+        m_vulkanPipeline->freePicture(dst);
+
+        return result;
     }
+
+    // Run the CPU scalar conversion per-plane, writing into the provided dst buffer.
+    // srcLayout and dstLayout must match the GPU picture layouts.
+    void runCPUConversion(const uint8_t* srcData, uint8_t* dstData, const LdpPictureLayout& srcLayout,
+                          const LdpPictureLayout& dstLayout, bool toInternal, uint8_t bitDepth) const
+    {
+        const LdpFixedPoint unsignedFP = unsignedFPFromBitDepth(bitDepth);
+        const LdpFixedPoint signedFP = signedFPFromBitDepth(bitDepth);
+
+        const LdpFixedPoint srcFP = toInternal ? unsignedFP : signedFP;
+        const LdpFixedPoint dstFP = toInternal ? signedFP : unsignedFP;
+        const LdpColorFormat srcFormat = ldpPictureLayoutFormat(&srcLayout);
+        const LdpColorFormat dstFormat = ldpPictureLayoutFormat(&dstLayout);
+        const bool srcIsNV12 = isNV12Format(srcFormat);
+        const bool dstIsNV12 = isNV12Format(dstFormat);
+        const bool nv12 = srcIsNV12 || dstIsNV12;
+
+        // For NV12 conversions, we always have 3 color components (Y, U, V)
+        // but the NV12 side has only 2 memory planes (Y + interleaved UV).
+        // We iterate over the 3 color components.
+        if (!nv12) {
+            // Non-NV12: simple per-plane conversion
+            const uint8_t numPlanes = ldpPictureLayoutPlanes(&srcLayout);
+            for (uint8_t plane = 0; plane < numPlanes; ++plane) {
+                const uint32_t planeWidth = ldpPictureLayoutPlaneWidth(&srcLayout, plane);
+                const uint32_t planeHeight = ldpPictureLayoutPlaneHeight(&srcLayout, plane);
+
+                PlaneConvertFunction func = planeConvertGetFunctionScalar(srcFP, dstFP, plane, false);
+                if (!func) {
+                    continue;
+                }
+
+                LdpPicturePlaneDesc srcPlaneDesc{};
+                srcPlaneDesc.firstSample = const_cast<uint8_t*>(srcData) + srcLayout.planeOffsets[plane];
+                srcPlaneDesc.rowByteStride = srcLayout.rowStrides[plane];
+
+                LdpPicturePlaneDesc dstPlaneDesc{};
+                dstPlaneDesc.firstSample = dstData + dstLayout.planeOffsets[plane];
+                dstPlaneDesc.rowByteStride = dstLayout.rowStrides[plane];
+
+                LdppConvertArgs convertArgs{};
+                convertArgs.src = &srcPlaneDesc;
+                convertArgs.dst = &dstPlaneDesc;
+                convertArgs.minWidth = planeWidth;
+                convertArgs.offset = 0;
+                convertArgs.count = planeHeight;
+                func(&convertArgs);
+            }
+        } else {
+            // NV12 conversion: handle Y plane normally, then U and V components
+            // which are interleaved on the NV12 side.
+            //
+            // The planar (I420) side has 3 planes: Y, U, V
+            // The NV12 side has 2 planes: Y, UV (interleaved)
+            const LdpPictureLayout& planarLayout = toInternal ? dstLayout : srcLayout;
+            const LdpPictureLayout& nv12Layout = toInternal ? srcLayout : dstLayout;
+
+            // Y plane (component 0) - identical to non-NV12
+            {
+                const uint32_t planeWidth = planarLayout.width;
+                const uint32_t planeHeight = planarLayout.height;
+
+                PlaneConvertFunction func = planeConvertGetFunctionScalar(srcFP, dstFP, 0, false);
+                if (func) {
+                    LdpPicturePlaneDesc srcPlaneDesc{};
+                    srcPlaneDesc.firstSample = const_cast<uint8_t*>(srcData) + srcLayout.planeOffsets[0];
+                    srcPlaneDesc.rowByteStride = srcLayout.rowStrides[0];
+
+                    LdpPicturePlaneDesc dstPlaneDesc{};
+                    dstPlaneDesc.firstSample = dstData + dstLayout.planeOffsets[0];
+                    dstPlaneDesc.rowByteStride = dstLayout.rowStrides[0];
+
+                    LdppConvertArgs convertArgs{};
+                    convertArgs.src = &srcPlaneDesc;
+                    convertArgs.dst = &dstPlaneDesc;
+                    convertArgs.minWidth = planeWidth;
+                    convertArgs.offset = 0;
+                    convertArgs.count = planeHeight;
+                    func(&convertArgs);
+                }
+            }
+
+            // U and V components (planes 1 and 2 in I420, interleaved in NV12 plane 1)
+            const uint32_t chromaWidth = planarLayout.width / 2;
+            const uint32_t chromaHeight = planarLayout.height / 2;
+
+            for (uint8_t comp = 0; comp < 2; ++comp) {
+                // comp 0 = U, comp 1 = V
+                const uint8_t planarPlane = comp + 1; // plane 1=U, plane 2=V in I420
+                const uint8_t componentOffset = comp; // byte offset within UV pair in NV12
+
+                // The NV12 scalar function (copyU8ToS16Nv12 / copyS16ToU8Nv12) handles
+                // the x2 stride internally (srcPixel += 2 or dstPixel += 2).
+                // We just need to point firstSample at the right component.
+                PlaneConvertFunction func = planeConvertGetFunctionScalar(srcFP, dstFP, planarPlane, true);
+                if (!func) {
+                    continue;
+                }
+
+                LdpPicturePlaneDesc srcPlaneDesc{};
+                LdpPicturePlaneDesc dstPlaneDesc{};
+
+                if (toInternal) {
+                    // NV12 → I420: src is NV12 (interleaved), dst is planar
+                    srcPlaneDesc.firstSample =
+                        const_cast<uint8_t*>(srcData) + nv12Layout.planeOffsets[1] + componentOffset;
+                    srcPlaneDesc.rowByteStride = nv12Layout.rowStrides[1];
+
+                    dstPlaneDesc.firstSample = dstData + planarLayout.planeOffsets[planarPlane];
+                    dstPlaneDesc.rowByteStride = planarLayout.rowStrides[planarPlane];
+                } else {
+                    // I420 → NV12: src is planar, dst is NV12 (interleaved)
+                    srcPlaneDesc.firstSample =
+                        const_cast<uint8_t*>(srcData) + planarLayout.planeOffsets[planarPlane];
+                    srcPlaneDesc.rowByteStride = planarLayout.rowStrides[planarPlane];
+
+                    dstPlaneDesc.firstSample = dstData + nv12Layout.planeOffsets[1] + componentOffset;
+                    dstPlaneDesc.rowByteStride = nv12Layout.rowStrides[1];
+                }
+
+                LdppConvertArgs convertArgs{};
+                convertArgs.src = &srcPlaneDesc;
+                convertArgs.dst = &dstPlaneDesc;
+                convertArgs.minWidth = chromaWidth;
+                convertArgs.offset = 0;
+                convertArgs.count = chromaHeight;
+                func(&convertArgs);
+            }
+        }
+    }
+
+    std::unique_ptr<Pipeline> m_pipeline;
+    PipelineVulkan* m_vulkanPipeline{};
 };
 
-enum class TestType
+// -----------------------------------------------------------------------------
+
+TEST_P(PipelineVulkanConversionTest, CompareGPUvsCPUScalar)
 {
-    Uint8,
-    Uint16,
-};
+    const auto& params = GetParam();
 
-struct ConversionTestParams
-{
-    int width;
-    int height;
-    LdpColorFormat srcFormat;
-    LdpColorFormat dstFormat;
-    bool toInternal;
-    TestType type;
-    std::string expectedHash;
-};
+    const LdpColorFormat internalFormat = internalFormatForChroma(params.chroma);
+    const LdpColorFormat srcFormat = params.toInternal ? params.externalFormat : internalFormat;
+    const LdpColorFormat dstFormat = params.toInternal ? internalFormat : params.externalFormat;
+    const uint32_t width = params.resolution.width;
+    const uint32_t height = params.resolution.height;
 
-class PipelineVulkanConversionParameterizedFixture
-    : public PipelineVulkanConversionFixture
-    , public ::testing::WithParamInterface<ConversionTestParams>
-{};
+    // Create layouts matching GPU picture layouts to know strides and offsets.
+    // The GPU uses allocateTestPictureAndBuffer which calls ldpDefaultPictureDesc + setDescAndBind.
+    // We replicate the same layout here for CPU-side processing.
+    LdpPictureLayout srcLayout{};
+    LdpPictureLayout dstLayout{};
+    ldpPictureLayoutInitialize(&srcLayout, srcFormat, width, height, kBufferRowAlignment);
+    ldpPictureLayoutInitialize(&dstLayout, dstFormat, width, height, kBufferRowAlignment);
 
-TEST_P(PipelineVulkanConversionParameterizedFixture, ConvertToInternal)
-{
-    auto params = GetParam();
+    const uint32_t srcSize = ldpPictureLayoutSize(&srcLayout);
+    const uint32_t dstSize = ldpPictureLayoutSize(&dstLayout);
 
-    switch (params.type) {
-        case TestType::Uint8:
-            testConversionFromGenerated<uint8_t>(params.width, params.height, params.srcFormat,
-                                                 params.dstFormat, params.toInternal, params.expectedHash);
-            break;
-        case TestType::Uint16:
-            testConversionFromGenerated<uint16_t>(params.width, params.height, params.srcFormat,
-                                                  params.dstFormat, params.toInternal,
-                                                  params.expectedHash);
-            break;
+    // Generate random source data
+    const LdpFixedPoint srcFP = params.toInternal ? unsignedFPFromBitDepth(params.bitDepth)
+                                                  : signedFPFromBitDepth(params.bitDepth);
+    std::mt19937 rng(123456);
+    std::vector<uint8_t> srcData(srcSize);
+    fillBufferWithNoise(srcData.data(), srcSize, srcFP, rng);
+
+    // Run GPU conversion
+    std::vector<uint8_t> gpuDst =
+        runGPUConversion(srcData.data(), srcSize, srcFormat, dstFormat, width, height,
+                         params.toInternal, params.bitDepth, params.chroma);
+
+    // Run CPU scalar conversion
+    std::vector<uint8_t> cpuDst(dstSize, 0);
+    runCPUConversion(srcData.data(), cpuDst.data(), srcLayout, dstLayout, params.toInternal, params.bitDepth);
+
+    // Compare per-plane (only active region, ignoring stride padding)
+    const uint8_t numPlanes = ldpPictureLayoutPlanes(&dstLayout);
+    for (uint8_t plane = 0; plane < numPlanes; ++plane) {
+        const uint32_t planeWidth = ldpPictureLayoutPlaneWidth(&dstLayout, plane);
+        const uint32_t planeHeight = ldpPictureLayoutPlaneHeight(&dstLayout, plane);
+        const uint32_t sampleSize = ldpPictureLayoutSampleSize(&dstLayout);
+        const uint32_t interleave = ldpPictureLayoutPlaneInterleave(&dstLayout, plane);
+        const uint32_t rowBytes = planeWidth * sampleSize * interleave;
+        const uint32_t stride = dstLayout.rowStrides[plane];
+        const uint32_t offset = dstLayout.planeOffsets[plane];
+
+        for (uint32_t y = 0; y < planeHeight; ++y) {
+            const uint8_t* gpuRow = gpuDst.data() + offset + y * stride;
+            const uint8_t* cpuRow = cpuDst.data() + offset + y * stride;
+            if (memcmp(gpuRow, cpuRow, rowBytes) != 0) {
+                // Find first mismatch for diagnostics
+                for (uint32_t x = 0; x < rowBytes; ++x) {
+                    if (gpuRow[x] != cpuRow[x]) {
+                        FAIL() << fmt::format("Mismatch at plane {}, row {}, byte {} ({}x{}): "
+                                              "GPU=0x{:02x} CPU=0x{:02x}",
+                                              plane, y, x, width, height, gpuRow[x], cpuRow[x]);
+                    }
+                }
+            }
+        }
     }
 }
 
-// TODO - more colour formats
-INSTANTIATE_TEST_SUITE_P(
-    ConversionTests, PipelineVulkanConversionParameterizedFixture,
-    ::testing::Values(
-        ConversionTestParams{960, 540, LdpColorFormatI420_8, LdpColorFormatI420_16_LE, true,
-                             TestType::Uint8, "634ca3ac8ef6efd65226a45a38d32fd3"}, /* Convert8bitToInternal */
-        ConversionTestParams{960, 540, LdpColorFormatI420_16_LE, LdpColorFormatI420_16_LE, true,
-                             TestType::Uint16, "a95b2d486192ce3120c8fac0c15bcfd6"}, /* Convert10bitToInternal */
-        ConversionTestParams{960, 540, LdpColorFormatNV12_8, LdpColorFormatI420_16_LE, true,
-                             TestType::Uint8, "88b52dbc18eb4490bb8d8033189fd557"}, /* ConvertNv12ToInternal */
-        ConversionTestParams{960, 540, LdpColorFormatI420_16_LE, LdpColorFormatI420_8, false, TestType::Uint16,
-                             "76ad479964c5d14c1f36625cd2dbde74"}, /* ConvertFromInternalTo8bit */
-        ConversionTestParams{960, 540, LdpColorFormatI420_16_LE, LdpColorFormatI420_16_LE, false,
-                             TestType::Uint16, "591aa7b8cfbb7f2a0df4e39aed363818"}, /* ConvertFromInternalTo10bit */
-        ConversionTestParams{960, 540, LdpColorFormatI420_16_LE, LdpColorFormatNV12_8, false, TestType::Uint16,
-                             "e1041a891fb891a7d25fea57b1452ef1"} /* ConvertFromInternalToNv12 */
-        ));
+// -----------------------------------------------------------------------------
+
+// Build parameterized test values: all format/direction combos × all resolutions.
+namespace {
+
+std::vector<ConversionTestParams> generateI420Params()
+{
+    struct FormatEntry
+    {
+        LdpColorFormat format;
+        uint8_t bitDepth;
+    };
+    const FormatEntry formats[] = {
+        {LdpColorFormatI420_8, 8},
+        {LdpColorFormatI420_10_LE, 10},
+        {LdpColorFormatI420_12_LE, 12},
+        {LdpColorFormatI420_14_LE, 14},
+    };
+
+    std::vector<ConversionTestParams> params;
+    for (const auto& res : kResolutions) {
+        for (const auto& fmt : formats) {
+            params.push_back({fmt.format, true, fmt.bitDepth, LdeChroma::CT420, res});
+            params.push_back({fmt.format, false, fmt.bitDepth, LdeChroma::CT420, res});
+        }
+    }
+    return params;
+}
+
+std::vector<ConversionTestParams> generateNV12Params()
+{
+    std::vector<ConversionTestParams> params;
+    for (const auto& res : kResolutions) {
+        params.push_back({LdpColorFormatNV12_8, true, 8, LdeChroma::CT420, res});
+        params.push_back({LdpColorFormatNV12_8, false, 8, LdeChroma::CT420, res});
+    }
+    return params;
+}
+
+} // namespace
+
+// I420 conversions at various bit depths and resolutions
+INSTANTIATE_TEST_SUITE_P(I420Conversions, PipelineVulkanConversionTest,
+                         testing::ValuesIn(generateI420Params()), ConversionTestName);
+
+// NV12 conversions at various resolutions
+INSTANTIATE_TEST_SUITE_P(NV12Conversions, PipelineVulkanConversionTest,
+                         testing::ValuesIn(generateNV12Params()), ConversionTestName);

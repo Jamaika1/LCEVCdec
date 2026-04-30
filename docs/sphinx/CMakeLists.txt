@@ -1,4 +1,4 @@
-# Copyright (c) V-Nova International Limited 2023-2025. All rights reserved.
+# Copyright (c) V-Nova International Limited 2023-2026. All rights reserved.
 # This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
 # No patent licenses are granted under this license. For enquiries about patent licenses,
 # please contact legal@v-nova.com.
@@ -18,8 +18,10 @@ find_package(Sphinx REQUIRED)
 # Doxygen only consumes selected externally facing headers referenced by the docs
 set(DOXYGEN_INPUTS
     "${PROJECT_SOURCE_DIR}/src/api/include/LCEVC/lcevc_dec.h"
+    "${PROJECT_SOURCE_DIR}/src/common/include/LCEVC/common"
     "${PROJECT_SOURCE_DIR}/src/enhancement/include/LCEVC/enhancement"
-    "${PROJECT_SOURCE_DIR}/src/common/include/LCEVC/common")
+    "${PROJECT_SOURCE_DIR}/src/extract/include/LCEVC/extract"
+    "${PROJECT_SOURCE_DIR}/src/pixel_processing/include/LCEVC/pixel_processing")
 string(REPLACE ";" " " DOXYGEN_INPUT "${DOXYGEN_INPUTS}")
 set(DOXYGEN_OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/docs)
 set(DOXYGEN_INDEX_FILE ${DOXYGEN_OUTPUT_DIR}/xml/index.xml)

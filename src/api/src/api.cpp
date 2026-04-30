@@ -77,7 +77,9 @@ LCEVC_API void LCEVC_DestroyDecoder(LCEVC_DecoderHandle decHandle)
     std::unique_ptr<DecoderContext> ptr = DecoderContext::decoderPoolRemove(decHandle.hdl);
 
     // Clear out pools
+    ptr->lock();
     ptr->releasePools();
+    ptr->unlock();
 
     // Nobody should be able to get a pointer to this decoder from here on - destroy at our leisure
     ptr.reset();
@@ -117,7 +119,7 @@ LCEVC_API LCEVC_ReturnCode LCEVC_AllocPicture(LCEVC_DecoderHandle decHandle,
         LdpPicture* picture = context->pipeline()->allocPicture(*ldpPictureDesc);
         if (!picture) {
             VNUnused(functionName);
-            VNLogError("Unable to create a managed Picture!");
+            VNLogError("Unable to create a managed Picture");
             return LCEVC_Error;
         }
 
@@ -630,6 +632,68 @@ LCEVC_ReturnCode LCEVC_SetDecoderEventCallback(LCEVC_DecoderHandle decHandle,
 {
     return withLockedUninitializedDecoder(decHandle.hdl, [&callback, &userData](DecoderContext* context) {
         context->eventDispatcher()->setEventCallback(callback, userData);
+        return LCEVC_Success;
+    });
+}
+
+// Render
+//
+LCEVC_API
+LCEVC_ReturnCode LCEVC_RenderInit(LCEVC_DecoderHandle decHandle)
+{
+    return withLockedDecoder(decHandle.hdl, [](DecoderContext* context) {
+        VNTraceInstant("RenderInit");
+        return fromLdcReturnCode(context->pipeline()->renderInit());
+    });
+}
+
+LCEVC_API
+LCEVC_ReturnCode LCEVC_RenderSetWindow(LCEVC_DecoderHandle decHandle, void* externalWindow, bool secure)
+{
+    return withLockedDecoder(decHandle.hdl, [externalWindow, secure](DecoderContext* context) {
+        VNTraceInstant("RenderSetWindow");
+        return fromLdcReturnCode(context->pipeline()->renderSetWindow(externalWindow, secure));
+    });
+}
+
+LCEVC_API
+LCEVC_ReturnCode LCEVC_RenderSendPicture(LCEVC_DecoderHandle decHandle, uint64_t timestamp,
+                                         LCEVC_PictureHandle image,
+                                         const LCEVC_RenderSendInformation* renderSendInformation,
+                                         uint64_t delayUs)
+{
+    if ((image.hdl == kInvalidHandle) || (renderSendInformation == nullptr)) {
+        return LCEVC_InvalidParam;
+    }
+
+    return withLockedDecoder(decHandle.hdl, [&image, renderSendInformation, timestamp,
+                                             delayUs](DecoderContext* context) {
+        LdpPicture* renderPicture = context->picturePool().lookup(image.hdl);
+        VNTraceInstant("RenderSendPicture");
+        const LdpRenderSendInformation* sendInfo = toLdpRenderSendInformationPtr(renderSendInformation);
+        return fromLdcReturnCode(
+            context->pipeline()->renderSendPicture(timestamp, renderPicture, sendInfo, delayUs));
+    });
+}
+
+LCEVC_API
+LCEVC_ReturnCode LCEVC_RenderReceivePicture(LCEVC_DecoderHandle decHandle, LCEVC_PictureHandle* output,
+                                            LCEVC_RenderReceiveInformation* renderReceiveInformation)
+{
+    if ((output == nullptr) || (renderReceiveInformation == nullptr)) {
+        return LCEVC_InvalidParam;
+    }
+
+    return withLockedDecoder(decHandle.hdl, [&output, renderReceiveInformation](DecoderContext* context) {
+        LdpRenderReceiveInformation receiveInfo;
+        const LdpPicture* const outputPicture = context->pipeline()->renderReceivePicture(receiveInfo);
+        if (outputPicture == nullptr) {
+            return LCEVC_Again;
+        }
+
+        VNTraceInstant("RenderReceivePicture");
+        *toLdpRenderReceiveInformationPtr(renderReceiveInformation) = receiveInfo;
+        output->hdl = context->picturePool().reverseLookup(outputPicture).handle;
         return LCEVC_Success;
     });
 }

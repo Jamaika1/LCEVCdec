@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2023-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2023-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -86,6 +86,38 @@ static inline LCEVC_DecodeInformation* fromLdpDecodeInformationPtr(LdpDecodeInfo
 static inline const LdpDecodeInformation* toLdpDecodeInformationPtr(const LCEVC_DecodeInformation* ptr)
 {
     return reinterpret_cast<const LdpDecodeInformation*>(ptr); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
+}
+
+static inline LdpRenderSendInformation* toLdpRenderSendInformationPtr(LCEVC_RenderSendInformation* ptr)
+{
+    return reinterpret_cast<LdpRenderSendInformation*>(ptr); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
+}
+
+static inline LCEVC_RenderSendInformation* fromLdpRenderSendInformationPtr(LdpRenderSendInformation* ptr)
+{
+    return reinterpret_cast<LCEVC_RenderSendInformation*>(ptr); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
+}
+
+static inline const LdpRenderSendInformation*
+toLdpRenderSendInformationPtr(const LCEVC_RenderSendInformation* ptr)
+{
+    return reinterpret_cast<const LdpRenderSendInformation*>(ptr); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
+}
+
+static inline LdpRenderReceiveInformation* toLdpRenderReceiveInformationPtr(LCEVC_RenderReceiveInformation* ptr)
+{
+    return reinterpret_cast<LdpRenderReceiveInformation*>(ptr); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
+}
+
+static inline LCEVC_RenderReceiveInformation* fromLdpRenderReceiveInformationPtr(LdpRenderReceiveInformation* ptr)
+{
+    return reinterpret_cast<LCEVC_RenderReceiveInformation*>(ptr); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
+}
+
+static inline const LdpRenderReceiveInformation*
+toLdpRenderReceiveInformationPtr(const LCEVC_RenderReceiveInformation* ptr)
+{
+    return reinterpret_cast<const LdpRenderReceiveInformation*>(ptr); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
 }
 
 // LCEVC_ enum helpers

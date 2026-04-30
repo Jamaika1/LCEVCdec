@@ -79,9 +79,11 @@ void EventTester::log(const uint8_t* data, uint32_t dataSize)
     ASSERT_NE(data, nullptr);
 
     // Not a lot we can do here except check that every character is printable...
-    for (uint32_t idx = 0; idx < dataSize; idx++) {
+    // Except the final character, which should be \0.
+    for (uint32_t idx = 0; idx < (dataSize - 1); idx++) {
         ASSERT_TRUE(isprint(data[idx]));
     }
+    ASSERT_TRUE(data[dataSize - 1] == '\0');
 }
 
 void EventTester::exit() { ASSERT_EQ(m_eventCounts[LCEVC_Exit], 0); }

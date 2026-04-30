@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2025-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -23,9 +23,9 @@
 /*! \brief upscale kernel */
 typedef struct LdeKernel
 {
-    int16_t coeffs[2][8]; /**< upscale kernels of length 'len', ordered with forward kernel first. */
-    uint8_t length;       /**< length (taps) of upscale kernels */
-    bool approximatedPA; /**< true if predicted-average computation has been pre-baked into this kernel */
+    int16_t coeffs[4]; /**< Upscale kernel, 2 tap kernels will be padded with zeros in elements 0 and 3 */
+    uint8_t length; /**< Length (taps) of upscale kernels */
+    bool approximatedPA; /**< True if predicted-average computation has been pre-baked into this kernel */
 } LdeKernel;
 
 typedef struct LdeCrop

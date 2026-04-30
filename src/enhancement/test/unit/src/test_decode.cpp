@@ -99,6 +99,9 @@ class DecodeTemporalOn : public Decode
     void openBin() override
     {
         m_binReader = createBinReader((kTestAssets / "decode_temp_on.bin").string());
+        if (!m_binReader) {
+            FAIL() << "Failed to open BIN file";
+        }
     }
 };
 
@@ -107,6 +110,9 @@ class DecodeTemporalOff : public Decode
     void openBin() override
     {
         m_binReader = createBinReader((kTestAssets / "decode_temp_off.bin").string());
+        if (!m_binReader) {
+            FAIL() << "Failed to open BIN file";
+        }
     }
 };
 

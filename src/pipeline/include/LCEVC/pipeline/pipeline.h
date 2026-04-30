@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2025-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -15,19 +15,13 @@
 #ifndef VN_LCEVC_PIPELINE_PIPELINE_H
 #define VN_LCEVC_PIPELINE_PIPELINE_H
 
-#include <LCEVC/common/class_utils.hpp>
 #include <LCEVC/common/configure.hpp>
-#include <LCEVC/common/return_code.h>
+#include <LCEVC/common/memory.h>
 #include <LCEVC/common/shared_library.h>
-#include <LCEVC/pipeline/buffer.h>
 #include <LCEVC/pipeline/event_sink.h>
 #include <LCEVC/pipeline/picture.h>
-#include <LCEVC/pipeline/types.h>
-//
+
 #include <memory>
-#include <string>
-#include <string_view>
-#include <vector>
 
 namespace lcevc_dec::pipeline {
 
@@ -60,6 +54,7 @@ public:
     virtual ~PipelineBuilder() = 0;
 
     virtual std::unique_ptr<Pipeline> finish(EventSink* eventSink) const = 0;
+    virtual LdcMemoryAllocator* allocator() const = 0;
 
     VNNoCopyNoMove(PipelineBuilder);
 
@@ -103,6 +98,14 @@ public:
                                              const LdpPictureBufferDesc* buffer) = 0;
 
     virtual void freePicture(LdpPicture* picture) = 0;
+
+    // Render
+    virtual LdcReturnCode renderInit() = 0;
+    virtual LdcReturnCode renderSendPicture(uint64_t timestamp, LdpPicture* outputPicture,
+                                            const LdpRenderSendInformation* renderSendInformation,
+                                            uint64_t delayUs) = 0;
+    virtual LdpPicture* renderReceivePicture(LdpRenderReceiveInformation& renderReceiveInformation) = 0;
+    virtual LdcReturnCode renderSetWindow(void* externalWindow, bool secure) = 0;
 
     VNNoCopyNoMove(Pipeline);
 

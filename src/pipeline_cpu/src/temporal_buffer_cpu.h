@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2025-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -15,38 +15,15 @@
 #ifndef VN_LCEVC_PIPELINE_CPU_TEMPORAL_BUFFER_CPU_H
 #define VN_LCEVC_PIPELINE_CPU_TEMPORAL_BUFFER_CPU_H
 
-#include <LCEVC/common/class_utils.hpp>
 #include <LCEVC/common/memory.h>
-#include <LCEVC/pipeline/picture.h>
-
-#include <memory>
+#include <LCEVC/pipeline/temporal_buffer_base.h>
 
 namespace lcevc_dec::pipeline_cpu {
 
-class FrameCPU;
-
-// Description of a temporal buffer - size and timestamp
-struct TemporalBufferDesc
-{
-    uint64_t timestamp;
-    bool clear;
-    uint32_t plane;
-    uint32_t width;
-    uint32_t height;
-};
-
 // Temporal buffer associated with pipeline
 //
-struct TemporalBuffer
+struct TemporalBufferCPU : public pipeline::TemporalBufferBase
 {
-    // Description of this buffer
-    TemporalBufferDesc desc;
-
-    // Timestamp upper limit that this buffer could fulfil
-    uint64_t timestampLimit;
-
-    // Frame that is using this buffer or null if available
-    FrameCPU* frame;
     // pointer and stride for buffer
     LdpPicturePlaneDesc planeDesc;
 
@@ -59,7 +36,7 @@ struct TemporalBuffer
     LdcMemoryAllocation allocation;
 
     // Reallocate buffer to match given description
-    void update(const TemporalBufferDesc& desc);
+    void update(const pipeline::TemporalBufferDesc& desc) override;
 };
 
 } // namespace lcevc_dec::pipeline_cpu

@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2023-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2023-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -381,6 +381,8 @@ TEST(Convert, Event)
         case LCEVC_CanReceive:
         case LCEVC_BasePictureDone:
         case LCEVC_OutputPictureDone:
+        case LCEVC_CanSendRender:
+        case LCEVC_CanReceiveRender:
 
         case LCEVC_EventCount:
         case LCEVC_Event_ForceUInt8:;
@@ -394,6 +396,8 @@ TEST(Convert, Event)
     EXPECT_TRUE(fromString("CanReceive", ev) && (ev == LCEVC_CanReceive));
     EXPECT_TRUE(fromString("BasePictureDone", ev) && (ev == LCEVC_BasePictureDone));
     EXPECT_TRUE(fromString("OutputPictureDone", ev) && (ev == LCEVC_OutputPictureDone));
+    EXPECT_TRUE(fromString("CanSendRender", ev) && (ev == LCEVC_CanSendRender));
+    EXPECT_TRUE(fromString("CanReceiveRender", ev) && (ev == LCEVC_CanReceiveRender));
 
     EXPECT_STREQ(toString(LCEVC_Log).data(), "Log");
     EXPECT_STREQ(toString(LCEVC_Exit).data(), "Exit");
@@ -403,6 +407,8 @@ TEST(Convert, Event)
     EXPECT_STREQ(toString(LCEVC_CanReceive).data(), "CanReceive");
     EXPECT_STREQ(toString(LCEVC_BasePictureDone).data(), "BasePictureDone");
     EXPECT_STREQ(toString(LCEVC_OutputPictureDone).data(), "OutputPictureDone");
+    EXPECT_STREQ(toString(LCEVC_CanSendRender).data(), "CanSendRender");
+    EXPECT_STREQ(toString(LCEVC_CanReceiveRender).data(), "CanReceiveRender");
 }
 
 TEST(Convert, fmt)

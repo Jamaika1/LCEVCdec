@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2024-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2024-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -68,6 +68,10 @@ static inline uint64_t clz64(uint64_t value) { return __builtin_clzl(value); }
 static inline uint16_t ctz16(uint16_t value) { return (uint16_t)__builtin_ctz(value); }
 static inline uint32_t ctz32(uint32_t value) { return __builtin_ctz(value); }
 static inline uint64_t ctz64(uint64_t value) { return __builtin_ctzl(value); }
+
+// Population count
+static inline uint32_t popcnt32(uint32_t value) { return (uint32_t)__builtin_popcount(value); }
+static inline uint32_t popcnt64(uint64_t value) { return (uint32_t)__builtin_popcountll(value); }
 
 // Endian swap
 static inline uint16_t bswap16(uint16_t value) { return __builtin_bswap16(value); }
@@ -144,6 +148,10 @@ static uint32_t __inline ctz64(uint64_t value)
         return 64;
     }
 }
+
+// Population count
+static uint32_t __inline popcnt32(uint32_t value) { return __popcnt(value); }
+static uint32_t __inline popcnt64(uint64_t value) { return (uint32_t)__popcnt64(value); }
 
 static inline uint16_t bswap16(uint16_t value) { return _byteswap_ushort(value); }
 static inline uint32_t bswap32(uint32_t value) { return _byteswap_ulong(value); }

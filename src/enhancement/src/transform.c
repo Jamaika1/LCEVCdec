@@ -666,13 +666,13 @@ static const TransformFunction kTableSIMD[2][2] = {{NULL, NULL}, {NULL, NULL}};
 
 #endif
 
-TransformFunction transformGetFunction(LdeTransformType transform, LdeScalingMode scaling, bool forceScalar)
+TransformFunction transformGetFunction(LdeTransformType transform, LdeScalingMode scaling)
 {
     TransformFunction res = NULL;
 
     const int32_t scalingIndex = (scaling == Scale1D) ? 1 : 0;
 
-    if (!forceScalar && (ldcAccelerationGet()->SSE || ldcAccelerationGet()->NEON)) {
+    if (ldcAccelerationGet()->hasSIMD) {
         res = kTableSIMD[transform][scalingIndex];
     }
 
@@ -706,13 +706,12 @@ static const DequantTransformFunction kDequantTableSIMD[2][2] = {{NULL, NULL}, {
 
 #endif
 
-DequantTransformFunction dequantTransformGetFunction(LdeTransformType transform,
-                                                     LdeScalingMode scaling, bool forceScalar)
+DequantTransformFunction dequantTransformGetFunction(LdeTransformType transform, LdeScalingMode scaling)
 {
     const int32_t scalingIndex = (scaling == Scale1D) ? 1 : 0;
     DequantTransformFunction res = NULL;
 
-    if (!forceScalar && (ldcAccelerationGet()->SSE || ldcAccelerationGet()->NEON)) {
+    if (ldcAccelerationGet()->hasSIMD) {
         res = kDequantTableSIMD[transform][scalingIndex];
     }
 

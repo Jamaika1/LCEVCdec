@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2024-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2024-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -74,17 +74,15 @@ bool ldeConfigPoolFrameInsert(LdeConfigPool* configPool, uint64_t timestamp,
                               const uint8_t* serialized, size_t serializedSize,
                               LdeGlobalConfig** globalConfig, LdeFrameConfig* frameConfig);
 
-/*! \brief Release a frame from the pool by its timestamp. Removes the frame config from the pool
- *         and the global config if it is not in use by other unreleased frames
+/*! \brief Release a frame from the pool by its timestamp. Removes the global config from the pool
+ *         if it is not in use by other unreleased frames
  *
  * \param[in]     configPool     Initialized config pool
- * \param[in]     frameConfig    The frame config pointer passed to a previous ldeConfigPoolFrameInsert() call
  * \param[in]     globalConfig   The global config pointer returned by a previous ldeConfigPoolFrameInsert() call
  *
  * \return True on success, otherwise false
  */
-bool ldeConfigPoolFrameRelease(LdeConfigPool* configPool, LdeFrameConfig* frameConfig,
-                               LdeGlobalConfig* globalConfig);
+bool ldeConfigPoolFrameRelease(LdeConfigPool* configPool, LdeGlobalConfig* globalConfig);
 
 /*! \brief Fill in the global and frame config for a frame that is being passed through the decoder.
  *         The current global config will be referenced, and the frame config will be the default.

@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2025-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -15,13 +15,9 @@
 #ifndef VN_LCEVC_PIPELINE_PICTURE_H
 #define VN_LCEVC_PIPELINE_PICTURE_H
 
-#include <assert.h>
 #include <LCEVC/pipeline/buffer.h>
-#include <LCEVC/pipeline/picture_layout.h>
-#include <LCEVC/pipeline/types.h>
-#include <stdint.h>
-//
 #include <LCEVC/pipeline/detail/pipeline_api.h>
+#include <LCEVC/pipeline/picture_layout.h>
 
 // NOLINTBEGIN(modernize-use-using)
 

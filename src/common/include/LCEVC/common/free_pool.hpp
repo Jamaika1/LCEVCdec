@@ -91,6 +91,9 @@ public:
     T* make(Args&&... args)
     {
         T* p = allocate();
+        if(!p) {
+            return nullptr;
+        }
         ::new (static_cast<void*>(p)) T(std::forward<Args>(args)...);
         return p;
     }

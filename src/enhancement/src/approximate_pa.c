@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2025-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -23,32 +23,15 @@ static bool approximatePA4Tap(LdeKernel* kernel)
 {
     assert(kernel->length == 4);
 
-    const int16_t d0 = kernel->coeffs[0][0];
-    const int16_t c0 = kernel->coeffs[0][1];
-    const int16_t b0 = kernel->coeffs[0][2];
-    const int16_t a0 = kernel->coeffs[0][3];
-
-    const int16_t d1 = kernel->coeffs[1][3];
-    const int16_t c1 = kernel->coeffs[1][2];
-    const int16_t b1 = kernel->coeffs[1][1];
-    const int16_t a1 = kernel->coeffs[1][0];
+    const int16_t d0 = kernel->coeffs[0];
+    const int16_t b0 = kernel->coeffs[2];
 
     const int16_t halfBDDiff = (int16_t)((b0 - d0) / 2);
 
-    if (a0 != a1 || b0 != b1 || c0 != c1 || d0 != d1) {
-        VNLogError("Incorrect upscaling coefficients for approximate PA");
-        return false;
-    }
-
-    kernel->coeffs[0][0] = (int16_t)-halfBDDiff;
-    kernel->coeffs[0][1] = kUnity;
-    kernel->coeffs[0][2] = halfBDDiff;
-    kernel->coeffs[0][3] = 0;
-
-    kernel->coeffs[1][0] = 0;
-    kernel->coeffs[1][1] = halfBDDiff;
-    kernel->coeffs[1][2] = kUnity;
-    kernel->coeffs[1][3] = (int16_t)-halfBDDiff;
+    kernel->coeffs[0] = (int16_t)-halfBDDiff;
+    kernel->coeffs[1] = kUnity;
+    kernel->coeffs[2] = halfBDDiff;
+    kernel->coeffs[3] = 0;
 
     kernel->approximatedPA = true;
 
@@ -59,15 +42,8 @@ static bool approximatePA2TapZeroPad(LdeKernel* kernel)
 {
     assert(kernel->length == 2);
 
-    kernel->coeffs[0][2] = kernel->coeffs[0][1];
-    kernel->coeffs[0][1] = kernel->coeffs[0][0];
-    kernel->coeffs[0][0] = 0;
-    kernel->coeffs[0][3] = 0;
-
-    kernel->coeffs[1][2] = kernel->coeffs[1][1];
-    kernel->coeffs[1][1] = kernel->coeffs[1][0];
-    kernel->coeffs[1][0] = 0;
-    kernel->coeffs[1][3] = 0;
+    assert(kernel->coeffs[0] == 0);
+    assert(kernel->coeffs[3] == 0);
 
     kernel->length = 4;
 
@@ -82,6 +58,9 @@ bool ldeApproximatePA(LdeGlobalConfig* globalConfig)
     }
     if (!globalConfig->predictedAverageEnabled) {
         return true; // No need to modify the kernel if we're not using PA
+    }
+    if (globalConfig->kernel.approximatedPA) {
+        return true; // Already approximated
     }
 
     switch (globalConfig->upscale) {

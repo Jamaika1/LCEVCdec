@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2024-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2024-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -48,7 +48,12 @@ void DecoderSynchronous::callback(LCEVC_DecoderHandle decHandle, LCEVC_Event eve
             reuseOutput(picHandle);
             break;
         }
-
+        case LCEVC_CanSendRender: {
+            break;
+        }
+        case LCEVC_CanReceiveRender: {
+            break;
+        }
         case LCEVC_EventCount:
         case LCEVC_Event_ForceUInt8: FAIL() << "Invalid event type: " << event; break;
     }

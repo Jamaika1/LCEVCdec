@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2025-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -13,17 +13,16 @@
  * THE EXCLUSION OF PATENT LICENSES PROVISION OF THE BSD-3-CLAUSE-CLEAR LICENSE. */
 
 #include "temporal_buffer_cpu.h"
-
+//
 #include <LCEVC/common/constants.h>
 #include <LCEVC/common/limit.h>
 #include <LCEVC/common/log.h>
-#include <LCEVC/common/memory.h>
-#include <LCEVC/pipeline/pipeline.h>
+#include <LCEVC/pipeline/buffer_alignment.h>
 
 namespace lcevc_dec::pipeline_cpu {
 
 // Make a temporal buffer match the given description
-void TemporalBuffer::update(const TemporalBufferDesc& newDesc)
+void TemporalBufferCPU::update(const pipeline::TemporalBufferDesc& newDesc)
 {
     const size_t paddedWidth = alignU32(newDesc.width, kBufferRowAlignment);
     const size_t byteStride{paddedWidth * sizeof(uint16_t)};

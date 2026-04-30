@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2022-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2022-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -15,15 +15,15 @@
 #ifndef VN_LCEVC_PIXEL_PROCESSING_DITHER_H
 #define VN_LCEVC_PIXEL_PROCESSING_DITHER_H
 
-#include "stdbool.h"
-#include "stdint.h"
-#include "string.h"
-
 #include <LCEVC/common/memory.h>
 #include <LCEVC/common/platform.h>
 #include <LCEVC/common/random.h>
 #include <LCEVC/enhancement/bitstream_types.h>
 #include <LCEVC/pipeline/types.h>
+//
+#include <stdbool.h>
+#include <stdint.h>
+#include <string.h>
 
 #ifdef __cplusplus
 extern "C"
@@ -129,7 +129,7 @@ void ldppDitherGlobalRelease(LdppDitherGlobal* dither);
  * \param seed             The seed for this particular frame, this should be unique
  *                         for each frame to avoid repitition, the frames timestamp is
  *                         a ideal seed. if 0 it will use time()
- * \param global           The dithering strength for this particular frame
+ * \param strength         The dithering strength for this particular frame.
  *
  * \return false if dithering strength is greater than 31 otherwise true.
  */
@@ -160,11 +160,10 @@ void ldppDitherSliceInitialise(LdppDitherSlice* slice, const LdppDitherFrame* fr
  */
 const uint16_t* ldppDitherGetBuffer(LdppDitherSlice* dither, size_t length);
 
-/*------------------------------------------------------------------------------*/
+void ldppDitherApplyScalar(int32_t* value, const uint16_t** ditherBuffer, const uint8_t shift,
+                           const uint8_t strength);
 
-#include "detail/apply_dither_neon.h"
-#include "detail/apply_dither_scalar.h"
-#include "detail/apply_dither_sse.h"
+/*------------------------------------------------------------------------------*/
 
 #ifdef __cplusplus
 }

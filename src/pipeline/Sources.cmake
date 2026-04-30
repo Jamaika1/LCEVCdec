@@ -1,4 +1,4 @@
-# Copyright (c) V-Nova International Limited 2025. All rights reserved.
+# Copyright (c) V-Nova International Limited 2025-2026. All rights reserved.
 # This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
 # No patent licenses are granted under this license. For enquiries about patent licenses,
 # please contact legal@v-nova.com.
@@ -19,20 +19,38 @@ list(
     "src/picture_layout.c"
     "src/picture_layout.cpp"
     "src/pipeline.cpp"
-    "src/types.cpp")
+    "src/types.cpp"
+    "src/buffer_base.cpp"
+    "src/frame_base.cpp"
+    "src/picture_base.cpp"
+    "src/picture_lock_base.cpp"
+    "src/pipeline_base.cpp"
+    "src/pipeline_builder_base.cpp"
+    "src/tasks_base.cpp")
 
 list(APPEND HEADERS)
 
 list(
     APPEND
     INTERFACES
+    "include/LCEVC/pipeline/event_sink.h"
     "include/LCEVC/pipeline/buffer.h"
     "include/LCEVC/pipeline/frame.h"
-    "include/LCEVC/pipeline/picture_layout.h"
-    "include/LCEVC/pipeline/picture_layout.hpp"
     "include/LCEVC/pipeline/picture.h"
+    "include/LCEVC/pipeline/picture_layout.h"
     "include/LCEVC/pipeline/pipeline.h"
-    "include/LCEVC/pipeline/types.h")
+    "include/LCEVC/pipeline/tasks_base.h"
+    "include/LCEVC/pipeline/types.h"
+    "include/LCEVC/pipeline/buffer_base.h"
+    "include/LCEVC/pipeline/frame_base.h"
+    "include/LCEVC/pipeline/picture_base.h"
+    "include/LCEVC/pipeline/pipeline_base.h"
+    "include/LCEVC/pipeline/picture_lock_base.h"
+    "include/LCEVC/pipeline/pipeline_builder_base.h"
+    "include/LCEVC/pipeline/pipeline_config_base.h"
+    "include/LCEVC/pipeline/temporal_buffer_base.h"
+    "include/LCEVC/pipeline/detail/picture_layout.h"
+    "include/LCEVC/pipeline/detail/pipeline_api.h")
 
 set(ALL_FILES ${SOURCES} ${HEADERS} ${INTERFACES} "Sources.cmake")
 

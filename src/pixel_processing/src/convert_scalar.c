@@ -16,7 +16,7 @@
 #include "fp_types.h"
 
 #include <LCEVC/common/limit.h>
-#include <LCEVC/pipeline/picture.h>
+#include <LCEVC/pipeline/picture_layout.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>

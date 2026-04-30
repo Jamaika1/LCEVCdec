@@ -18,9 +18,9 @@
 #include <LCEVC/common/log.h>
 #include <LCEVC/common/task_pool.h>
 #include <LCEVC/enhancement/cmdbuffer_cpu.h>
-#include <LCEVC/pipeline/frame.h>
 #include <LCEVC/pipeline/types.h>
 #include <LCEVC/pixel_processing/apply_cmdbuffer.h>
+//
 #include <stdbool.h>
 #include <stddef.h>
 
@@ -58,8 +58,8 @@ static bool applyCmdBufferSlicedJob(void* argument, uint32_t offset, uint32_t co
 }
 
 bool ldppApplyCmdBuffer(LdcTaskPool* taskPool, LdcTask* parent, LdpEnhancementTile* enhancementTile,
-                        LdpFixedPoint fixedPoint, const LdpPicturePlaneDesc* plane, bool rasterOrder,
-                        bool forceScalar, bool highlight, const LdpPipelineDiagInfo* diagInfo)
+                        LdpFixedPoint fixedPoint, const LdpPicturePlaneDesc* plane,
+                        bool rasterOrder, bool highlight, const LdpPipelineDiagInfo* diagInfo)
 {
     if (!plane->firstSample) {
         VNLogError("Apply cmdbuffer surface has no data pointer");
@@ -75,9 +75,9 @@ bool ldppApplyCmdBuffer(LdcTaskPool* taskPool, LdcTask* parent, LdpEnhancementTi
 
     CmdBufferApplicator applicatorFunction = NULL;
     if (rasterOrder) {
-        if (!forceScalar && acceleration->NEON) {
+        if (acceleration->hasNeon) {
             applicatorFunction = (CmdBufferApplicator)cmdBufferApplicatorSurfaceNEON;
-        } else if (!forceScalar && acceleration->SSE) {
+        } else if (acceleration->hasSSE) {
             applicatorFunction = (CmdBufferApplicator)cmdBufferApplicatorSurfaceSSE;
         }
 
@@ -85,9 +85,9 @@ bool ldppApplyCmdBuffer(LdcTaskPool* taskPool, LdcTask* parent, LdpEnhancementTi
             applicatorFunction = (CmdBufferApplicator)cmdBufferApplicatorSurfaceScalar;
         }
     } else {
-        if (!forceScalar && acceleration->NEON) {
+        if (acceleration->hasNeon) {
             applicatorFunction = (CmdBufferApplicator)cmdBufferApplicatorBlockNEON;
-        } else if (!forceScalar && acceleration->SSE) {
+        } else if (acceleration->hasSSE) {
             applicatorFunction = (CmdBufferApplicator)cmdBufferApplicatorBlockSSE;
         }
         if (!applicatorFunction) {

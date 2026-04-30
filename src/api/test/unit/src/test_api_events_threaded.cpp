@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2024-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2024-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -77,6 +77,8 @@ TYPED_TEST(APIEventReporting, test)
             case LCEVC_CanSendBase:
             case LCEVC_CanSendEnhancement:
             case LCEVC_CanSendPicture: EXPECT_GT(count, 0);
+            case LCEVC_CanSendRender:
+            case LCEVC_CanReceiveRender:
 
             // LCEVC_Log is currently unused. The other two are non-valid enum values.
             case LCEVC_Log:

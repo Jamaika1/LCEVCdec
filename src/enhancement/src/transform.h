@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2022-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2022-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -49,10 +49,9 @@ typedef void (*TransformFunction)(const int16_t* coeffs, int16_t* residuals);
  *
  * \param transform       The transform type.
  * \param scaling         The scaling mode for the target LOQ.
- * \param forceScalar     Doesn't use SSE or NEON accelerated functions when true
  *
  * \return A valid function pointer if a function is available, otherwise NULL. */
-TransformFunction transformGetFunction(LdeTransformType transform, LdeScalingMode scaling, bool forceScalar);
+TransformFunction transformGetFunction(LdeTransformType transform, LdeScalingMode scaling);
 
 /*------------------------------------------------------------------------------*/
 
@@ -65,11 +64,9 @@ typedef void (*DequantTransformFunction)(const Dequant* dequant, TemporalSignal 
  *
  * \param transform       The transform type.
  * \param scaling         The scaling mode for the target LOQ.
- * \param forceScalar     Doesn't use SSE or NEON accelerated functions when true
  *
  * \return A valid function pointer if a function is available, otherwise NULL. */
-DequantTransformFunction dequantTransformGetFunction(LdeTransformType transform,
-                                                     LdeScalingMode scaling, bool forceScalar);
+DequantTransformFunction dequantTransformGetFunction(LdeTransformType transform, LdeScalingMode scaling);
 
 /*------------------------------------------------------------------------------*/
 

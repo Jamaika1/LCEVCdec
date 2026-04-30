@@ -60,6 +60,7 @@ struct Config
     std::string configurationJson;
     std::string trickplayJson;
     bool verbose{false};
+    bool render{false};
     uint32_t repeat{1};
 };
 
@@ -144,6 +145,7 @@ int setupConfig(int argc, char** argv, Config& cfgOut)
     app.add_option("--trickplay", cfgOut.trickplayJson,
                    "JSON trickplay configuration (Inline json, or json filename)");
     app.add_flag("-v,--verbose", cfgOut.verbose, "Enable verbose logging");
+    app.add_flag("-r,--render", cfgOut.render, "Render output");
     app.add_option("--repeat", cfgOut.repeat, "Repeat count for decoding task, use -1 to repeat forever");
     app.add_option("--pending-limit", cfgOut.pendingLimit, "Maximum number of frames to keep pending.");
 
@@ -190,7 +192,7 @@ static std::unique_ptr<BaseDecoder> createBaseDecoder(const Config& cfg)
     return nullptr;
 }
 
-static int createAndInitDecoder(const std::string_view configurationJson, bool verbose,
+static int createAndInitDecoder(const std::string_view configurationJson, bool verbose, bool render,
                                 LCEVC_DecoderHandle& decoderOut)
 {
     VN_LCEVC_CHECK(LCEVC_CreateDecoder(&decoderOut, LCEVC_AccelContextHandle{}));
@@ -209,6 +211,9 @@ static int createAndInitDecoder(const std::string_view configurationJson, bool v
         // Simple command line option for verbose logging
         VN_LCEVC_CHECK(LCEVC_ConfigureDecoderInt(decoderOut, "log_level", LCEVC_LogTrace));
     }
+
+    // Setup backend for rendering (override JSON if present)
+    LCEVC_ConfigureDecoderBool(decoderOut, "will_render", render);
 
     VN_LCEVC_CHECK(LCEVC_InitializeDecoder(decoderOut));
     return EXIT_SUCCESS;
@@ -280,7 +285,10 @@ static bool receiveDecodedPicture(LCEVC_DecoderHandle decoder, Stats& stats, Has
     fmt::print("Frame {}: {:#08x} {}x{}\n", stats.outputFrameCount, decodeInformation.timestamp,
                desc.width, desc.height);
 
-    if (!outputRawFile.empty()) {
+    if (cfg.render) {
+        LCEVC_RenderSendInformation info{};
+        LCEVC_RenderSendPicture(decoder, decodeInformation.timestamp, decodedPicture, &info, 0);
+    } else if (!outputRawFile.empty()) {
         if (outputRaw && outputRaw->layout().format() != LCEVC_ColorFormat_Unknown &&
             !outputRaw->layout().isSame(PictureLayout(desc))) {
             // Change of picture layout - close current output, and bump 'part' in file name
@@ -393,7 +401,7 @@ static int decode(const Config& cfg)
 
     // Create and initialize LCEVC decoder
     LCEVC_DecoderHandle decoder = {};
-    if (const int res = createAndInitDecoder(cfg.configurationJson, cfg.verbose, decoder);
+    if (const int res = createAndInitDecoder(cfg.configurationJson, cfg.verbose, cfg.render, decoder);
         res != EXIT_SUCCESS) {
         LCEVC_DestroyDecoder(decoder);
         return res;
@@ -421,8 +429,16 @@ static int decode(const Config& cfg)
     uint64_t enhancementTimestamp = 0;
     bool synchronized = false;
 
+    bool windowSet = false;
+
     // Frame loop - consume data from base, keep going whilst there is unread data, or pending decodes
     while (true) {
+        if (cfg.render && !windowSet) {
+            void* window{};
+            VN_LCEVC_CHECK(LCEVC_RenderSetWindow(decoder, window, false));
+            windowSet = true;
+        }
+
         bool baseRunning = baseDecoder->update();
 
         // Stop at end of stream

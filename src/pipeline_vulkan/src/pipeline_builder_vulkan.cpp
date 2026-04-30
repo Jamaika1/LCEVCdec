@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2025-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -14,6 +14,7 @@
 
 #include "pipeline_builder_vulkan.h"
 //
+#include "pipeline_config_vulkan.h"
 #include "pipeline_vulkan.h"
 
 #include <LCEVC/pipeline_vulkan/create_pipeline.h>
@@ -27,77 +28,68 @@ using namespace common;
 // PipelineBuilderVulkan
 //
 static const ConfigMemberMap<PipelineConfigVulkan> kConfigMemberMap = {
-    {"initial_arena_count", makeBinding(&PipelineConfigVulkan::initialArenaCount)},
-    {"initial_arena_size", makeBinding(&PipelineConfigVulkan::initialArenaSize)},
-    {"max_latency", makeBinding(&PipelineConfigVulkan::maxLatency)},
-    {"default_max_reorder", makeBinding(&PipelineConfigVulkan::defaultMaxReorder)},
-    {"threads", makeBinding(&PipelineConfigVulkan::numThreads)},
-    {"num_reserved_tasks", makeBinding(&PipelineConfigVulkan::numReservedTasks)},
-    {"force_scalar", makeBinding(&PipelineConfigVulkan::forceScalar)},
-    {"highlight_residuals", makeBinding(&PipelineConfigVulkan::highlightResiduals)},
-    {"num_temporal_buffers", makeBinding(&PipelineConfigVulkan::numTemporalBuffers)},
-    {"allow_dithering", makeBinding(&PipelineConfigVulkan::ditherEnabled)},
-    {"dither_strength", makeBinding(&PipelineConfigVulkan::ditherOverrideStrength)},
+    {"use_system_allocator", makeBinding(&PipelineConfigVulkan::useSystemAllocator)},
+    {"will_render", makeBinding(&PipelineConfigVulkan::willRender)},
+    {"vulkan_contexts", makeBinding(&PipelineConfigVulkan::contexts)},
+    {"vulkan_device", makeBinding(&PipelineConfigVulkan::device)},
+    {"vulkan_validation", makeBinding(&PipelineConfigVulkan::validation)},
+    {"vulkan_timestamps", makeBinding(&PipelineConfigVulkan::timestampsLimit)},
 };
 
 PipelineBuilderVulkan::PipelineBuilderVulkan(LdcMemoryAllocator* allocator)
-    : m_allocator(allocator)
+    : PipelineBuilderBase(allocator, m_configuration)
+    , m_allocator(allocator)
     , m_configurableMembers(kConfigMemberMap, m_configuration)
-{
-    // Set default thread count
-    // m_configuration.numThreads = threadNumCores(); //TODO - threading
-    m_configuration.numThreads = 1;
-}
+{}
 
 PipelineBuilderVulkan::~PipelineBuilderVulkan() {}
 
 std::unique_ptr<pipeline::Pipeline> PipelineBuilderVulkan::finish(pipeline::EventSink* eventSink) const
 {
-    std::unique_ptr<pipeline::Pipeline> pipeline = std::make_unique<PipelineVulkan>(*this, eventSink);
+    std::unique_ptr<PipelineVulkan> pipeline = std::make_unique<PipelineVulkan>(*this, eventSink);
 
-    const auto& vulkan = static_cast<PipelineVulkan&>(*pipeline);
-    if (!vulkan.isInitialised()) {
+    if (!pipeline->isInitialised()) {
         pipeline.reset();
     }
 
     return pipeline;
 }
 
-// Forward configuration to default config mapping mechanism.
+// Forward configuration to default configuration mapping mechanism.
 //
 bool PipelineBuilderVulkan::configure(std::string_view name, bool val)
 {
-    return m_configurableMembers.configure(name, val);
+    return m_configurableMembers.configure(name, val) || PipelineBuilderBase::configure(name, val);
 }
 
 bool PipelineBuilderVulkan::configure(std::string_view name, int32_t val)
 {
-    return m_configurableMembers.configure(name, val);
+    return m_configurableMembers.configure(name, val) || PipelineBuilderBase::configure(name, val);
 }
 bool PipelineBuilderVulkan::configure(std::string_view name, float val)
 {
-    return m_configurableMembers.configure(name, val);
+    return m_configurableMembers.configure(name, val) || PipelineBuilderBase::configure(name, val);
 }
 bool PipelineBuilderVulkan::configure(std::string_view name, const std::string& val)
 {
-    return m_configurableMembers.configure(name, val);
+    return m_configurableMembers.configure(name, val) || PipelineBuilderBase::configure(name, val);
 }
 
 bool PipelineBuilderVulkan::configure(std::string_view name, const std::vector<bool>& arr)
 {
-    return m_configurableMembers.configure(name, arr);
+    return m_configurableMembers.configure(name, arr) || PipelineBuilderBase::configure(name, arr);
 }
 bool PipelineBuilderVulkan::configure(std::string_view name, const std::vector<int32_t>& arr)
 {
-    return m_configurableMembers.configure(name, arr);
+    return m_configurableMembers.configure(name, arr) || PipelineBuilderBase::configure(name, arr);
 }
 bool PipelineBuilderVulkan::configure(std::string_view name, const std::vector<float>& arr)
 {
-    return m_configurableMembers.configure(name, arr);
+    return m_configurableMembers.configure(name, arr) || PipelineBuilderBase::configure(name, arr);
 }
 bool PipelineBuilderVulkan::configure(std::string_view name, const std::vector<std::string>& arr)
 {
-    return m_configurableMembers.configure(name, arr);
+    return m_configurableMembers.configure(name, arr) || PipelineBuilderBase::configure(name, arr);
 }
 
 } // namespace lcevc_dec::pipeline_vulkan

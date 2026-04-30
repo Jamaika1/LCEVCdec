@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2025-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -55,10 +55,7 @@ TEST_F(ApproximatePA, Cubic)
     EXPECT_TRUE(ldeApproximatePA(&globalConfig));
     EXPECT_TRUE(globalConfig.kernel.approximatedPA);
     EXPECT_EQ(globalConfig.kernel.length, 4);
-    EXPECT_THAT(globalConfig.kernel.coeffs[0],
-                ::testing::ElementsAreArray({-2662, 16384, 2662, 0, 0, 0, 0, 0}));
-    EXPECT_THAT(globalConfig.kernel.coeffs[1],
-                ::testing::ElementsAreArray({0, 2662, 16384, -2662, 0, 0, 0, 0}));
+    EXPECT_THAT(globalConfig.kernel.coeffs, ::testing::ElementsAreArray({-2662, 16384, 2662, 0}));
 }
 
 TEST_F(ApproximatePA, ModifiedCubic)
@@ -66,10 +63,7 @@ TEST_F(ApproximatePA, ModifiedCubic)
     EXPECT_TRUE(ldeApproximatePA(&globalConfig));
     EXPECT_TRUE(globalConfig.kernel.approximatedPA);
     EXPECT_EQ(globalConfig.kernel.length, 4);
-    EXPECT_THAT(globalConfig.kernel.coeffs[0],
-                ::testing::ElementsAreArray({-3262, 16384, 3262, 0, 0, 0, 0, 0}));
-    EXPECT_THAT(globalConfig.kernel.coeffs[1],
-                ::testing::ElementsAreArray({0, 3262, 16384, -3262, 0, 0, 0, 0}));
+    EXPECT_THAT(globalConfig.kernel.coeffs, ::testing::ElementsAreArray({-3262, 16384, 3262, 0}));
 }
 
 TEST_F(ApproximatePA, Linear)
@@ -77,10 +71,12 @@ TEST_F(ApproximatePA, Linear)
     EXPECT_TRUE(ldeApproximatePA(&globalConfig));
     EXPECT_TRUE(globalConfig.kernel.approximatedPA);
     EXPECT_EQ(globalConfig.kernel.length, 4);
-    EXPECT_THAT(globalConfig.kernel.coeffs[0],
-                ::testing::ElementsAreArray({-2048, 16384, 2048, 0, 0, 0, 0, 0}));
-    EXPECT_THAT(globalConfig.kernel.coeffs[1],
-                ::testing::ElementsAreArray({-0, 2048, 16384, -2048, 0, 0, 0, 0}));
+    EXPECT_THAT(globalConfig.kernel.coeffs, ::testing::ElementsAreArray({-2048, 16384, 2048, 0}));
+
+    // Re-approximate and the kernel should remain as-is
+    EXPECT_TRUE(ldeApproximatePA(&globalConfig));
+    EXPECT_TRUE(globalConfig.kernel.approximatedPA);
+    EXPECT_THAT(globalConfig.kernel.coeffs, ::testing::ElementsAreArray({-2048, 16384, 2048, 0}));
 }
 
 TEST_F(ApproximatePA, Nearest)
@@ -88,4 +84,5 @@ TEST_F(ApproximatePA, Nearest)
     EXPECT_TRUE(ldeApproximatePA(&globalConfig));
     EXPECT_FALSE(globalConfig.kernel.approximatedPA);
     EXPECT_EQ(globalConfig.kernel.length, 2);
+    EXPECT_THAT(globalConfig.kernel.coeffs, ::testing::ElementsAreArray({0, 16384, 0, 0}));
 }

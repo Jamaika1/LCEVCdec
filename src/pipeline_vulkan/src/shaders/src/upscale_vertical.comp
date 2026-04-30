@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2025-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -16,7 +16,12 @@
 
 #version 450
 
-layout(local_size_x_id = 0, local_size_y_id = 1, local_size_z_id = 2) in;
+#include "specialization_ids.h"
+
+// Specialized workgropup size
+layout(local_size_x_id = SPECID_LOCAL_SIZE_X,
+       local_size_y_id = SPECID_LOCAL_SIZE_Y,
+       local_size_z_id = SPECID_LOCAL_SIZE_Z) in;
 
 layout(std430, set = 0, binding = 0) buffer restrict readonly SrcImageBuffer {
     uint samples[];
@@ -29,10 +34,28 @@ layout(std430, set = 0, binding = 1) buffer restrict writeonly DstImageBuffer {
 #include "common.glsl"
 #include "upscale_constants.glsl"
 
+ivec2 readSrc(uint x, uint y) {
+    return  unpack16bitInternals(src.samples[containerOffsetIn + y * containerStrideIn + x]);
+}
+
+void writeDst(uint x, uint y, ivec2 pels)
+{
+    dst.samples[containerOffsetOut + y * containerStrideOut + x]  = pack16bitInternals(pels);
+}
+
 void main()
 {
     const uint x = gl_GlobalInvocationID.x;
     const uint y = gl_GlobalInvocationID.y;
+
+    if(x*2 >= srcWidth) {
+        return;
+    }
+
+    if(y >= srcHeight) {
+        return;
+    }
+
     const uint dstHeight = 2 * srcHeight;
 
     if (y == 0) { // first and last pixel in pairs

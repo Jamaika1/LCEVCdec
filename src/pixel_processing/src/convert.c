@@ -33,16 +33,16 @@ PlaneConvertFunction planeConvertGetFunctionSSE(LdpFixedPoint srcFP, LdpFixedPoi
 PlaneConvertFunction planeConvertGetFunctionNEON(LdpFixedPoint srcFP, LdpFixedPoint dstFP, bool isNV12);
 
 PlaneConvertFunction planeConvertGetFunction(LdpFixedPoint srcFP, LdpFixedPoint dstFP,
-                                             bool forceScalar, uint32_t planeIndex, bool isNV12)
+                                             uint32_t planeIndex, bool isNV12)
 {
     PlaneConvertFunction res = NULL;
     const LdcAcceleration* acceleration = ldcAccelerationGet();
 
     /* Find a SIMD function */
-    if (!forceScalar && acceleration->SSE) {
+    if (acceleration->hasSSE) {
         res = planeConvertGetFunctionSSE(srcFP, dstFP, planeIndex, isNV12);
     }
-    if (!forceScalar && acceleration->NEON) {
+    if (acceleration->hasNeon) {
         assert(res == NULL);
         res = planeConvertGetFunctionNEON(srcFP, dstFP, isNV12);
     }
@@ -84,10 +84,10 @@ static bool ConvertSlicedJob(void* argument, uint32_t offset, uint32_t count)
     return true;
 }
 
-bool ldppPlaneConvert(LdcTaskPool* taskPool, LdcTask* parent, bool forceScalar,
-                      const uint32_t planeIndex, const LdpPictureLayout* srcLayout,
-                      const LdpPictureLayout* dstLayout, LdpPicturePlaneDesc* srcPlane,
-                      LdpPicturePlaneDesc* dstPlane, const LdpPipelineDiagInfo* diagInfo)
+bool ldppPlaneConvert(LdcTaskPool* taskPool, LdcTask* parent, const uint32_t planeIndex,
+                      const LdpPictureLayout* srcLayout, const LdpPictureLayout* dstLayout,
+                      LdpPicturePlaneDesc* srcPlane, LdpPicturePlaneDesc* dstPlane,
+                      const LdpPipelineDiagInfo* diagInfo)
 {
     const uint32_t width =
         minU32(srcLayout->width >> srcLayout->layoutInfo->planeWidthShift[planeIndex],
@@ -110,7 +110,7 @@ bool ldppPlaneConvert(LdcTaskPool* taskPool, LdcTask* parent, bool forceScalar,
 
     const LdppConvertSlicedJobContext slicedJobContext = {
         planeConvertGetFunction(srcLayout->layoutInfo->fixedPoint,
-                                dstLayout->layoutInfo->fixedPoint, forceScalar, planeIndex, isNV12),
+                                dstLayout->layoutInfo->fixedPoint, planeIndex, isNV12),
         *srcPlane,
         *dstPlane,
         width,

@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2024-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2024-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -102,7 +102,7 @@ TEST_F(ConfigParserTest, checkParams)
     EXPECT_EQ(frameConfig.loqEnabled[LOQ0], true);
     EXPECT_EQ(frameConfig.loqEnabled[LOQ1], false);
 
-    EXPECT_LE(frameConfig.sharpenStrength, 0.04);
+    EXPECT_LE(globalConfig.sharpenStrength, 0.04);
     EXPECT_EQ(frameConfig.ditherEnabled, true);
     EXPECT_EQ(frameConfig.ditherType, DTUniform);
     EXPECT_EQ(frameConfig.ditherStrength, 2);

@@ -49,7 +49,7 @@ struct ThreadMutex
     pthread_mutex_t mutex;
 };
 
-// Static initialiser for ThreadMutex - equivalient to threadMutexInitialize()
+// Static initializer for ThreadMutex - equivalent to threadMutexInitialize()
 #define VNThreadMutexInit         \
     {                             \
         PTHREAD_MUTEX_INITIALIZER \
@@ -84,7 +84,7 @@ struct ThreadCondVar
     pthread_cond_t condVar;
 };
 
-// Static initialiser for ThreadCondVar - equivalient to threadCondVarInitialize()
+// Static initializer for ThreadCondVar - equivalent to threadCondVarInitialize()
 #define VNThreadCondVarInit      \
     {                            \
         PTHREAD_COND_INITIALIZER \

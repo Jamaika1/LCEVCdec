@@ -47,7 +47,7 @@ struct ThreadMutex
     SRWLOCK lock;
 };
 
-// Static initialiser for ThreadMutex  - equivalient to threadMutexInitialize()
+// Static initializer for ThreadMutex - equivalent to threadMutexInitialize()
 #define VNThreadMutexInit \
     {                     \
         SRWLOCK_INIT      \
@@ -76,8 +76,11 @@ static inline int threadMutexLock(ThreadMutex* mutex)
 
 static inline int threadMutexTrylock(ThreadMutex* mutex)
 {
-    TryAcquireSRWLockExclusive(&mutex->lock);
-    return ThreadResultSuccess;
+    if (TryAcquireSRWLockExclusive(&mutex->lock)) {
+        return ThreadResultSuccess;
+    } else {
+        return ThreadResultAgain;
+    }
 }
 
 static inline int threadMutexUnlock(ThreadMutex* mutex)
@@ -93,7 +96,7 @@ struct ThreadCondVar
     CONDITION_VARIABLE condVar;
 };
 
-// Static initialiser for ThreadCondVar - equivalient to threadCondVarInitialize()
+// Static initializer for ThreadCondVar - equivalent to threadCondVarInitialize()
 #define VNThreadCondVarInit     \
     {                           \
         CONDITION_VARIABLE_INIT \

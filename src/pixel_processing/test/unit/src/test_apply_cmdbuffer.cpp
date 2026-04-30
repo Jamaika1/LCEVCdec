@@ -16,6 +16,7 @@
 #include "test_plane.h"
 
 #include <gtest/gtest.h>
+#include <LCEVC/common/acceleration.h>
 #include <LCEVC/common/diagnostics.h>
 #include <LCEVC/common/memory.h>
 #include <LCEVC/enhancement/cmdbuffer_cpu.h>
@@ -41,10 +42,19 @@ typedef struct applyCmdBufferTestParams
     LdpFixedPoint fixedPoint;
     uint16_t entryPoints;
     bool surfaceRasterOrder;
-    bool forceScalar;
+    bool disableSIMD;
     bool highlight;
     std::string hash;
 } applyCmdBufferTestParams;
+
+void PrintTo(const applyCmdBufferTestParams& params, std::ostream* os)
+{
+    *os << "{transformSize=" << static_cast<uint32_t>(params.transformSize)
+        << ", fixedPoint=" << fixedPointToString(params.fixedPoint) << ", entryPoints=" << params.entryPoints
+        << ", surfaceRasterOrder=" << (params.surfaceRasterOrder ? "true" : "false")
+        << ", disableSIMD=" << (params.disableSIMD ? "true" : "false")
+        << ", highlight=" << (params.highlight ? "true" : "false") << ", hash=\"" << params.hash << "\"}";
+}
 
 class ApplyCmdBuffer : public testing::TestWithParam<applyCmdBufferTestParams>
 {
@@ -82,6 +92,9 @@ protected:
 
         allocator = ldcMemoryAllocatorMalloc();
         ldcDiagnosticsLogLevel(LdcLogLevelInfo);
+
+        ldcAccelerationInitialize(!params.disableSIMD);
+
         ldcTaskPoolInitialize(&taskPool, ldcMemoryAllocatorMalloc(), ldcMemoryAllocatorMalloc(),
                               threadTaskCount, threadTaskCount);
         testPlane.initialize(kWidth, kHeight, kWidth, params.fixedPoint);
@@ -127,7 +140,7 @@ TEST_P(ApplyCmdBuffer, AllCombinations)
     VNDiagInfo(diagInfo, "Name", 0, 0, 9);
     EXPECT_TRUE(ldppApplyCmdBuffer(&taskPool, NULL, &enhancementTile, params.fixedPoint,
                                    &testPlane.planeDesc, params.surfaceRasterOrder,
-                                   params.forceScalar, params.highlight, VNDiagInfoPtr(diagInfo)));
+                                   params.highlight, VNDiagInfoPtr(diagInfo)));
 }
 
 std::string testNames(const testing::TestParamInfo<applyCmdBufferTestParams>& value)
@@ -136,7 +149,7 @@ std::string testNames(const testing::TestParamInfo<applyCmdBufferTestParams>& va
 
     std::string transform = params.transformSize == 16 ? "DDS_" : "DD_";
     std::string raster = params.surfaceRasterOrder ? "raster_" : "block_";
-    std::string simd = params.forceScalar ? "simdOff_" : "simdOn_";
+    std::string simd = params.disableSIMD ? "simdOff_" : "simdOn_";
     std::string highlight = params.highlight ? "highlightOn" : "highlightOff";
     std::stringstream ss;
     ss << transform << fixedPointToString(params.fixedPoint) << "_" << params.entryPoints
@@ -167,14 +180,14 @@ TEST_P(ApplyCmdBufferHash, HashPlane)
     VNDiagInfo(diagInfo, "Name", 0, 0, 9);
     EXPECT_TRUE(ldppApplyCmdBuffer(&taskPool, NULL, &enhancementTile, params.fixedPoint,
                                    &testPlane.planeDesc, params.surfaceRasterOrder,
-                                   params.forceScalar, params.highlight, VNDiagInfoPtr(diagInfo)));
+                                   params.highlight, VNDiagInfoPtr(diagInfo)));
     EXPECT_EQ(hashPlane(), params.hash);
 }
 
 INSTANTIATE_TEST_SUITE_P(
     HashPlane, ApplyCmdBufferHash,
     testing::Values(
-        // transformSize, fixedPoint, entrypoints, surfaceRasterOrder, forceScalar, highlight, hash
+        // transformSize, fixedPoint, entrypoints, surfaceRasterOrder, disableSIMD, highlight, hash
         applyCmdBufferTestParams{4, LdpFPU8, 0, false, true, false, "f2468e478689739ea95e7daf9b1c5d4e"},
         applyCmdBufferTestParams{4, LdpFPU8, 0, false, false, false, "f2468e478689739ea95e7daf9b1c5d4e"},
         applyCmdBufferTestParams{4, LdpFPU8, 2, false, false, false, "f2468e478689739ea95e7daf9b1c5d4e"},

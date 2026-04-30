@@ -15,10 +15,9 @@
 #ifndef VN_LCEVC_PIXEL_PROCESSING_UPSCALE_H
 #define VN_LCEVC_PIXEL_PROCESSING_UPSCALE_H
 
-#include <LCEVC/common/memory.h>
 #include <LCEVC/common/task_pool.h>
 #include <LCEVC/enhancement/bitstream_types.h>
-#include <LCEVC/pipeline/picture.h>
+#include <LCEVC/pipeline/picture_layout.h>
 #include <LCEVC/pipeline/types.h>
 #include <LCEVC/pixel_processing/dither.h>
 //
@@ -29,41 +28,39 @@ extern "C"
 {
 #endif
 
-/*! \file
- * This file is the entry point for the surface upscaling functionality.
- */
-
 /*------------------------------------------------------------------------------*/
 
-/*! \brief upscale parameters to perform upscaling with. */
+/*! \brief Upscale parameters for input to ldppUpscale. */
 typedef struct ldppUpscaleArgs
 {
-    uint32_t planeIndex;
-    const LdpPictureLayout* srcLayout;
-    const LdpPictureLayout* intermediateLayout;
-    const LdpPictureLayout* dstLayout;
-    LdpPicturePlaneDesc srcPlane;
-    LdpPicturePlaneDesc intermediatePlane;
-    LdpPicturePlaneDesc dstPlane;
-    bool applyPA;                       /**< Indicates that predicted-average should be applied */
-    const LdppDitherFrame* frameDither; /**< Indicates that dithering should be applied  */
-    LdeScalingMode mode;                /**< The type of scaling to perform (1D or 2D). */
-    bool forceScalar;                   /**< Desired CPU acceleration features to use. */
+    uint32_t planeIndex;               /**< Plane index being upscaled */
+    const LdpPictureLayout* srcLayout; /**< Source picture layout for the input plane */
+    const LdpPictureLayout* dstLayout; /**< Destination picture layout for the output plane */
+    LdpPicturePlaneDesc srcPlane;      /**< Source plane to read from */
+    LdpPicturePlaneDesc dstPlane;      /**< Destination plane to write to */
+    const LdeKernel* kernel;           /**< Upscaling kernel coefficients */
+    bool applyPA;                      /**< Predicted-average mode toggle */
+    const LdppDitherFrame* frameDither; /**< Populated dither struct of random noise, NULL for dithering off */
+    LdeScalingMode mode;                /**< The type of scaling to perform (1D or 2D) */
 } LdppUpscaleArgs;
 
 /*------------------------------------------------------------------------------*/
 
-/*! \brief Upscales a source surface to a destination surface using the supplied args.
+/*! \brief Upscales a source surface to a destination surface using the supplied args. Operates in
+ *         all combinations of predicted-average, dithering, and scaling modes for 8, 10, 12 &
+ *         14bit inputs as well as NV12. Highly optimized SIMD implementations for SSE and NEON.
+ *         Implicit bitdepth promotion to a higher dstLayout supported in scalar operation only.
+ *         All upscaling is fully LCEVC standard compliant and performed in 16-bit fixed-point
+ *         arithmetic. Approximated PA 3-tap kernels are not supported.
  *
  *  \param taskPool       The task pool to create a sliced blit task from
- *  \param parent         If not NULL, task to inherit dependencies from
- *  \param kernel         The kernel to use for upscaling.
+ *  \param parent         If not NULL, task that deferred tasks inherit dependencies from
  *  \param params         The arguments to use for upscaling.
  *  \param diagInfo       Any diagnostic information for tracing.
  *
  *  \return True if the upscale operation was successful. */
-bool ldppUpscale(LdcTaskPool* taskPool, LdcTask* parent, const LdeKernel* kernel,
-                 const LdppUpscaleArgs* params, const LdpPipelineDiagInfo* diagInfo);
+bool ldppUpscale(LdcTaskPool* taskPool, LdcTask* parent, const LdppUpscaleArgs* params,
+                 const LdpPipelineDiagInfo* diagInfo);
 
 /*------------------------------------------------------------------------------*/
 

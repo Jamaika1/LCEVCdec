@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2024-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2024-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -94,7 +94,7 @@ typedef struct LdeVUIInfo
 } LdeVUIInfo;
 
 /*!
- * \brief LCEVC mastering display colour volume. Seek out the LCEVC standard documentation (D.2) for
+ * \brief LCEVC mastering display color volume. Seek out the LCEVC standard documentation (D.2) for
  * explanation on these fields and how to use them.
  */
 typedef struct LdeMasteringDisplayColorVolume

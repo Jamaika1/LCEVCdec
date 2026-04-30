@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2024-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2024-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -15,14 +15,21 @@
 #ifndef VN_LCEVC_PIPELINE_VULKAN_TEST_UTILITY_H
 #define VN_LCEVC_PIPELINE_VULKAN_TEST_UTILITY_H
 
+#include <picture_vulkan.h>
+#include <pipeline_vulkan.h>
+//
+#include <LCEVC/common/bitutils.h>
+#include <LCEVC/enhancement/cmdbuffer_gpu.h>
+#include <LCEVC/pipeline/buffer_base.h>
 #include <LCEVC/pipeline/types.h>
 #include <LCEVC/utility/md5.h>
-
+//
+#include <gtest/gtest.h>
+//
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
-#include <limits>
 #include <random>
 #include <type_traits>
 #include <vector>
@@ -36,6 +43,36 @@ inline std::string hashMd5(const uint8_t* data, size_t size)
     hash.update(data, size);
 
     return hash.hexDigest();
+}
+
+inline std::string hashMd5Buffer(lcevc_dec::pipeline::BufferBase* buffer)
+{
+    lcevc_dec::utility::MD5 hash;
+    hash.reset();
+
+    LdpBufferMapping mapping{};
+    if (!buffer->map(&mapping, 0, buffer->size(), LdpAccessRead)) {
+        return "";
+    }
+
+    hash.update(mapping.ptr, mapping.size);
+
+    buffer->unmap(&mapping);
+    return hash.hexDigest();
+}
+
+// Allocate a picture and pre-emptively set t the buffer usage to BufferUsageIn,
+// So that it can be read out, even if the compute code suggests BufferUsageLocal
+//
+inline lcevc_dec::pipeline_vulkan::PictureVulkan*
+allocateTestPictureAndBuffer(lcevc_dec::pipeline_vulkan::PipelineVulkan* pipeline,
+                             LdpColorFormat format, uint32_t width, uint32_t height)
+{
+    LdpPictureDesc desc{};
+    ldpDefaultPictureDesc(&desc, format, width, height);
+    auto* picture = static_cast<lcevc_dec::pipeline_vulkan::PictureVulkan*>(pipeline->allocPicture(desc));
+    picture->setDescAndBind(desc, lcevc_dec::pipeline::BufferUsageIn);
+    return picture;
 }
 
 template <typename T>
@@ -93,6 +130,67 @@ inline void writeRaw(const char* filename, const uint8_t* data, size_t size) // 
     output.write((const char*)data, size);
     if (!output) {
         throw std::runtime_error("Failed to write data to file");
+    }
+}
+
+// Validate a built GPU command buffer for internal consistency.
+//
+// Checks performed:
+//   - layerCount is 4 (DD) or 16 (DDS)
+//   - Every command's blockIndex is within the 18-bit range
+//   - Every command's operation is a valid enum value
+//   - bitCount matches the popcount of the bitmask (across all 4 words)
+//   - dataOffset + bitCount*layerCount <= residualCount for operations with residuals
+//   - No two commands on the same block have overlapping bitmasks (same TU targeted twice)
+//
+inline void validateCommandBuffer(const LdeCmdBufferGpu& buf)
+{
+    ASSERT_TRUE(buf.layerCount == 4 || buf.layerCount == 16)
+        << "layerCount must be 4 (DD) or 16 (DDS), got " << static_cast<int>(buf.layerCount);
+
+    for (uint32_t i = 0; i < buf.commandCount; ++i) {
+        const auto& cmd = buf.commands[i];
+
+        // Block index within 18-bit range
+        EXPECT_LT(cmd.blockIndex, 1u << 18)
+            << "cmd[" << i << "]: blockIndex " << cmd.blockIndex << " exceeds 18-bit limit";
+
+        // Operation in valid range
+        EXPECT_LE(cmd.operation, 3u) << "cmd[" << i << "]: invalid operation " << cmd.operation;
+
+        // bitCount must equal the popcount across all bitmask words.
+        // Both DDS raster-order and DD use all 4 words; DDS block-order uses
+        // only word 0 but the unused words are zero so counting them is harmless.
+        uint32_t popcount = 0;
+        for (uint32_t w = 0; w < 4; ++w) {
+            popcount += popcnt64(cmd.bitmask[w]);
+        }
+        EXPECT_EQ(static_cast<uint32_t>(cmd.bitCount), popcount)
+            << "cmd[" << i << "]: bitCount " << cmd.bitCount << " != popcount " << popcount;
+
+        // Residual bounds: operations with data must not read past the residual buffer
+        if (cmd.operation != CBGOSetZero && cmd.bitCount > 0) {
+            const uint64_t residualsEnd = static_cast<uint64_t>(cmd.dataOffset) +
+                                          static_cast<uint64_t>(cmd.bitCount) * buf.layerCount;
+            EXPECT_LE(residualsEnd, static_cast<uint64_t>(buf.residualCount))
+                << "cmd[" << i << "]: residuals out of bounds (offset=" << cmd.dataOffset
+                << " + needed=" << cmd.bitCount * buf.layerCount << " > count=" << buf.residualCount
+                << ")";
+        }
+
+        // No two commands on the same block may target the same TU
+        for (uint32_t j = i + 1; j < buf.commandCount; ++j) {
+            const auto& other = buf.commands[j];
+            if (other.blockIndex != cmd.blockIndex) {
+                continue;
+            }
+            for (uint32_t w = 0; w < 4; ++w) {
+                const uint64_t overlap = cmd.bitmask[w] & other.bitmask[w];
+                EXPECT_EQ(overlap, 0u)
+                    << "cmd[" << i << "] and cmd[" << j << "]: bitmask overlap on block " << cmd.blockIndex
+                    << " word " << w << " (overlap=0x" << std::hex << overlap << std::dec << ")";
+            }
+        }
     }
 }
 

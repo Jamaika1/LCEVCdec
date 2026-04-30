@@ -16,7 +16,7 @@
 #define VN_LCEVC_PIXEL_PROCESSING_CONVERT_H
 
 #include <LCEVC/common/task_pool.h>
-#include <LCEVC/pipeline/picture.h>
+#include <LCEVC/pipeline/picture_layout.h>
 #include <LCEVC/pipeline/types.h>
 
 #ifdef __cplusplus
@@ -30,15 +30,16 @@ extern "C"
  *         NEON accelerated functions, some may fallback to scalar.
  *
  * \param taskPool       The task pool to create a sliced blit task from
- * \param forceScalar    Doesn't use SSE or NEON accelerated functions when true.
+ * \param parent         If not NULL, task that deferred tasks inherit dependencies from
  * \param planeIndex     The plane index in src/dst layout
  * \param srcLayout      The source plane picture layout
  * \param dstLayout      The destination picture layout
  * \param srcPlane       The source plane to blit from.
  * \param dstPlane       The destination plane to blit to.
+ * \param diagInfo       Any diagnostic information for tracing.
  *
- * \return True if the blit operation was successful. */
-bool ldppPlaneConvert(LdcTaskPool* taskPool, LdcTask* parent, bool forceScalar, uint32_t planeIndex,
+ * \return True if the copy/conversion was successful. */
+bool ldppPlaneConvert(LdcTaskPool* taskPool, LdcTask* parent, uint32_t planeIndex,
                       const LdpPictureLayout* srcLayout, const LdpPictureLayout* dstLayout,
                       LdpPicturePlaneDesc* srcPlane, LdpPicturePlaneDesc* dstPlane,
                       const LdpPipelineDiagInfo* diagInfo);

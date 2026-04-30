@@ -302,7 +302,6 @@ static inline void runTask(LdcTaskPool* pool, LdcTaskPart* taskPart)
     if (task->iterationsCompletedCount == task->iterationsTotalCount) {
         // Task is done
         //
-
         if (task->completionFunction) {
             // Do the completion with pool unlocked
             LdcTaskPart part = {task, task->iterationsTotalCount, 0};
@@ -497,7 +496,11 @@ bool ldcTaskPoolInitialize(LdcTaskPool* pool, LdcMemoryAllocator* longTermAlloca
     VNCheck(threadCondVarInitialize(&pool->condVarCompleted) == ThreadResultSuccess);
 
     // Threads
-    if (threadCount <= 1) {
+    if (!VN_SDK_FEATURE(THREADING) && threadCount > 1) {
+        VNLogWarning(
+            "%d threads requested but VN_SDK_THREADING is disabled, continuing single threaded", threadCount);
+    }
+    if (!VN_SDK_FEATURE(THREADING) || threadCount <= 1) {
         // When threads=1, run truly single threaded with no worker threads.
         threadCount = 0;
     }
@@ -1020,6 +1023,8 @@ void ldcTaskDependencyMet(LdcTaskGroup* group, LdcTaskDependency dependency, voi
 
     dependencyMet(group, dependency, value);
 
+    threadCondVarBroadcast(&group->pool->condVarCompleted);
+
     threadMutexUnlock(&group->pool->mutex);
 }
 
@@ -1175,20 +1180,23 @@ bool ldcTaskPoolAddSlicedDeferred(LdcTaskPool* pool, LdcTask* parent,
 static const char* depsSetAsString(char* dest, size_t destSize, const LdcTaskDependency* deps,
                                    uint32_t depsCount, const LdcTaskGroup* group)
 {
-    dest[0] = 0;
-
-    char* cp = dest;
+    assert(destSize > 0);
 
     if (!deps) {
+        dest[0] = '\0';
         return dest;
     }
 
-    for (uint32_t i = 0; i < depsCount; ++i) {
+    char* cp = dest;
+    size_t sz = destSize - 1;
+    for (uint32_t i = 0; i < depsCount && sz > 0; ++i) {
         const LdcTaskDependency dep = deps[i];
-        cp += snprintf(cp, destSize - (cp - dest), "%d%s ", dep,
-                       (group && dependencyMetBitGet(group, dep)) ? "*" : "");
+        int numChars =
+            snprintf(cp, sz, "%d%s ", dep, (group && dependencyMetBitGet(group, dep)) ? "*" : "");
+        cp += numChars;
+        sz -= numChars;
     }
-
+    *cp = '\0';
     return dest;
 }
 
@@ -1203,8 +1211,9 @@ static void taskPoolDump(LdcTaskPool* pool, const LdcTaskGroup* group)
     VNLogDebugF("  Threads: %d", pool->threadCount);
     LdcTaskThread* threads = VNAllocationPtr(pool->threads, LdcTaskThread);
     for (uint32_t id = 0; id < pool->threadCount; ++id) {
-        if (!threads[id].part.task)
+        if (!threads[id].part.task) {
             continue;
+        }
         const char* name = threads[id].part.task
                                ? ((threads[id].part.task->name) ? threads[id].part.task->name : "")
                                : "";
@@ -1230,7 +1239,7 @@ static void taskPoolDump(LdcTaskPool* pool, const LdcTaskGroup* group)
         if (task->inputs || task->output != kTaskDependencyInvalid) {
             char tmp[256];
             VNLogDebugF("     Inputs:[ %s] -> %d",
-                        depsSetAsString(tmp, sizeof(tmp), task->inputs, task->inputsCount, task->group),
+                        depsSetAsString(tmp, sizeof(tmp) - 1, task->inputs, task->inputsCount, task->group),
                         task->output);
         }
     }
@@ -1251,7 +1260,7 @@ static void taskPoolDump(LdcTaskPool* pool, const LdcTaskGroup* group)
             }
         }
         char tmp[256];
-        VNLogDebugF("     Met:[ %s]", depsSetAsString(tmp, sizeof(tmp), metDeps, metDepsCount, 0));
+        VNLogDebugF("     Met:[ %s]", depsSetAsString(tmp, sizeof(tmp) - 1, metDeps, metDepsCount, 0));
     }
 }
 

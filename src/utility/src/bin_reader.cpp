@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2023-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2023-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -34,12 +34,12 @@ bool BinReader::readHeader()
     char magic[8] = {};
     uint32_t version = 0;
     if (!m_stream->read(magic, sizeof(magic)) || !readBigEndian(*m_stream, version)) {
-        fmt::print(stderr, "Short BIN header.");
+        fmt::print(stderr, "Short BIN header\n");
         return false;
     }
 
     if (std::memcmp(magic, kMagicBytes, sizeof(magic)) != 0 || version != kVersion) {
-        fmt::print(stderr, "Bad BIN header.");
+        fmt::print(stderr, "Bad BIN header\n");
         return false;
     }
 
@@ -58,18 +58,18 @@ bool BinReader::read(int64_t& decodeIndex, int64_t& presentationIndex, std::vect
     }
 
     if (!readBigEndian(*m_stream, size)) {
-        fmt::print(stderr, "Short BIN block.");
+        fmt::print(stderr, "Short BIN block\n");
         return false;
     }
 
     // Payload header
     if (type != static_cast<uint16_t>(BlockTypes::LCEVCPayload) || size < 16) {
-        fmt::print(stderr, "Unrecognized BIN block.");
+        fmt::print(stderr, "Unrecognized BIN block\n");
         return false;
     }
 
     if (!readBigEndian(*m_stream, decodeIndex) || !readBigEndian(*m_stream, presentationIndex)) {
-        fmt::print(stderr, "Short Payload block.");
+        fmt::print(stderr, "Short Payload block\n");
         return false;
     }
 
@@ -78,7 +78,7 @@ bool BinReader::read(int64_t& decodeIndex, int64_t& presentationIndex, std::vect
     char* data = static_cast<char*>(static_cast<void*>(payload.data()));
     auto sz = static_cast<std::streamsize>(payload.size());
     if (!m_stream->read(data, sz)) {
-        fmt::print(stderr, "Short payload.");
+        fmt::print(stderr, "Short payload\n");
         return false;
     }
 

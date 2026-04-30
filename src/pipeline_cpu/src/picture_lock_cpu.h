@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2025-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -15,27 +15,21 @@
 #ifndef VN_LCEVC_PIPELINE_CPU_PICTURE_LOCK_CPU_H
 #define VN_LCEVC_PIPELINE_CPU_PICTURE_LOCK_CPU_H
 
-#include <LCEVC/common/class_utils.hpp>
-#include <LCEVC/pipeline/picture.h>
+#include "picture_cpu.h"
+
+#include <LCEVC/pipeline/picture_lock_base.h>
 
 namespace lcevc_dec::pipeline_cpu {
 
 class PictureCPU;
 
-class PictureLock : public LdpPictureLock
+class PictureLockCPU : public pipeline::PictureLockBase
 {
-    static constexpr uint8_t arrSize = kLdpPictureMaxColorComponents;
-
 public:
-    PictureLock(PictureCPU* src, LdpAccess access);
-    ~PictureLock();
+    PictureLockCPU(PictureCPU* src, LdpAccess access);
+    ~PictureLockCPU();
 
-    bool getBufferDesc(LdpPictureBufferDesc* desc) const;
-    bool getPlaneDesc(uint32_t planeIndex, LdpPicturePlaneDesc* planeDescOut) const;
-
-    VNNoCopyNoMove(PictureLock);
-
-private:
+    VNNoCopyNoMove(PictureLockCPU);
 };
 
 } // namespace lcevc_dec::pipeline_cpu

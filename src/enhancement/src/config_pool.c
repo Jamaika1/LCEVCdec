@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2024-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2024-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -43,13 +43,13 @@ static WrappedGlobalConfig* allocateGlobalConfig(LdeConfigPool* configPool, cons
 
 // Reduce reference count to a wrapped GlobalConfig
 //
-static void releaseGlobalConfig(LdeConfigPool* configPool, WrappedGlobalConfig* wrapped)
+static bool releaseGlobalConfig(LdeConfigPool* configPool, WrappedGlobalConfig* wrapped)
 {
     assert(wrapped);
     assert(wrapped->referenceCount > 0);
 
     if (--wrapped->referenceCount != 0) {
-        return;
+        return true;
     }
 
     // This is no longer used - find allocation
@@ -58,12 +58,13 @@ static void releaseGlobalConfig(LdeConfigPool* configPool, WrappedGlobalConfig* 
 
     if (!alloc) {
         VNLogWarning("Allocation not found in pool.");
-        return;
+        return false;
     }
 
     // Release block and remove from index
     VNFree(configPool->staticAllocator, alloc);
     ldcVectorRemoveReorder(&configPool->globalConfigs, alloc);
+    return true;
 }
 
 void ldeConfigPoolInitialize(LdcMemoryAllocator* staticAllocator, LdcMemoryAllocator* dynamicAllocator,
@@ -81,7 +82,7 @@ void ldeConfigPoolInitialize(LdcMemoryAllocator* staticAllocator, LdcMemoryAlloc
     VNClear(&defaultGlobalConfig);
 
     // Set to default values
-    ldeGlobalConfigInitialize(bitstreamVersion, &defaultGlobalConfig);
+    ldeGlobalConfigInitialize((uint8_t)bitstreamVersion, &defaultGlobalConfig);
 
     WrappedGlobalConfig* latest = allocateGlobalConfig(configPool, &defaultGlobalConfig);
 
@@ -148,11 +149,9 @@ bool ldeConfigPoolFrameInsert(LdeConfigPool* configPool, uint64_t timestamp,
     return true;
 }
 
-bool ldeConfigPoolFrameRelease(LdeConfigPool* configPool, LdeFrameConfig* frameConfig,
-                               LdeGlobalConfig* globalConfig)
+bool ldeConfigPoolFrameRelease(LdeConfigPool* configPool, LdeGlobalConfig* globalConfig)
 {
-    releaseGlobalConfig(configPool, (WrappedGlobalConfig*)globalConfig);
-    return true;
+    return releaseGlobalConfig(configPool, (WrappedGlobalConfig*)globalConfig);
 }
 
 void ldeConfigPoolFramePassthrough(LdeConfigPool* configPool, LdeGlobalConfig** globalConfigPtr,

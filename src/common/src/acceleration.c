@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2024-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2024-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -107,27 +107,24 @@ static bool detectAVX2(void) { return false; }
 
 void ldcAccelerationInitialize(bool enable)
 {
+    defaultAcceleration.hasSSE = false;
+    defaultAcceleration.hasAVX2 = false;
+    defaultAcceleration.hasNeon = false;
+    defaultAcceleration.hasSIMD = false;
+
     if (enable) {
 #if VN_SDK_FEATURE(SSE)
-        defaultAcceleration.SSE = detectSSE();
-#else
-        defaultAcceleration.SSE = false;
+        defaultAcceleration.hasSSE = detectSSE();
 #endif
 #if VN_SDK_FEATURE(AVX2)
-        defaultAcceleration.AVX2 = detectAVX2();
-#else
-        defaultAcceleration.AVX2 = false;
+        defaultAcceleration.hasAVX2 = detectAVX2();
 #endif
 #if VN_SDK_FEATURE(NEON)
-        defaultAcceleration.NEON = true;
-#else
-        defaultAcceleration.NEON = false;
+        defaultAcceleration.hasNeon = true;
 #endif
-    } else {
-        defaultAcceleration.SSE = false;
-        defaultAcceleration.AVX2 = false;
-        defaultAcceleration.NEON = false;
     }
+    defaultAcceleration.hasSIMD =
+        defaultAcceleration.hasSSE || defaultAcceleration.hasAVX2 || defaultAcceleration.hasNeon;
 
     currentAcceleration = &defaultAcceleration;
 }

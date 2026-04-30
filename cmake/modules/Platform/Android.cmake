@@ -1,4 +1,4 @@
-# Copyright (c) V-Nova International Limited 2022-2024. All rights reserved.
+# Copyright (c) V-Nova International Limited 2022-2026. All rights reserved.
 # This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
 # No patent licenses are granted under this license. For enquiries about patent licenses,
 # please contact legal@v-nova.com.
@@ -13,9 +13,8 @@
 # THE EXCLUSION OF PATENT LICENSES PROVISION OF THE BSD-3-CLAUSE-CLEAR LICENSE.
 
 if (NOT ANDROID_VENDOR)
-    set_target_properties(lcevc_dec::platform PROPERTIES INTERFACE_LINK_LIBRARIES
-                                                         "android;log;EGL;z")
+    set_target_properties(lcevc_dec::platform PROPERTIES INTERFACE_LINK_LIBRARIES "android;EGL;z")
 else ()
     set_target_properties(lcevc_dec::platform PROPERTIES INTERFACE_LINK_LIBRARIES
-                                                         "nativewindow;log;EGL;z")
+                                                         "nativewindow;EGL;z")
 endif ()

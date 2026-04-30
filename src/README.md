@@ -36,9 +36,6 @@ to configuration.
  * `pipeline_metal`
  GPU (Apple) implementation of pipeline (C++)
 
-* `pipeline_legacy`
-  Legacy non pipelined CPU implementation that uses core/DPI
-
 ## Support
 
 Static libraries that are delivered alongside the API as optional support code for common
@@ -59,17 +56,3 @@ operations needed in a decoding integration.
 
  * `sample_cpp`
   LCEVCdec API sample
-
-## Legacy Code
-
- * `legacy`
-  The old `perseus_...()` DPI
-
- * `color_conversion`
-  Tonemapping and color conversion
-
- * `overlay_images`
-  Branding images used by the legacy DPI
-
-* `sequencer`
-  Timecode prediction for timestamps (C)

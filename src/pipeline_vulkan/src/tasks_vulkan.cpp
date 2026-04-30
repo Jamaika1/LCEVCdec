@@ -14,15 +14,22 @@
 
 #include "tasks_vulkan.h"
 
+#include "buffer_vulkan.h"
+#include "from_base.h"
+#include "picture_vulkan.h"
+
 #include <LCEVC/common/constants.h>
 #include <LCEVC/common/diagnostics.h>
 #include <LCEVC/common/memory.h>
+#include <LCEVC/common/task_pool.h>
 #include <LCEVC/enhancement/bitstream_types.h>
 #include <LCEVC/enhancement/decode.h>
+#include <LCEVC/pipeline/buffer_base.h>
+#include <LCEVC/pipeline/picture.h>
+#include <LCEVC/pipeline/tasks_base.h>
 #include <LCEVC/pipeline/types.h>
 #include <LCEVC/pipeline_vulkan/types_vulkan.h>
 #include <LCEVC/pixel_processing/apply_cmdbuffer.h>
-#include <LCEVC/pixel_processing/convert.h>
 #include <LCEVC/pixel_processing/upscale.h>
 
 namespace lcevc_dec::pipeline_vulkan {
@@ -35,180 +42,132 @@ namespace {
     //
     // Copy incoming picture plane to internal fixed point surface format
     //
-    // NB: There is likely a good templated C++ class that wraps these tasks up neatly,
-    // Worth figuring out once this has stabilised.
-    //
-    struct TaskConvertToInternalData
+    void* vConvertToInternal(PipelineVulkan* pipeline, VulkanFrameContext* context,
+                             uint32_t baseDepth, uint32_t enhancementDepth)
     {
-        PipelineVulkan* pipeline;
-        FrameVulkan* frame;
-    };
-
-    void* taskConvertToInternal(LdcTask* task, const LdcTaskPart* /*part*/)
-    {
-        assert(task->dataSize == sizeof(TaskConvertToInternalData));
-        const TaskConvertToInternalData& data{VNTaskData(task, TaskConvertToInternalData)};
-        PipelineVulkan* const pipeline{data.pipeline};
-        FrameVulkan* const frame{data.frame};
-
-        if (pipeline->isSkipped(frame)) {
+        if (pipeline->isSkipped(context->getFrame())) {
             return nullptr;
         }
 
-        auto* srcPicture = static_cast<PictureVulkan*>(frame->basePicture);
-        LdpPictureDesc srcDesc;
-        srcPicture->getDesc(srcDesc);
-
+        auto* srcPicture = fromPipeline(context->getFrame()->basePicture);
         // external base check
-        if (LdpPictureBufferDesc exDesc{}; srcPicture->getBufferDesc(exDesc)) {
-            auto managedBuffer = static_cast<BufferVulkan*>(srcPicture->buffer);
-            if (managedBuffer->size() != exDesc.byteSize) { // padded base
-                const bool nv12 = (srcPicture->layout.layoutInfo->format == LdpColorFormatNV12_8 ||
-                                   srcPicture->layout.layoutInfo->format == LdpColorFormatNV21_8)
-                                      ? true
-                                      : false;
+        LdpPictureBufferDesc exDesc{};
+        const bool hasBufferDesc = srcPicture->getBufferDesc(exDesc);
+        LdpPicturePlaneDesc srcPlaneDescs[kLdpPictureMaxNumPlanes]{};
+        if (srcPicture->getPlaneDescArr(srcPlaneDescs)) {
+            if (srcPicture->buffer == nullptr) {
+                srcPicture->bindMemory(pipeline::BufferUsageIn);
+            }
 
-                const uint32_t byteWidth = (frame->baseBitdepth == 8) ? srcDesc.width : 2 * srcDesc.width;
-                const uint32_t planeWidth = nv12 ? byteWidth : byteWidth >> 1;
+            auto* managedBuffer = fromPipeline(srcPicture->buffer);
+            assert(managedBuffer);
 
-                auto removePadding = [&](uint32_t width, uint32_t height, uint32_t pixelWidth,
-                                         uint8_t planeIndex, uint32_t internalOffset,
-                                         uint32_t externalOffsetU, uint32_t externalOffsetV) {
-                    for (uint32_t y = 0; y < height; ++y) {
-                        const auto internalIndex = internalOffset + y * pixelWidth;
-                        auto externalIndex = y * srcPicture->layout.rowStrides[planeIndex];
-                        if (planeIndex > 0) {
-                            externalIndex +=
-                                externalOffsetU * srcPicture->layout.rowStrides[planeIndex - 1];
-                        }
-                        if (planeIndex > 1) {
-                            externalIndex +=
-                                externalOffsetV * srcPicture->layout.rowStrides[planeIndex - 2];
-                        }
-                        std::memcpy(managedBuffer->ptr() + internalIndex,
-                                    exDesc.data + externalIndex, width);
-                    }
-                };
+            uint32_t compactSize = 0;
+            bool needsCompaction = !hasBufferDesc || exDesc.data == nullptr;
+            const uint8_t planeCount = ldpPictureLayoutPlanes(&srcPicture->layout);
 
-                removePadding(byteWidth, srcDesc.height, byteWidth, 0, 0, 0, 0); // Y
+            for (uint8_t plane = 0; plane < planeCount; ++plane) {
+                const uint32_t rowBytes = ldpPictureLayoutRowSize(&srcPicture->layout, plane);
+                const uint32_t planeHeight = ldpPictureLayoutPlaneHeight(&srcPicture->layout, plane);
 
-                if (pipeline->getChroma() != LdeChroma::CTMonochrome) {
-                    removePadding(planeWidth, srcDesc.height >> 1, planeWidth, 1,
-                                  byteWidth * srcDesc.height, srcDesc.height, 0); // U
-
-                    if (!nv12) {
-                        removePadding(byteWidth >> 1, srcDesc.height >> 1, planeWidth, 2,
-                                      5 * byteWidth * srcDesc.height >> 2, srcDesc.height >> 1,
-                                      srcDesc.height); // V
-
-                        srcPicture->layout.rowStrides[2] = planeWidth;
-                        srcPicture->layout.planeOffsets[2] = 5 * byteWidth * srcDesc.height >> 2;
-                    }
-                    srcPicture->layout.rowStrides[1] = planeWidth;
-                    srcPicture->layout.planeOffsets[1] = byteWidth * srcDesc.height;
+                if (srcPlaneDescs[plane].rowByteStride != rowBytes) {
+                    needsCompaction = true;
                 }
-                srcPicture->layout.rowStrides[0] = byteWidth;
-                srcPicture->layout.planeOffsets[0] = 0;
+                if (hasBufferDesc && exDesc.data &&
+                    srcPlaneDescs[plane].firstSample != (exDesc.data + compactSize)) {
+                    needsCompaction = true;
+                }
+
+                compactSize += rowBytes * planeHeight;
+            }
+
+            if (!needsCompaction && hasBufferDesc && exDesc.byteSize == compactSize) {
+                managedBuffer->copyIn(0, exDesc.data, exDesc.byteSize);
             } else {
-                std::memcpy(managedBuffer->ptr(), exDesc.data, exDesc.byteSize);
+                uint32_t compactOffset = 0;
+                for (uint8_t plane = 0; plane < planeCount; ++plane) {
+                    const uint32_t rowBytes = ldpPictureLayoutRowSize(&srcPicture->layout, plane);
+                    const uint32_t planeHeight = ldpPictureLayoutPlaneHeight(&srcPicture->layout, plane);
+
+                    for (uint32_t y = 0; y < planeHeight; ++y) {
+                        managedBuffer->copyIn(compactOffset + y * rowBytes,
+                                              srcPlaneDescs[plane].firstSample +
+                                                  y * srcPlaneDescs[plane].rowByteStride,
+                                              rowBytes);
+                    }
+
+                    srcPicture->layout.rowStrides[plane] = rowBytes;
+                    srcPicture->layout.planeOffsets[plane] = compactOffset;
+                    compactOffset += rowBytes * planeHeight;
+                }
+                srcPicture->layout.size = compactOffset;
             }
         }
 
+        LdpPictureDesc srcDesc;
+        srcPicture->getDesc(srcDesc);
         srcDesc.colorFormat = pipeline->chromaToColorFormat(pipeline->getChroma());
-        auto* dstPicture = static_cast<PictureVulkan*>(pipeline->allocPicture(srcDesc));
+        auto* dstPicture = fromPipeline(pipeline->allocPicture(srcDesc));
+        dstPicture->bindMemory(pipeline::BufferUsageInternal);
+        context->getFrame()->addIntermediatePicture(dstPicture);
 
         VulkanConversionArgs args{};
         args.src = srcPicture;
         args.dst = dstPicture;
         args.toInternal = true;
-        args.bitDepth = frame->baseBitdepth;
+        args.bitDepth = context->getFrame()->baseBitdepth;
         args.chroma = pipeline->getChroma();
+        args.context = context;
 
-        if (!pipeline->getCore().conversion(&args)) {
+        if (!pipeline->backend().conversion(&args)) {
             VNLogError("Conversion to internal failed");
         }
 
-        frame->m_intermediatePicture[LOQ2] = dstPicture;
+        context->getFrame()->setIntermediatePicture(LOQ2, dstPicture);
 
         return nullptr;
-    }
-
-    LdcTaskDependency addTaskConvertToInternal(PipelineVulkan* pipeline, FrameVulkan* frame,
-                                               LdcTaskDependency inputDep)
-    {
-        const TaskConvertToInternalData data{pipeline, frame};
-        const LdcTaskDependency inputs[] = {inputDep};
-        return frame->taskAdd(inputs, VNArraySize(inputs), taskConvertToInternal, &data,
-                              sizeof(data), "ConvertToInternal");
     }
 
     //// ConvertFromInternal
     //
     // Concert a picture plane from internal fixed point to output picture pixel format.
     //
-    struct TaskConvertFromInternalData
+    void* vConvertFromInternal(PipelineVulkan* pipeline, VulkanFrameContext* context,
+                               uint32_t baseDepth, uint8_t intermediatePtr)
     {
-        PipelineVulkan* pipeline;
-        FrameVulkan* frame;
-        uint8_t intermediatePtr;
-    };
-
-    void* taskConvertFromInternal(LdcTask* task, const LdcTaskPart* /*part*/)
-    {
-        assert(task->dataSize == sizeof(TaskConvertFromInternalData));
-        const TaskConvertFromInternalData& data{VNTaskData(task, TaskConvertFromInternalData)};
-        PipelineVulkan* const pipeline{data.pipeline};
-        FrameVulkan* const frame{data.frame};
-        const uint8_t intermediatePtr{data.intermediatePtr};
-
-        if (pipeline->isSkipped(frame)) {
+        if (pipeline->isSkipped(context->getFrame())) {
             return nullptr;
         }
 
-        auto* srcPicture = frame->m_intermediatePicture[intermediatePtr];
+        auto* srcPicture = context->getFrame()->getIntermediatePicture(intermediatePtr);
 
         LdpPictureDesc dstDesc;
         srcPicture->getDesc(dstDesc);
-        dstDesc.colorFormat = frame->outputPicture->layout.layoutInfo->format;
-        frame->outputPicture->functions->setDesc(frame->outputPicture, &dstDesc);
+        dstDesc.colorFormat = context->getFrame()->outputPicture->layout.layoutInfo->format;
+        PictureVulkan* op = fromPipeline(context->getFrame()->outputPicture);
+        op->setDescAndBind(dstDesc, pipeline::BufferUsageOut);
 
         VulkanConversionArgs args{};
         args.src = srcPicture;
-        args.dst = static_cast<PictureVulkan*>(frame->outputPicture);
+        args.dst = fromPipeline(context->getFrame()->outputPicture);
         args.toInternal = false;
-        args.bitDepth = frame->getEnhancementBitDepth();
+        args.bitDepth = context->getFrame()->getEnhancementBitDepth();
         args.chroma = pipeline->getChroma();
+        args.sharpenStrength = context->getFrame()->sharpeningStrength(0);
+        args.context = context;
 
-        if (!pipeline->getCore().conversion(&args)) {
+        if (!pipeline->backend().conversion(&args)) {
             VNLogError("Conversion from internal failed");
         }
 
-        if (frame->globalConfig->cropEnabled) {
-            args.dst->margins.left = frame->globalConfig->crop.left;
-            args.dst->margins.right = frame->globalConfig->crop.right;
-            args.dst->margins.top = frame->globalConfig->crop.top;
-            args.dst->margins.bottom = frame->globalConfig->crop.bottom;
-        }
-
-        // external output check
-        if (LdpPictureBufferDesc exDesc{};
-            static_cast<PictureVulkan*>(frame->outputPicture)->getBufferDesc(exDesc)) {
-            auto managedBuffer =
-                static_cast<BufferVulkan*>(static_cast<PictureVulkan*>(frame->outputPicture)->buffer);
-            std::memcpy(exDesc.data, managedBuffer->ptr(), exDesc.byteSize);
+        if (context->getFrame()->globalConfig->cropEnabled) {
+            args.dst->margins.left = context->getFrame()->globalConfig->crop.left;
+            args.dst->margins.right = context->getFrame()->globalConfig->crop.right;
+            args.dst->margins.top = context->getFrame()->globalConfig->crop.top;
+            args.dst->margins.bottom = context->getFrame()->globalConfig->crop.bottom;
         }
 
         return nullptr;
-    }
-
-    LdcTaskDependency addTaskConvertFromInternal(PipelineVulkan* pipeline, FrameVulkan* frame,
-                                                 LdcTaskDependency dst, LdcTaskDependency src,
-                                                 uint8_t intermediatePtr)
-    {
-        const TaskConvertFromInternalData data{pipeline, frame, intermediatePtr};
-        const LdcTaskDependency inputs[] = {dst, src};
-        return frame->taskAdd(inputs, VNArraySize(inputs), taskConvertFromInternal, &data,
-                              sizeof(data), "ConvertFromInternal");
     }
 
     //// Upsample
@@ -217,100 +176,48 @@ namespace {
     //
     // Inputs and outputs may be fixed point or 'external' format if no residuals are being applied.
     //
-    struct TaskUpsampleData
+
+    void* vUpscale(PipelineVulkan* pipeline, VulkanFrameContext* context, LdeLOQIndex loq,
+                   uint8_t intermediatePtr)
     {
-        PipelineVulkan* pipeline;
-        FrameVulkan* frame;
-        LdeLOQIndex loq;
-        uint8_t intermediatePtr;
-    };
-
-    void* taskUpsample(LdcTask* task, const LdcTaskPart* /*part*/)
-    {
-        assert(task->dataSize == sizeof(TaskUpsampleData));
-        const TaskUpsampleData& data{VNTaskData(task, TaskUpsampleData)};
-
-        PipelineVulkan* const pipeline{data.pipeline};
-        FrameVulkan* const frame{data.frame};
-        const uint8_t intermediatePtr{data.intermediatePtr};
-        const LdeLOQIndex loq{data.loq};
-
-        if (pipeline->isSkipped(frame)) {
+        if (pipeline->isSkipped(context->getFrame())) {
             return nullptr;
         }
 
         VulkanUpscaleArgs upscaleArgs{};
-        upscaleArgs.src = frame->m_intermediatePicture[intermediatePtr];
-        const LdpPictureDesc desc{2, 2, LdpColorFormatI420_8};
-        frame->m_intermediatePicture[intermediatePtr - 1] =
-            static_cast<PictureVulkan*>(pipeline->allocPicture(desc));
-        upscaleArgs.dst = frame->m_intermediatePicture[intermediatePtr - 1];
+        upscaleArgs.src = context->getFrame()->getIntermediatePicture(intermediatePtr);
+        LdpPictureDesc desc{};
+        ldpDefaultPictureDesc(&desc, LdpColorFormatI420_8, 2, 2);
 
-        upscaleArgs.applyPA = static_cast<uint8_t>(frame->globalConfig->predictedAverageEnabled);
+        PictureVulkan* ip = fromPipeline(pipeline->allocPicture(desc));
+        ip->bindMemory(pipeline::BufferUsageInternal);
+        context->getFrame()->setIntermediatePicture(intermediatePtr - 1, ip);
+
+        upscaleArgs.dst = context->getFrame()->getIntermediatePicture(intermediatePtr - 1);
+        context->getFrame()->addIntermediatePicture(
+            context->getFrame()->getIntermediatePicture(intermediatePtr - 1));
+
+        upscaleArgs.applyPA =
+            static_cast<uint8_t>(context->getFrame()->globalConfig->predictedAverageEnabled);
         upscaleArgs.dither = nullptr; // TODO pipeline->m_dither;
-        upscaleArgs.mode = frame->globalConfig->scalingModes[data.loq - 1];
+        upscaleArgs.mode = context->getFrame()->globalConfig->scalingModes[loq - 1];
         upscaleArgs.vertical = false;
         upscaleArgs.loq1 = (loq == 2) ? true : false;
-        upscaleArgs.intermediateUpscalePicture[0] = pipeline->m_intermediateUpscalePicture[LOQ0].get();
-        upscaleArgs.intermediateUpscalePicture[1] = pipeline->m_intermediateUpscalePicture[LOQ1].get();
+        upscaleArgs.intermediateUpscalePicture[0] = pipeline->m_intermediateUpscalePicture[LOQ0];
+        upscaleArgs.intermediateUpscalePicture[1] = pipeline->m_intermediateUpscalePicture[LOQ1];
         upscaleArgs.chroma = pipeline->getChroma();
+        upscaleArgs.pipeline = pipeline;
+        upscaleArgs.context = context;
 
         assert(upscaleArgs.mode != Scale0D);
-        VNLogDebug("taskUpsample timestamp:%" PRIx64 " loq:%d", frame->timestamp, (uint32_t)data.loq);
+        VNLogDebug("taskUpsample timestamp:%" PRIx64 " loq:%d", context->getFrame()->timestamp,
+                   (uint32_t)loq);
 
-        if (!pipeline->getCore().upscaleFrame(&frame->globalConfig->kernel, &upscaleArgs)) {
+        if (!pipeline->backend().upscaleFrame(&context->getFrame()->globalConfig->kernel, &upscaleArgs)) {
             VNLogError("Upsample failed");
         }
 
         return nullptr;
-    }
-
-    LdcTaskDependency addTaskUpscale(PipelineVulkan* pipeline, FrameVulkan* frame, LdeLOQIndex fromLoq,
-                                     LdcTaskDependency basePicture, uint8_t intermediatePtr)
-    {
-        assert(fromLoq > LOQ0);
-
-        const TaskUpsampleData data{pipeline, frame, fromLoq, intermediatePtr};
-        const LdcTaskDependency inputs[] = {basePicture};
-        return frame->taskAdd(inputs, VNArraySize(inputs), taskUpsample, &data, sizeof(data), "Upscale");
-    }
-
-    //// GenerateCmdBuffer
-    //
-    // Convert un-encapsulated chunks into a single command buffer.
-    //
-    struct TaskGenerateCmdBufferData
-    {
-        PipelineVulkan* pipeline;
-        FrameVulkan* frame;
-        LdpEnhancementTile* enhancementTile;
-    };
-
-    void* taskGenerateCmdBuffer(LdcTask* task, const LdcTaskPart* /*part*/)
-    {
-        assert(task->dataSize == sizeof(TaskGenerateCmdBufferData));
-        const TaskGenerateCmdBufferData& data{VNTaskData(task, TaskGenerateCmdBufferData)};
-        FrameVulkan* const frame{data.frame};
-
-        VNLogDebug("taskGenerateCmdBuffer timestamp:%" PRIx64 " tile:%d loq:%d plane:%d",
-                   data.frame->timestamp, data.enhancementTile->tile,
-                   (uint32_t)data.enhancementTile->loq, data.enhancementTile->plane);
-
-        if (!ldeDecodeEnhancement(frame->globalConfig, &frame->config, data.enhancementTile->loq,
-                                  data.enhancementTile->plane, data.enhancementTile->tile, nullptr,
-                                  &data.enhancementTile->bufferGpu,
-                                  &data.enhancementTile->bufferGpuBuilder)) {
-            VNLogError("ldeDecodeEnhancement failed");
-        }
-
-        return nullptr;
-    }
-
-    LdcTaskDependency addTaskGenerateCmdBuffer(PipelineVulkan* pipeline, FrameVulkan* frame,
-                                               LdpEnhancementTile* enhancementTile)
-    {
-        const TaskGenerateCmdBufferData data{pipeline, frame, enhancementTile};
-        return frame->taskAdd(nullptr, 0, taskGenerateCmdBuffer, &data, sizeof(data), "GenerateCmdBuffer");
     }
 
     //// ApplyCmdBufferDirect
@@ -319,339 +226,137 @@ namespace {
     //
     // NB: The output plane will be in 'internal' fixed' point format
     //
-    struct TaskApplyCmdBufferDirectData
+    void vApplyCommon(PipelineVulkan* pipeline, VulkanFrameContext* context,
+                      LdpEnhancementTile* enhancementTile, uint8_t intermediatePtr, bool applyDirect)
     {
-        PipelineVulkan* pipeline;
-        FrameVulkan* frame;
-        LdpEnhancementTile* enhancementTile;
-        uint8_t intermediatePtr;
-    };
+        auto* picture = context->getFrame()->getIntermediatePicture(intermediatePtr);
 
-    void* taskApplyCmdBufferDirect(LdcTask* task, const LdcTaskPart* part)
+        VulkanApplyCommonArgs args{};
+        pipeline->prepareApplyCommonArgs(args, picture, enhancementTile, context, applyDirect);
+        if (!applyDirect) {
+            args.temporalPicture = pipeline->m_temporalPicture;
+        }
+
+        if (!pipeline->backend().applyCommon(&args)) {
+            VNLogError("Vulkan applyCommon failed");
+        }
+    }
+
+    void* vApplyCmdBufferDirect(PipelineVulkan* pipeline, VulkanFrameContext* context,
+                                LdpEnhancementTile* enhancementTile, uint8_t intermediatePtr)
     {
-        VNTraceScoped();
-        VNUnused(part);
-
-        assert(task->dataSize == sizeof(TaskApplyCmdBufferDirectData));
-        const TaskApplyCmdBufferDirectData& data{VNTaskData(task, TaskApplyCmdBufferDirectData)};
-        PipelineVulkan* const pipeline{data.pipeline};
-        FrameVulkan* const frame{data.frame};
-        const uint8_t intermediatePtr{data.intermediatePtr};
-
-        if (pipeline->isSkipped(frame)) {
+        if (pipeline->isSkipped(context->getFrame())) {
             return nullptr;
         }
 
-        VNLogDebug("taskApplyCmdBufferDirect timestamp:%" PRIx64 " loq:%d plane:%d", data.frame->timestamp,
-                   (uint32_t)data.enhancementTile->loq, data.enhancementTile->plane);
+        VNLogDebug("taskApplyCmdBufferDirect timestamp:%" PRIx64 " loq:%d plane:%d",
+                   context->getFrame()->timestamp, (uint32_t)enhancementTile->loq, enhancementTile->plane);
 
-        auto* picture = frame->m_intermediatePicture[intermediatePtr];
+        auto* picture = context->getFrame()->getIntermediatePicture(intermediatePtr);
 
-        VulkanApplyArgs args{};
-        pipeline->prepareApplyArgs(args, picture, data.enhancementTile, frame, true);
+        VulkanApplyTileArgs args{};
+        pipeline->prepareApplyTileArgs(args, picture, enhancementTile, context, true);
 
-        if (!pipeline->getCore().apply(&args)) {
+        if (!pipeline->backend().applyTile(&args)) {
             VNLogError("Vulkan apply direct failed");
         }
 
         return nullptr;
     }
 
-    LdcTaskDependency addTaskApplyCmdBufferDirect(PipelineVulkan* pipeline, FrameVulkan* frame,
-                                                  LdpEnhancementTile* enhancementTile,
-                                                  LdcTaskDependency imageBuffer,
-                                                  LdcTaskDependency cmdBuffer, uint8_t intermediatePtr)
-    {
-        const TaskApplyCmdBufferDirectData data{pipeline, frame, enhancementTile, intermediatePtr};
-
-        const LdcTaskDependency inputs[] = {imageBuffer, cmdBuffer};
-        return frame->taskAdd(inputs, VNArraySize(inputs), taskApplyCmdBufferDirect, &data,
-                              sizeof(data), "ApplyCmdBufferDirect");
-    }
-
     //// ApplyCmdBufferTemporal
     //
     // Apply a generated GPU command buffer to a temporal buffer.
     //
-    struct TaskApplyCmdBufferTemporalData
+
+    void* vApplyCmdBufferTemporal(PipelineVulkan* pipeline, VulkanFrameContext* context,
+                                  LdpEnhancementTile* enhancementTile, uint8_t intermediatePtr)
     {
-        PipelineVulkan* pipeline;
-        FrameVulkan* frame;
-        LdpEnhancementTile* enhancementTile;
-        uint8_t intermediatePtr;
-    };
-
-    void* taskApplyCmdBufferTemporal(LdcTask* task, const LdcTaskPart* part)
-    {
-        VNTraceScoped();
-        VNUnused(part);
-
-        assert(task->dataSize == sizeof(TaskApplyCmdBufferTemporalData));
-        const TaskApplyCmdBufferTemporalData& data{VNTaskData(task, TaskApplyCmdBufferTemporalData)};
-        PipelineVulkan* const pipeline{data.pipeline};
-        FrameVulkan* const frame{data.frame};
-        const uint8_t intermediatePtr{data.intermediatePtr};
-
         VNLogDebug("taskApplyCmdBufferTemporal timestamp:%" PRIx64 " tile:%d loq:%d plane:%d",
-                   data.frame->timestamp, data.enhancementTile->tile,
-                   (uint32_t)data.enhancementTile->loq, data.enhancementTile->plane);
+                   context->getFrame()->timestamp, enhancementTile->tile,
+                   (uint32_t)enhancementTile->loq, enhancementTile->plane);
 
-        auto* picture = frame->m_intermediatePicture[intermediatePtr];
+        auto* picture = context->getFrame()->getIntermediatePicture(intermediatePtr);
 
-        VulkanApplyArgs args{};
-        pipeline->prepareApplyArgs(args, picture, data.enhancementTile, frame, false);
-        args.temporalPicture = pipeline->m_temporalPicture.get();
+        VulkanApplyTileArgs args{};
+        pipeline->prepareApplyTileArgs(args, picture, enhancementTile, context, false);
+        args.temporalPicture = pipeline->m_temporalPicture;
 
-        if (!pipeline->getCore().apply(&args)) {
+        if (!pipeline->backend().applyTile(&args)) {
             VNLogError("Vulkan apply temporal failed");
         }
 
         return nullptr;
     }
 
-    LdcTaskDependency addTaskApplyCmdBufferTemporal(PipelineVulkan* pipeline, FrameVulkan* frame,
-                                                    LdpEnhancementTile* enhancementTile,
-                                                    LdcTaskDependency temporalBuffer,
-                                                    LdcTaskDependency cmdBuffer, uint8_t intermediatePtr)
-    {
-        const TaskApplyCmdBufferTemporalData data{pipeline, frame, enhancementTile, intermediatePtr};
-        const LdcTaskDependency inputs[] = {temporalBuffer, cmdBuffer};
-        return frame->taskAdd(inputs, VNArraySize(inputs), taskApplyCmdBufferTemporal, &data,
-                              sizeof(data), "ApplyCmdBufferTemporal");
-    }
-
     //// ApplyAddTemporal
     //
     // Add a temporal buffer to a picture plane.
     //
-    struct TaskApplyAddTemporalData
+    void* vApplyAddTemporal(PipelineVulkan* pipeline, VulkanFrameContext* context, uint8_t intermediatePtr)
     {
-        PipelineVulkan* pipeline;
-        FrameVulkan* frame;
-        uint8_t intermediatePtr;
-    };
-
-    void* taskApplyAddTemporal(LdcTask* task, const LdcTaskPart* part)
-    {
-        VNTraceScoped();
-        VNUnused(part);
-
-        assert(task->dataSize == sizeof(TaskApplyAddTemporalData));
-        const TaskApplyAddTemporalData& data{VNTaskData(task, TaskApplyAddTemporalData)};
-        PipelineVulkan* const pipeline{data.pipeline};
-        FrameVulkan* const frame{data.frame};
-        const uint8_t intermediatePtr{data.intermediatePtr};
-
-        if (pipeline->isFlushed(frame) || frame->isPassthrough()) {
+        if (pipeline->isFlushed(context->getFrame()) || context->getFrame()->isPassthrough()) {
             // Just move temporal buffer along pipline
-            pipeline->transferTemporalBuffer(frame, 0); // TODO - check this
+            pipeline->transferTemporalBuffer(context->getFrame(), 0); // TODO - check this
             return nullptr;
         }
 
-        VNLogDebug("taskApplyAddTemporal timestamp:%" PRIx64 "", data.frame->timestamp);
+        VNLogDebug("taskApplyAddTemporal timestamp:%" PRIx64 "", context->getFrame()->timestamp);
 
-        VulkanBlitArgs args{};
-        args.src = pipeline->m_temporalPicture.get();
-        args.dst = frame->m_intermediatePicture[intermediatePtr];
-        args.numEnhancedPlanes = frame->numEnhancedPlanes();
+        if (pipeline->m_temporalPicture->buffer == nullptr) {
+            VNLogDebug("  No temporal");
+            return nullptr;
+        }
+
+        VulkanAddArgs args{};
+        args.src = pipeline->m_temporalPicture;
+        args.dst = context->getFrame()->getIntermediatePicture(intermediatePtr);
+        args.numEnhancedPlanes = context->getFrame()->numEnhancedPlanes();
         args.chroma = pipeline->getChroma();
+        args.context = context;
 
-        if (!pipeline->getCore().blit(&args)) {
-            VNLogError("Vulkan blit failed");
+        if (!pipeline->backend().add(&args)) {
+            VNLogError("Vulkan add failed");
         }
 
         return nullptr;
     }
 
-    LdcTaskDependency addTaskApplyAddTemporal(PipelineVulkan* pipeline, FrameVulkan* frame,
-                                              LdcTaskDependency temporalDep,
-                                              LdcTaskDependency sourceDep, uint8_t intermediatePtr)
-    {
-        const TaskApplyAddTemporalData data{pipeline, frame, intermediatePtr};
-        const LdcTaskDependency inputs[] = {temporalDep, sourceDep};
-        return frame->taskAdd(inputs, VNArraySize(inputs), taskApplyAddTemporal, &data,
-                              sizeof(data), "ApplyAddTemporal");
-    }
-
-    //// Passthrough
+    //// VulkanDecode
     //
-    // Copy incoming picture plane to output picture
+    // Decode the frame
     //
-    struct TaskPassthroughData
+    struct TaskVulkanDecodeData
     {
         PipelineVulkan* pipeline;
         FrameVulkan* frame;
-        uint32_t planeIndex;
+        uint64_t previousTimestamp;
     };
 
-    void* taskPassthrough(LdcTask* task, const LdcTaskPart* /*part*/)
+    void* taskVulkanDecode(LdcTask* task, const LdcTaskPart* /*part*/)
     {
         VNTraceScoped();
-        assert(task->dataSize == sizeof(TaskPassthroughData));
 
-        const TaskPassthroughData& data{VNTaskData(task, TaskPassthroughData)};
+        const TaskVulkanDecodeData& data{VNTaskData(task, TaskVulkanDecodeData)};
         PipelineVulkan* const pipeline{data.pipeline};
-        const FrameVulkan* const frame{data.frame};
+        FrameVulkan* frame{data.frame};
 
-        if (pipeline->isSkipped(frame)) {
+        // Skip flushed or skipped frames — their base/output pictures and
+        // globalConfig may be null.  Signal computeTaskDone so downstream
+        // tasks (OutputDone, BaseDone) can still complete during flush.
+        if (pipeline->isFlushed(frame) || pipeline->isSkipped(frame)) {
+            frame->signalComputeTaskDone();
+            VNTraceScopedEnd();
             return nullptr;
         }
 
-        LdpPicturePlaneDesc srcPlane;
-        frame->getBasePlaneDesc(data.planeIndex, srcPlane);
-
-        LdpPicturePlaneDesc dstPlane;
-        frame->getOutputPlaneDesc(data.planeIndex, dstPlane);
-
-        VNLogDebug("taskPassthrough timestamp:%" PRIx64 " plane:%d", data.frame->timestamp, data.planeIndex);
-
-        VNDiagInfo(diagInfo, task->name, frame->timestamp, LOQ0, data.planeIndex);
-        if (!ldppPlaneConvert(pipeline->taskPool(), task, pipeline->configuration().forceScalar,
-                              data.planeIndex, &frame->basePicture->layout, &frame->outputPicture->layout,
-                              &srcPlane, &dstPlane, VNDiagInfoPtr(diagInfo))) {
-            VNLogError("ldppPlaneBlit In failed");
-        }
-
-        return nullptr;
-    }
-
-    LdcTaskDependency addTaskPassthrough(PipelineVulkan* pipeline, FrameVulkan* frame, uint32_t planeIndex,
-                                         LdcTaskDependency dest, LdcTaskDependency src)
-    {
-        const TaskPassthroughData data{pipeline, frame, planeIndex};
-        const LdcTaskDependency inputs[] = {dest, src};
-
-        return frame->taskAdd(inputs, VNArraySize(inputs), taskPassthrough, &data, sizeof(data),
-                              "Passthrough");
-    }
-
-    //// WaitForMany
-    //
-    // Wait for several input dependencies to be met.
-    //
-    // NB: If this appears to be a bottleneck, it could be integrated better into the task pool.
-    //
-    struct TaskWaitForManyData
-    {
-        PipelineVulkan* pipeline;
-        FrameVulkan* frame;
-    };
-
-    void* taskWaitForMany(LdcTask* task, const LdcTaskPart* /*part*/)
-    {
-        VNTraceScoped();
-        assert(task->dataSize == sizeof(TaskWaitForManyData));
-
-        VNLogDebug("taskWaitForMany ts:%" PRIx64 "", VNTaskData(task, TaskWaitForManyData).frame->timestamp);
-        return nullptr;
-    }
-
-    LdcTaskDependency addTaskWaitForMany(PipelineVulkan* pipeline, FrameVulkan* frame,
-                                         const LdcTaskDependency* inputs, uint32_t inputsCount)
-    {
-        const TaskWaitForManyData data{pipeline, frame};
-
-        return frame->taskAdd(inputs, inputsCount, taskWaitForMany, &data, sizeof(data), "WaitForMany");
-    }
-
-    //// BaseDone
-    //
-    // Wait for base picture planes to be used, then send base picture back to client
-    //
-    struct TaskBaseDoneData
-    {
-        PipelineVulkan* pipeline;
-        FrameVulkan* frame;
-    };
-
-    void* taskBaseDone(LdcTask* task, const LdcTaskPart* /*part*/)
-    {
-        VNTraceScoped();
-        assert(task->dataSize == sizeof(TaskBaseDoneData));
-
-        const TaskBaseDoneData& data{VNTaskData(task, TaskBaseDoneData)};
-        const FrameVulkan* const frame{data.frame};
-
-        VNLogDebug("taskBaseDone ts:%" PRIx64, data.frame->timestamp);
-
-        if (frame->basePicture == nullptr) {
+        auto& compute = pipeline->backend().compute();
+        VulkanFrameContext* frameContext = compute.acquireFrameContext(frame);
+        if (!frameContext) {
+            VNLogError("Failed to acquire Vulkan frame context");
+            VNTraceScopedEnd();
             return nullptr;
         }
-
-        assert(data.frame->basePicture);
-
-        // Generate event and return picture
-        data.pipeline->baseDone(data.frame->basePicture);
-
-        // Frame no longer has access to base picture
-        data.frame->basePicture = nullptr;
-        return nullptr;
-    }
-
-    void addTaskBaseDone(PipelineVulkan* pipeline, FrameVulkan* frame,
-                         const LdcTaskDependency* inputs, uint32_t inputsCount)
-    {
-        const TaskBaseDoneData data{pipeline, frame};
-
-        frame->taskAddSink(inputs, inputsCount, taskBaseDone, &data, sizeof(data), "BaseDone");
-    }
-
-    //// OutputSend
-    //
-    // Wait for a bunch of input dependencies to be met, then:
-    //
-    // - Send output picture to output queue
-    // - Release frame
-    //
-    struct TaskOutputDoneData
-    {
-        PipelineVulkan* pipeline;
-        FrameVulkan* frame;
-    };
-
-    void* taskOutputDone(LdcTask* task, const LdcTaskPart* /*part*/)
-    {
-        VNTraceScoped();
-        assert(task->dataSize == sizeof(TaskOutputDoneData));
-
-        const TaskOutputDoneData& data{VNTaskData(task, TaskOutputDoneData)};
-        PipelineVulkan* const pipeline{data.pipeline};
-        FrameVulkan* const frame{data.frame};
-
-        VNLogDebug("taskOutputDone ts:%" PRIx64, frame->timestamp);
-
-        // Build the decode info for the frame
-        frame->decodeInformation.timestamp = frame->timestamp;
-        frame->decodeInformation.hasBase = true;
-        frame->decodeInformation.hasEnhancement =
-            frame->config.loqEnabled[LOQ1] || frame->config.loqEnabled[LOQ0];
-        frame->decodeInformation.skipped = pipeline->isSkipped(frame);
-        frame->decodeInformation.enhanced =
-            frame->config.loqEnabled[LOQ1] || frame->config.loqEnabled[LOQ0];
-        frame->decodeInformation.baseWidth = frame->baseWidth;
-        frame->decodeInformation.baseHeight = frame->baseHeight;
-        frame->decodeInformation.baseBitdepth = frame->baseBitdepth;
-        frame->decodeInformation.userData = frame->userData;
-
-        // Mark frame as done
-        pipeline->outputDone(frame);
-
-        return nullptr;
-    }
-
-    void addTaskOutputDone(PipelineVulkan* pipeline, FrameVulkan* frame,
-                           const LdcTaskDependency* inputs, uint32_t inputsCount)
-    {
-        const TaskOutputDoneData data{pipeline, frame};
-
-        frame->taskAddSink(inputs, inputsCount, taskOutputDone, &data, sizeof(data), "OutputDone");
-    }
-
-    // Fill out a task group given a frame configuration
-    //
-    void generateTasksEnhancement(PipelineVulkan* pipeline, FrameVulkan* frame, uint64_t previousTimestamp)
-    {
-        VNTraceScoped();
 
         // Convenience values for readability
         const LdeFrameConfig& frameConfig{frame->config};
@@ -664,180 +369,190 @@ namespace {
 
         uint32_t enhancementTileIdx = 0;
 
-        if (frame->config.sharpenType != STDisabled && frame->config.sharpenStrength != 0.0f) {
-            VNLogWarning("S-Filter is configured in stream, but not supported by decoder.");
+        // Tile counts
+        uint32_t tileCountTotal{};
+        for (int loq = 0; loq < LOQEnhancedCount; ++loq) {
+            for (int plane = 0; plane < RCMaxPlanes; ++plane) {
+                tileCountTotal += globalConfig.numTiles[plane][loq];
+            }
         }
+        // GpuCommandBuffer sizes
+        const uint32_t gpuCommandBufferSize[LOQEnhancedCount] = {
+            frame->getTotalGpuCommandBufferSize(LOQ0),
+            frame->getTotalGpuCommandBufferSize(LOQ1),
+        };
+
+        // begin vulkan recording state
+        pipeline->backend().compute().beginCompute(frameContext, tileCountTotal);
+
+        // Make sure Apply input buffers have enough space for all tiles
+        frameContext->prepareCommandBuffer(LOQ1, gpuCommandBufferSize[LOQ1]);
+        frameContext->prepareCommandBuffer(LOQ0, gpuCommandBufferSize[LOQ0]);
 
         //// Input conversion
-        LdcTaskDependency basePicture{kTaskDependencyInvalid};
-        basePicture = addTaskConvertToInternal(pipeline, frame, frame->depBasePicture());
+        vConvertToInternal(pipeline, frameContext, frame->getEnhancementBitDepth(), globalConfig.baseDepth);
 
         //// LoQ 1
 
-        //// Base + Residuals
-        //
         // First upsample
-        LdcTaskDependency baseUpsampled{kTaskDependencyInvalid};
         if (globalConfig.scalingModes[LOQ1] != Scale0D) {
-            baseUpsampled = addTaskUpscale(pipeline, frame, LOQ2, basePicture, intermediatePtr);
+            vUpscale(pipeline, frameContext, LOQ2, intermediatePtr);
             intermediatePtr--;
-        } else {
-            baseUpsampled = basePicture;
         }
 
         // Enhancement LOQ1 decoding
-        LdcTaskDependency basePlanes[kLdpPictureMaxNumPlanes] = {};
-        for (uint8_t plane = 0; plane < numImagePlanes; ++plane) {
-            const bool isEnhanced1 = frame->isPlaneEnhanced(LOQ1, plane);
-            if (isEnhanced1 && frameConfig.loqEnabled[LOQ1]) {
-                const uint32_t numTiles = globalConfig.numTiles[plane][LOQ1];
-                if (numTiles > 1) {
-                    LdcTaskDependency* tiles =
-                        static_cast<LdcTaskDependency*>(alloca(numTiles * sizeof(LdcTaskDependency)));
-
-                    // Generate and apply each tile's command buffer
+        if (gpuCommandBufferSize[LOQ1] > 0) {
+            // Bind descriptor sets once for the LOQ before processing all planes
+            LdpEnhancementTile* firstTile = frame->getEnhancementTile(enhancementTileIdx);
+            vApplyCommon(pipeline, frameContext, firstTile, intermediatePtr, true);
+            for (uint8_t plane = 0; plane < numImagePlanes; ++plane) {
+                const bool isEnhanced1 = frame->isPlaneEnhanced(LOQ1, plane);
+                if (isEnhanced1 && frameConfig.loqEnabled[LOQ1]) {
+                    const uint32_t numTiles = globalConfig.numTiles[plane][LOQ1];
                     for (unsigned tile = 0; tile < numTiles; ++tile) {
                         LdpEnhancementTile* et{frame->getEnhancementTile(enhancementTileIdx++)};
                         assert(et->loq == LOQ1 && et->tile == tile);
-
-                        LdcTaskDependency commands = addTaskGenerateCmdBuffer(pipeline, frame, et);
-                        tiles[tile] = addTaskApplyCmdBufferDirect(pipeline, frame, et, baseUpsampled,
-                                                                  commands, intermediatePtr);
+                        vApplyCmdBufferDirect(pipeline, frameContext, et, intermediatePtr);
+                        ldeCmdBufferGpuFree(&et->bufferGpu, &et->bufferGpuBuilder);
                     }
-                    // Wait for all tiles to finish
-                    basePlanes[plane] = addTaskWaitForMany(pipeline, frame, tiles, numTiles);
-                } else {
-                    LdpEnhancementTile* et{frame->getEnhancementTile(enhancementTileIdx++)};
-                    assert(et->loq == LOQ1 && et->tile == 0);
-
-                    LdcTaskDependency commands = addTaskGenerateCmdBuffer(pipeline, frame, et);
-                    basePlanes[plane] = addTaskApplyCmdBufferDirect(pipeline, frame, et, baseUpsampled,
-                                                                    commands, intermediatePtr);
                 }
-            } else {
-                basePlanes[plane] = baseUpsampled;
             }
+            // Memory barrier after all LOQ1 apply dispatches
+            frameContext->insertComputeBarrier();
         }
 
         // Upsample from combined intermediate picture to preliminary output picture
-        LdcTaskDependency upsampledPicture{};
         if (globalConfig.scalingModes[LOQ0] != Scale0D) {
-            upsampledPicture = addTaskUpscale(
-                pipeline, frame, LOQ1,
-                addTaskWaitForMany(pipeline, frame, basePlanes, numImagePlanes), intermediatePtr);
+            vUpscale(pipeline, frameContext, LOQ1, intermediatePtr);
             intermediatePtr--;
-        } else {
-            upsampledPicture = basePicture;
         }
 
         //// LoQ 0
-        //
-        LdcTaskDependency reconstructedPlanes[kLdpPictureMaxNumPlanes] = {};
 
-        for (uint8_t plane = 0; plane < numImagePlanes; ++plane) {
-            const bool isEnhanced0 = frame->isPlaneEnhanced(LOQ0, plane);
-            LdcTaskDependency recon{upsampledPicture};
+        // Bind descriptor sets once for LOQ0 before processing all planes
+        if (gpuCommandBufferSize[LOQ0] > 0) {
+            const bool applyDirect = !(globalConfig.temporalEnabled && !frame->isPassthrough());
+            LdpEnhancementTile* firstTile = frame->getEnhancementTile(enhancementTileIdx);
+            vApplyCommon(pipeline, frameContext, firstTile, intermediatePtr, applyDirect);
+        }
 
-            if (globalConfig.temporalEnabled && !frame->isPassthrough()) {
-                LdcTaskDependency temporal{};
+        if (globalConfig.temporalEnabled && !frame->isPassthrough()) {
+            // Temporal path: wait for previous frame's temporal writes before first tile
+            frameContext->waitEvent();
 
+            for (uint8_t plane = 0; plane < numImagePlanes; ++plane) {
                 if (plane == 0) {
                     if (frame->config.temporalRefresh && pipeline->m_temporalPicture->buffer) {
-                        const auto* temporalBuffer =
-                            static_cast<BufferVulkan*>(pipeline->m_temporalPicture->buffer);
-                        std::memset(temporalBuffer->ptr(), 0, temporalBuffer->size());
-                    }
-                }
-
-                if (isEnhanced0 && frameConfig.loqEnabled[LOQ0]) {
-                    // Enhancement residuals
-                    const uint32_t numPlaneTiles = globalConfig.numTiles[plane][LOQ0];
-                    if (numPlaneTiles > 1) {
-                        LdcTaskDependency* tiles = static_cast<LdcTaskDependency*>(
-                            alloca(numPlaneTiles * sizeof(LdcTaskDependency)));
-
-                        // Generate and apply each tile's command buffer
-                        for (unsigned tile = 0; tile < numPlaneTiles; ++tile) {
-                            LdpEnhancementTile* et{frame->getEnhancementTile(enhancementTileIdx++)};
-                            assert(et->loq == LOQ0 && et->tile == tile);
-                            LdcTaskDependency commands{addTaskGenerateCmdBuffer(pipeline, frame, et)};
-
-                            tiles[tile] = addTaskApplyCmdBufferTemporal(pipeline, frame, et, temporal,
-                                                                        commands, intermediatePtr);
+                        auto* temporalBuffer = fromPipeline(pipeline->m_temporalPicture->buffer);
+                        if (temporalBuffer->usage() == pipeline::BufferUsageInternal) {
+                            temporalBuffer->clearCmd(frameContext->getCommandBuffer());
+                        } else {
+                            temporalBuffer->clear();
                         }
-                        // Wait for all tiles to finish
-                        temporal = addTaskWaitForMany(pipeline, frame, tiles, numPlaneTiles);
-                    } else {
-                        LdpEnhancementTile* et = frame->getEnhancementTile(enhancementTileIdx++);
-                        assert(et->loq == LOQ0 && et->tile == 0);
-
-                        LdcTaskDependency commands{addTaskGenerateCmdBuffer(pipeline, frame, et)};
-
-                        temporal = addTaskApplyCmdBufferTemporal(pipeline, frame, et, temporal,
-                                                                 commands, intermediatePtr);
                     }
                 }
 
-                if (frameConfig.loqEnabled[LOQ0] && plane == numImagePlanes - 1) {
-                    reconstructedPlanes[plane] =
-                        addTaskApplyAddTemporal(pipeline, frame, temporal, recon, intermediatePtr);
-                }
-            } else {
+                const bool isEnhanced0 = frame->isPlaneEnhanced(LOQ0, plane);
                 if (isEnhanced0 && frameConfig.loqEnabled[LOQ0]) {
-                    // Enhancement residuals
                     const uint32_t numPlaneTiles = globalConfig.numTiles[plane][LOQ0];
-                    if (numPlaneTiles > 1) {
-                        LdcTaskDependency* tiles = static_cast<LdcTaskDependency*>(
-                            alloca(numPlaneTiles * sizeof(LdcTaskDependency)));
-
-                        // Generate and apply each tile's command buffer
-                        for (unsigned tile = 0; tile < numPlaneTiles; ++tile) {
-                            LdpEnhancementTile* et{frame->getEnhancementTile(enhancementTileIdx++)};
-                            assert(et->loq == LOQ0 && et->tile == tile);
-                            LdcTaskDependency commands{addTaskGenerateCmdBuffer(pipeline, frame, et)};
-                            tiles[tile] = addTaskApplyCmdBufferDirect(pipeline, frame, et, recon,
-                                                                      commands, intermediatePtr);
-                        }
-                        // Wait for all tiles to finish
-                        recon = addTaskWaitForMany(pipeline, frame, tiles, numPlaneTiles);
-                    } else {
-                        LdpEnhancementTile* et = frame->getEnhancementTile(enhancementTileIdx++);
-                        assert(et->loq == LOQ0 && et->tile == 0);
-
-                        LdcTaskDependency commands{addTaskGenerateCmdBuffer(pipeline, frame, et)};
-
-                        recon = addTaskApplyCmdBufferDirect(pipeline, frame, et, recon, commands,
-                                                            intermediatePtr);
+                    for (unsigned tile = 0; tile < numPlaneTiles; ++tile) {
+                        LdpEnhancementTile* et{frame->getEnhancementTile(enhancementTileIdx++)};
+                        assert(et->loq == LOQ0 && et->tile == tile);
+                        vApplyCmdBufferTemporal(pipeline, frameContext, et, intermediatePtr);
+                        ldeCmdBufferGpuFree(&et->bufferGpu, &et->bufferGpuBuilder);
                     }
                 }
+            }
 
-                reconstructedPlanes[plane] = recon;
+            if (gpuCommandBufferSize[LOQ0] > 0) {
+                frameContext->insertComputeBarrier();
+            }
+
+            // NB: Accumulated temporal buffer is added even if temporal was not enabled in this frame.
+            vApplyAddTemporal(pipeline, frameContext, intermediatePtr);
+
+            // Signal that this frame's temporal writes are complete
+            frameContext->setEvent();
+
+        } else {
+            for (uint8_t plane = 0; plane < numImagePlanes; ++plane) {
+                const bool isEnhanced0 = frame->isPlaneEnhanced(LOQ0, plane);
+                if (isEnhanced0 && frameConfig.loqEnabled[LOQ0]) {
+                    const uint32_t numPlaneTiles = globalConfig.numTiles[plane][LOQ0];
+                    for (unsigned tile = 0; tile < numPlaneTiles; ++tile) {
+                        LdpEnhancementTile* et{frame->getEnhancementTile(enhancementTileIdx++)};
+                        assert(et->loq == LOQ0 && et->tile == tile);
+                        vApplyCmdBufferDirect(pipeline, frameContext, et, intermediatePtr);
+                        ldeCmdBufferGpuFree(&et->bufferGpu, &et->bufferGpuBuilder);
+                    }
+                }
+            }
+
+            // Memory barrier after all LOQ0 direct apply dispatches
+            if (gpuCommandBufferSize[LOQ0] > 0) {
+                frameContext->insertComputeBarrier();
             }
         }
 
         assert(enhancementTileIdx == frame->enhancementTileCount);
 
-        LdcTaskDependency outputPicture{};
-        outputPicture = addTaskConvertFromInternal(
-            pipeline, frame, frame->depOutputPicture(),
-            addTaskWaitForMany(pipeline, frame, reconstructedPlanes, numImagePlanes), intermediatePtr);
+        vConvertFromInternal(pipeline, frameContext, globalConfig.baseDepth, intermediatePtr);
 
-        // Send output when all planes are ready
-        addTaskOutputDone(pipeline, frame, &outputPicture, 1);
+        // end Vulkan recording state
+        pipeline->backend().compute().endCompute(frameContext);
 
-        // Send base when all tasks that use it have completed
-        LdcTaskDependency deps[kLdpPictureMaxNumPlanes] = {};
-        uint32_t depsCount = 0;
-        ldcTaskGroupFindOutputSetFromInput(frame->taskGroup(), frame->depBasePicture(), deps,
-                                           kLdpPictureMaxNumPlanes, &depsCount);
-        addTaskBaseDone(pipeline, frame, deps, depsCount);
+        pipeline->addCompletionContext(frameContext);
+
+        return nullptr;
     }
 
-    // Fill out a task group for a simple unscaled passthrough configuration
+    void addTaskVulkanDecode(PipelineVulkan* pipeline, FrameVulkan* frame,
+                             const LdcTaskDependency* inputs, uint32_t inputsCount)
+    {
+        const TaskVulkanDecodeData data{pipeline, frame};
+
+        frame->taskAddSink(inputs, inputsCount, taskVulkanDecode, &data, sizeof(data), "VulkanDecode");
+    }
+
+    void generateTasksEnhancement(PipelineVulkan* pipeline, FrameVulkan* frame, uint64_t previousTimestamp)
+    {
+        const uint32_t numTiles = frame->enhancementTileCount;
+
+        VNTraceScopedArgs("timestamp", frame->timestamp, "previousTimestamp", previousTimestamp);
+
+        // The event from the vulkan compute work finishing will mark this dependpecy as met via the
+        // pipeline's computeFinish thread
+        LdcTaskDependency computeDone{frame->taskDependencyAdd()};
+        frame->setComputeTaskDone(computeDone);
+
+        // Dependencies: base picture + output picture + one generateCmdBuffer task per tile
+        const uint32_t numDeps = 2 + numTiles;
+        LdcTaskDependency* deps =
+            static_cast<LdcTaskDependency*>(alloca(numDeps * sizeof(LdcTaskDependency)));
+
+        deps[0] = frame->depBasePicture();
+        deps[1] = frame->depOutputPicture();
+
+        // Create a separate generateCmdBuffer task for each enhancement tile.
+        // These have no input dependencies and can run concurrently.
+        for (uint32_t i = 0; i < numTiles; ++i) {
+            LdpEnhancementTile* et = frame->getEnhancementTile(i);
+            deps[2 + i] = addTaskGenerateCmdBufferGPU(pipeline, frame, et);
+        }
+
+        // The decode task depends on all generateCmdBuffer tasks completing
+        addTaskVulkanDecode(pipeline, frame, deps, numDeps);
+
+        // Send output and base when compute finishes
+        pipeline::addTaskOutputDone(pipeline, frame, &computeDone, 1);
+        pipeline::addTaskBaseDone(pipeline, frame, &computeDone, 1);
+    }
+
+    // Fill out a task group for a simple unscaled pass-through configuration
     //
     void generateTasksPassthrough(PipelineVulkan* pipeline, FrameVulkan* frame)
     {
-        VNTraceScoped();
+        VNTraceScopedArgs("timestamp", frame->timestamp);
 
         uint8_t numImagePlanes{kLdpPictureMaxNumPlanes};
         if (frame->basePicture) {
@@ -848,13 +563,13 @@ namespace {
         LdcTaskDependency outputPlanes[kLdpPictureMaxNumPlanes] = {};
 
         for (uint8_t plane = 0; plane < numImagePlanes; ++plane) {
-            outputPlanes[plane] = addTaskPassthrough(pipeline, frame, plane, frame->depOutputPicture(),
-                                                     frame->depBasePicture());
+            outputPlanes[plane] = pipeline::addTaskPassthrough(
+                pipeline, frame, plane, frame->depOutputPicture(), frame->depBasePicture());
         }
 
         // Send output and base when all planes are ready
-        addTaskOutputDone(pipeline, frame, outputPlanes, numImagePlanes);
-        addTaskBaseDone(pipeline, frame, outputPlanes, numImagePlanes);
+        pipeline::addTaskOutputDone(pipeline, frame, outputPlanes, numImagePlanes);
+        pipeline::addTaskBaseDone(pipeline, frame, outputPlanes, numImagePlanes);
     }
 
 } // anonymous namespace
@@ -863,18 +578,13 @@ namespace {
 //
 void generateTasks(PipelineVulkan* pipeline, FrameVulkan* frame, uint64_t previousTimestamp)
 {
-    // Fill out tasks for this frame
-    if (pipeline->configuration().showTasks) {
-        // Don't consume tasks whilst group is generated
-        ldcTaskGroupBlock(frame->taskGroup());
-    }
-
     // Choose pass-through or enhancement task graph generation.
     //
     // If the pass through is 'Scaled', then use the enhancement graph, which
     // will just end up doing scaling as there is no enhancement data.
-    if (frame->isPassthrough() && (pipeline->configuration().passthroughMode != PassthroughMode::Scale ||
-                                   !frame->hasGoodConfig())) {
+    if (frame->isPassthrough() &&
+        (pipeline->configuration().passthroughMode != pipeline::PassthroughMode::Scale ||
+         !frame->hasGoodConfig())) {
         generateTasksPassthrough(pipeline, frame);
     } else if (pipeline->isFlushed(frame)) {
         generateTasksPassthrough(pipeline, frame);

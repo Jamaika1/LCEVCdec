@@ -13,14 +13,8 @@
 *.sh text eol=lf
 *.txt text eol=lf
 *.csv text eol=lf
-*.lib filter=lfs diff=lfs merge=lfs -text
-*.dll filter=lfs diff=lfs merge=lfs -text
-*.so filter=lfs diff=lfs merge=lfs -text
-*.so.* filter=lfs diff=lfs merge=lfs -text
-*.exe filter=lfs diff=lfs merge=lfs -text
-*.bin filter=lfs diff=lfs merge=lfs -text
-*.a filter=lfs diff=lfs merge=lfs -text
-*.yuv filter=lfs diff=lfs merge=lfs -text
-*.mp4 filter=lfs diff=lfs merge=lfs -text
-*.avi filter=lfs diff=lfs merge=lfs -text
-*.ts filter=lfs diff=lfs merge=lfs -text
+*.bin -text
+*.yuv -text
+*.mp4 -text
+*.avi -text
+*.ts -text

@@ -218,7 +218,7 @@ void ldcDiagnosticsFlush(void)
     assert(ldcDiagnosticsState);
     assert(ldcDiagnosticsState->initialized);
 
-#if VN_SDK_FEATURE(DIAGNOSTICS_ASYNC)
+#if VN_SDK_FEATURE(DIAGNOSTICS_ASYNC) && VN_SDK_FEATURE(THREADING)
     threadMutexLock(&ldcDiagnosticsState->mutex);
 
     // Mark flush as pending
@@ -250,16 +250,23 @@ bool ldcDiagnosticsHandlerPush(LdcDiagHandler* handler, void* userData)
         return false;
     }
 
+    localDiagnosticsLock();
     if (!ldcDiagnosticsState || ldcDiagnosticsState->handlersCount >= VNDiagnosticsMaxHandlers) {
         // Too many handlers
+        localDiagnosticsUnlock();
         assert(0);
         return false;
     }
 
-    localDiagnosticsLock();
+#if VN_SDK_FEATURE(DIAGNOSTICS_ASYNC)
+    threadMutexLock(&ldcDiagnosticsState->mutex);
+#endif
     ldcDiagnosticsState->handlers[ldcDiagnosticsState->handlersCount].handler = handler;
     ldcDiagnosticsState->handlers[ldcDiagnosticsState->handlersCount].userData = userData;
     ldcDiagnosticsState->handlersCount++;
+#if VN_SDK_FEATURE(DIAGNOSTICS_ASYNC)
+    threadMutexUnlock(&ldcDiagnosticsState->mutex);
+#endif
     localDiagnosticsUnlock();
     return true;
 }
@@ -270,16 +277,20 @@ bool ldcDiagnosticsHandlerPop(LdcDiagHandler* handler, void** userData)
         return false;
     }
 
+    localDiagnosticsLock();
     if (!ldcDiagnosticsState || ldcDiagnosticsState->handlersCount == 0) {
         // No more handlers
+        localDiagnosticsUnlock();
         return false;
     }
 
-    void* inputUserData = (userData != NULL) ? *userData : NULL;
+    const void* inputUserData = (userData != NULL) ? *userData : NULL;
     // Look for a matching pointer, can't handle a NULL for both handler and userData
 
     bool ret = false;
-    localDiagnosticsLock();
+#if VN_SDK_FEATURE(DIAGNOSTICS_ASYNC)
+    threadMutexLock(&ldcDiagnosticsState->mutex);
+#endif
     for (uint32_t i = 0; i < ldcDiagnosticsState->handlersCount; i++) {
         if (ldcDiagnosticsState->handlers[i].handler == handler &&
             (inputUserData == NULL || ldcDiagnosticsState->handlers[i].userData == inputUserData)) {
@@ -300,6 +311,9 @@ bool ldcDiagnosticsHandlerPop(LdcDiagHandler* handler, void** userData)
             break;
         }
     }
+#if VN_SDK_FEATURE(DIAGNOSTICS_ASYNC)
+    threadMutexUnlock(&ldcDiagnosticsState->mutex);
+#endif
     localDiagnosticsUnlock();
     assert(ret);
 
@@ -322,23 +336,23 @@ void ldcDiagnosticsCopyArguments(const LdcDiagSite* site, LdcDiagValue values[],
                 break;
             }
             case LdcDiagArgChar: {
-                values[i].valueChar = va_arg(args, int);
+                values[i].valueChar = (char)va_arg(args, int);
                 break;
             }
             case LdcDiagArgInt8: {
-                values[i].valueInt8 = va_arg(args, int);
+                values[i].valueInt8 = (int8_t)va_arg(args, int);
                 break;
             }
             case LdcDiagArgUInt8: {
-                values[i].valueUInt8 = va_arg(args, unsigned int);
+                values[i].valueUInt8 = (uint8_t)va_arg(args, unsigned int);
                 break;
             }
             case LdcDiagArgInt16: {
-                values[i].valueInt16 = va_arg(args, int);
+                values[i].valueInt16 = (int16_t)va_arg(args, int);
                 break;
             }
             case LdcDiagArgUInt16: {
-                values[i].valueUInt16 = va_arg(args, unsigned int);
+                values[i].valueUInt16 = (uint16_t)va_arg(args, unsigned int);
                 break;
             }
             case LdcDiagArgInt32: {
@@ -371,6 +385,15 @@ void ldcDiagnosticsCopyArguments(const LdcDiagSite* site, LdcDiagValue values[],
             }
             case LdcDiagArgConstVoidPtr: {
                 values[i].valueConstVoidPtr = va_arg(args, const void*);
+                break;
+            }
+            case LdcDiagArgFloat32: {
+                // Float values are promoted to double in variadic calls.
+                values[i].valueFloat32 = (float)va_arg(args, double);
+                break;
+            }
+            case LdcDiagArgFloat64: {
+                values[i].valueFloat64 = va_arg(args, double);
                 break;
             }
 
@@ -429,7 +452,7 @@ void ldcDiagEventFormatted(const LdcDiagSite* site, const char* fmt, ...)
 
     va_list args;
     va_start(args, fmt);
-    vsnprintf(buffer, sizeof(buffer), fmt, args);
+    record.size = vsnprintf(buffer, sizeof(buffer), fmt, args);
     va_end(args);
 
     applyDiagnosticsHandlersLocked(site, &record, (LdcDiagValue*)buffer);

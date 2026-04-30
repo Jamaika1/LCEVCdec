@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2022-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2022-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -13,8 +13,9 @@
  * THE EXCLUSION OF PATENT LICENSES PROVISION OF THE BSD-3-CLAUSE-CLEAR LICENSE. */
 
 #include <LCEVC/common/diagnostics.h>
-#include <LCEVC/pipeline/buffer.h>
+#include <LCEVC/pipeline/buffer_alignment.h>
 #include <LCEVC/pixel_processing/dither.h>
+
 //
 #include <assert.h>
 
@@ -97,6 +98,13 @@ const uint16_t* ldppDitherGetBuffer(LdppDitherSlice* dither, size_t length)
 
     const size_t position = ldcRandomValue(&dither->random) % (kDitherBufferSize - length);
     return &dither->global->buffer[position];
+}
+
+void ldppDitherApplyScalar(int32_t* value, const uint16_t** ditherBuffer, const uint8_t shift,
+                           const uint8_t strength)
+{
+    *value += (strength - ((**ditherBuffer * (strength * 2 + 1)) >> 16)) << shift;
+    (*ditherBuffer)++;
 }
 
 /*------------------------------------------------------------------------------*/

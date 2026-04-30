@@ -1,4 +1,4 @@
-# Copyright (c) V-Nova International Limited 2025. All rights reserved.
+# Copyright (c) V-Nova International Limited 2025-2026. All rights reserved.
 # This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
 # No patent licenses are granted under this license. For enquiries about patent licenses,
 # please contact legal@v-nova.com.
@@ -23,23 +23,28 @@ set(SHADER_SCRIPT_DIR ${CMAKE_CURRENT_LIST_DIR}/src/shaders)
 
 set(SHADER_INPUT_FILES
     ${CMAKE_CURRENT_LIST_DIR}/src/shaders/src/apply.comp
-    ${CMAKE_CURRENT_LIST_DIR}/src/shaders/src/blit.comp
+    ${CMAKE_CURRENT_LIST_DIR}/src/shaders/src/add.comp
     ${CMAKE_CURRENT_LIST_DIR}/src/shaders/src/common.glsl
     ${CMAKE_CURRENT_LIST_DIR}/src/shaders/src/conversion.comp
+    ${CMAKE_CURRENT_LIST_DIR}/src/shaders/src/render_fragment.frag
+    ${CMAKE_CURRENT_LIST_DIR}/src/shaders/src/render_vertex.vert
     ${CMAKE_CURRENT_LIST_DIR}/src/shaders/src/upscale_constants.glsl
     ${CMAKE_CURRENT_LIST_DIR}/src/shaders/src/upscale_horizontal.comp
     ${CMAKE_CURRENT_LIST_DIR}/src/shaders/src/upscale_vertical.comp)
 
 set(SHADER_OUTPUT_FILES
-    ${CMAKE_BINARY_DIR}/src/pipeline_vulkan/src/hpp/apply.h
-    ${CMAKE_BINARY_DIR}/src/pipeline_vulkan/src/hpp/blit.h
-    ${CMAKE_BINARY_DIR}/src/pipeline_vulkan/src/hpp/conversion.h
-    ${CMAKE_BINARY_DIR}/src/pipeline_vulkan/src/hpp/upscale_horizontal.h
-    ${CMAKE_BINARY_DIR}/src/pipeline_vulkan/src/hpp/upscale_vertical.h)
+    ${CMAKE_CURRENT_BINARY_DIR}/src/hpp/apply.h
+    ${CMAKE_CURRENT_BINARY_DIR}/src/hpp/add.h
+    ${CMAKE_CURRENT_BINARY_DIR}/src/hpp/conversion.h
+    ${CMAKE_CURRENT_BINARY_DIR}/src/hpp/render_fragment.h
+    ${CMAKE_CURRENT_BINARY_DIR}/src/hpp/render_vertex.h
+    ${CMAKE_CURRENT_BINARY_DIR}/src/hpp/upscale_horizontal.h
+    ${CMAKE_CURRENT_BINARY_DIR}/src/hpp/upscale_vertical.h)
 
 add_custom_command(
     OUTPUT ${SHADER_OUTPUT_FILES}
-    COMMAND ${Python3_EXECUTABLE} ${SHADER_SCRIPT_PATH} --cmakebuildinfodir ${CMAKE_BINARY_DIR}
+    COMMAND ${Python3_EXECUTABLE} ${SHADER_SCRIPT_PATH} --cmakebuildinfodir
+            ${CMAKE_CURRENT_BINARY_DIR}/../..
     WORKING_DIRECTORY ${SHADER_SCRIPT_DIR}
     DEPENDS ${SHADER_INPUT_FILES} ${SHADER_SCRIPT_PATH}
     COMMENT "Running Python script to compile GLSL shaders"
@@ -56,6 +61,10 @@ set(LINK_LIBRARIES
     lcevc_dec::pixel_processing
     VulkanShim::VulkanShim)
 
+if (VN_SDK_EXECUTABLES AND NOT ANDROID)
+    find_package(glfw3 REQUIRED)
+endif ()
+
 # Explicit static library for vulkan unit tests
 if (VN_SDK_UNIT_TESTS)
     add_library(lcevc_dec_pipeline_vulkan_static STATIC ${SOURCES} ${HEADERS} ${INTERFACES})
@@ -64,12 +73,18 @@ if (VN_SDK_UNIT_TESTS)
     lcevc_set_properties(lcevc_dec_pipeline_vulkan_static)
 
     target_compile_definitions(lcevc_dec_pipeline_vulkan_static PRIVATE VNEnablePipelineAPIExport)
+    if (VN_SDK_EXECUTABLES AND NOT ANDROID)
+        target_compile_definitions(lcevc_dec_pipeline_vulkan_static PRIVATE GLFW_STATIC)
+        target_compile_definitions(lcevc_dec_pipeline_vulkan_static PRIVATE VN_SDK_EXECUTABLES)
+        target_link_libraries(lcevc_dec_pipeline_vulkan_static PRIVATE glfw)
+    endif ()
 
     target_include_directories(
         lcevc_dec_pipeline_vulkan_static
         PUBLIC "${CMAKE_CURRENT_LIST_DIR}/include"
         PUBLIC "${CMAKE_CURRENT_LIST_DIR}/src"
-        PUBLIC "${CMAKE_BINARY_DIR}/src/pipeline_vulkan/src/hpp")
+        PUBLIC "${CMAKE_CURRENT_BINARY_DIR}/src/hpp"
+        PUBLIC "${CMAKE_CURRENT_LIST_DIR}/src/vma")
 
     target_link_libraries(lcevc_dec_pipeline_vulkan_static PUBLIC ${LINK_LIBRARIES})
 
@@ -84,12 +99,18 @@ lcevc_set_properties(lcevc_dec_pipeline_vulkan)
 set_target_properties(lcevc_dec_pipeline_vulkan PROPERTIES SOVERSION ${PIPELINE_VULKAN_VERSION})
 
 target_compile_definitions(lcevc_dec_pipeline_vulkan PRIVATE VNEnablePipelineAPIExport)
+if (VN_SDK_EXECUTABLES AND NOT ANDROID)
+    target_compile_definitions(lcevc_dec_pipeline_vulkan PRIVATE GLFW_STATIC)
+    target_compile_definitions(lcevc_dec_pipeline_vulkan PRIVATE VN_SDK_EXECUTABLES)
+    target_link_libraries(lcevc_dec_pipeline_vulkan PRIVATE glfw)
+endif ()
 
 target_include_directories(
     lcevc_dec_pipeline_vulkan
     PUBLIC "${CMAKE_CURRENT_LIST_DIR}/include"
     PUBLIC "${CMAKE_CURRENT_LIST_DIR}/src"
-    PUBLIC "${CMAKE_BINARY_DIR}/src/pipeline_vulkan/src/hpp")
+    PUBLIC "${CMAKE_CURRENT_BINARY_DIR}/src/hpp"
+    PUBLIC "${CMAKE_CURRENT_LIST_DIR}/src/vma")
 
 target_link_libraries(lcevc_dec_pipeline_vulkan PUBLIC ${LINK_LIBRARIES})
 

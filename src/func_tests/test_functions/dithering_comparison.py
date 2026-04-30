@@ -1,4 +1,4 @@
-# Copyright (c) V-Nova International Limited 2023-2025. All rights reserved.
+# Copyright (c) V-Nova International Limited 2023-2026. All rights reserved.
 # This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
 # No patent licenses are granted under this license. For enquiries about patent licenses,
 # please contact legal@v-nova.com.
@@ -69,14 +69,22 @@ class Test(BaseTest):
             filename_extension = '_' + test['meta']['width'] + 'x' + \
                 test['meta']['height'] + '.' + test['meta']['color_space']
 
-        y_histo, _, _ = pixel_deviation_histogram(os.path.join(test_dir, default_yuv + filename_extension),
-                                                  os.path.join(
-                                                      test_dir, dithering_yuv + filename_extension),
-                                                  int(test['meta']['bit_depth']),
-                                                  int(test['meta']['width']), int(
-                                                      test['meta']['height']),
-                                                  subsampling_ratio,
-                                                  test['meta']['color_space'])
+        ref_path = os.path.join(test_dir, default_yuv + filename_extension)
+        dither_path = os.path.join(test_dir, dithering_yuv + filename_extension)
+        y_histo, u_histo, v_histo = pixel_deviation_histogram(ref_path,
+                                                              dither_path,
+                                                              int(test['meta']['bit_depth']),
+                                                              int(test['meta']['width']),
+                                                              int(test['meta']['height']),
+                                                              subsampling_ratio,
+                                                              test['meta']['color_space'])
+
+        if test['erp'].get('--encoding_plane_mode', 'y') == 'y':
+            histos = {'Y': y_histo}
+            for plane, histo in {'U': u_histo, 'V': v_histo}.items():
+                assert len(histo) == 1, f"Un-enhanced {plane} plane has dithering but it shouldn't"
+        else:  # YUV chroma residuals
+            histos = {'Y': y_histo, 'U': u_histo, 'V': v_histo}
 
         num_buckets = 2 * dither_strength + 1
         expected_bucket_size = 100.0 / num_buckets
@@ -84,17 +92,18 @@ class Test(BaseTest):
         high_gate = (1 + histogram_tolerance) * expected_bucket_size
         sum_squared = 0
 
-        assert len(y_histo) == num_buckets, f"Expected {num_buckets} dithering buckets and received " \
-            f"{len(y_histo)}"
+        for plane, histo in histos.items():
+            assert len(histo) == num_buckets, f"{plane} plane expected {num_buckets} " \
+                f"dithering buckets and received {len(histo)}"
 
-        for bucket, size in y_histo.items():
-            assert -dither_strength <= bucket <= dither_strength, f"Unexpected dither value {bucket} for strength " \
-                f"{dither_strength}"
-            assert low_gate < size < \
-                   high_gate, f"Bucket value {bucket} " f"has size {size}, " \
-                              f"expected tolerance range {low_gate} " f"- {high_gate}"
+            for bucket, size in histo.items():
+                assert -dither_strength <= bucket <= dither_strength, \
+                    f"Unexpected dither value {bucket} for strength {dither_strength} in {plane} plane"
+                assert low_gate < size < \
+                       high_gate, f"{plane} plane bucket value {bucket} has size {size}, " \
+                                  f"expected tolerance range {low_gate} - {high_gate}"
 
-            sum_squared += pow(size - expected_bucket_size, 2)
+                sum_squared += pow(size - expected_bucket_size, 2)
 
-        std_dev = sqrt(sum_squared / 100.0)
-        assert std_dev < max_std_dev, f"Standard deviation {std_dev} exceeds maximum allowed value {max_std_dev}"
+            std_dev = sqrt(sum_squared / 100.0)
+            assert std_dev < max_std_dev, f"{plane} plane standard deviation {std_dev} exceeds maximum allowed value {max_std_dev}"

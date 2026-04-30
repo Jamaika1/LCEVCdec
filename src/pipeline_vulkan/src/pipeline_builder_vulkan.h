@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2025-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -17,14 +17,12 @@
 
 #include "pipeline_config_vulkan.h"
 //
-#include <LCEVC/common/class_utils.hpp>
 #include <LCEVC/common/configure_members.hpp>
-#include <LCEVC/common/memory.h>
-#include <LCEVC/pipeline/pipeline.h>
+#include <LCEVC/pipeline/pipeline_builder_base.h>
 
 namespace lcevc_dec::pipeline_vulkan {
 
-class PipelineBuilderVulkan : public pipeline::PipelineBuilder
+class PipelineBuilderVulkan : public pipeline::PipelineBuilderBase
 {
 public:
     explicit PipelineBuilderVulkan(LdcMemoryAllocator* allocator);
@@ -44,8 +42,8 @@ public:
     // PipelineBuilder
     std::unique_ptr<pipeline::Pipeline> finish(pipeline::EventSink* eventSink) const override;
 
-    LdcMemoryAllocator* allocator() const { return m_allocator; }
-    const PipelineConfigVulkan& configuration() const { return m_configuration; }
+    LdcMemoryAllocator* allocator() const override { return m_allocator; }
+    const PipelineConfigVulkan& configuration() const override { return m_configuration; }
 
     VNNoCopyNoMove(PipelineBuilderVulkan);
 

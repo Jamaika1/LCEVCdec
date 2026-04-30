@@ -1,4 +1,4 @@
-# Copyright (c) V-Nova International Limited 2022-2025. All rights reserved.
+# Copyright (c) V-Nova International Limited 2022-2026. All rights reserved.
 # This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
 # No patent licenses are granted under this license. For enquiries about patent licenses,
 # please contact legal@v-nova.com.
@@ -15,7 +15,10 @@
 # State that needs to be set before calling project() or add_xxxx()
 
 # The rest of the target specific setup happens after 'project()'
-set(CMAKE_PROJECT_INCLUDE "${CMAKE_SOURCE_DIR}/cmake/modules/CMakeProject.cmake")
+set(CMAKE_PROJECT_INCLUDE "${CMAKE_CURRENT_LIST_DIR}/CMakeProject.cmake")
+
+# LCEVCdec root directory (works whether included via add_subdirectory or standalone)
+get_filename_component(LCEVC_ROOT_DIR "${CMAKE_CURRENT_LIST_DIR}/../.." ABSOLUTE)
 
 # Local modules, usually from conan CMake generators - searched first
 list(PREPEND CMAKE_MODULE_PATH ${CMAKE_BINARY_DIR})
@@ -53,13 +56,13 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
 # Git version variables - either from files (conan & ci), or from git
 #
-if (EXISTS "${CMAKE_SOURCE_DIR}/.githash")
-    file(READ "${CMAKE_SOURCE_DIR}/.githash" GIT_HASH)
-    file(READ "${CMAKE_SOURCE_DIR}/.gitlonghash" GIT_LONG_HASH)
-    file(READ "${CMAKE_SOURCE_DIR}/.gitdate" GIT_DATE)
-    file(READ "${CMAKE_SOURCE_DIR}/.gitbranch" GIT_BRANCH)
-    file(READ "${CMAKE_SOURCE_DIR}/.gitversion" GIT_VERSION)
-    file(READ "${CMAKE_SOURCE_DIR}/.gitshortversion" GIT_SHORT_VERSION)
+if (EXISTS "${LCEVC_ROOT_DIR}/.githash")
+    file(READ "${LCEVC_ROOT_DIR}/.githash" GIT_HASH)
+    file(READ "${LCEVC_ROOT_DIR}/.gitlonghash" GIT_LONG_HASH)
+    file(READ "${LCEVC_ROOT_DIR}/.gitdate" GIT_DATE)
+    file(READ "${LCEVC_ROOT_DIR}/.gitbranch" GIT_BRANCH)
+    file(READ "${LCEVC_ROOT_DIR}/.gitversion" GIT_VERSION)
+    file(READ "${LCEVC_ROOT_DIR}/.gitshortversion" GIT_SHORT_VERSION)
 else ()
     execute_process(
         COMMAND git rev-parse --verify --short=8 HEAD
@@ -102,7 +105,7 @@ else ()
 endif ()
 
 # cmake-format: off
-file(READ "${CMAKE_SOURCE_DIR}/include/LCEVC/api_defs.h" API_DEFS_CONTENT)
+file(READ "${LCEVC_ROOT_DIR}/include/LCEVC/api_defs.h" API_DEFS_CONTENT)
 string(REGEX MATCH "#define LCEVC_DEC_VERSION_MAJOR ([0-9]+)" API_VERSION_MAJOR_LINE "${API_DEFS_CONTENT}")
 string(REGEX REPLACE "#define LCEVC_DEC_VERSION_MAJOR ([0-9]+)" "\\1" API_VERSION_MAJOR "${API_VERSION_MAJOR_LINE}")
 string(REGEX MATCH "#define LCEVC_DEC_VERSION_MINOR ([0-9]+)" API_VERSION_MINOR_LINE "${API_DEFS_CONTENT}")
@@ -154,7 +157,7 @@ function (
 
     if (VN_SDK_BUILD_DETAILS)
         # Add build details to the target
-        if (EXISTS "${CMAKE_SOURCE_DIR}/.githash")
+        if (EXISTS "${LCEVC_ROOT_DIR}/.githash")
             set(OPT_GIT_VERSION "--git_version=${GIT_VERSION}")
             set(OPT_GIT_HASH "--git_hash=${GIT_HASH}")
             set(OPT_GIT_DATE "--git_date=${GIT_DATE}")
@@ -163,10 +166,10 @@ function (
         source_group("version_info" FILES ${TARGET_SOURCES})
         add_custom_target(
             ${TARGET}_generate
-            DEPENDS "${CMAKE_SOURCE_DIR}/cmake/tools/version_files.py"
-            SOURCES "${CMAKE_SOURCE_DIR}/cmake/tools/version_files.py"
+            DEPENDS "${LCEVC_ROOT_DIR}/cmake/tools/version_files.py"
+            SOURCES "${LCEVC_ROOT_DIR}/cmake/tools/version_files.py"
             COMMAND
-                Python3::Interpreter "${CMAKE_SOURCE_DIR}/cmake/tools/version_files.py" --component
+                Python3::Interpreter "${LCEVC_ROOT_DIR}/cmake/tools/version_files.py" --component
                 "${COMPONENT}" --name "${NAME}" --output_src "${PATH_SRC}" --output_h "${PATH_H}"
                 --binary_name "${BINARY}" --binary_type "${TYPE}" --description "${DESC}"
                 "${OPT_RC}" "${OPT_GIT_VERSION}" "${OPT_GIT_HASH}" "${OPT_GIT_DATE}"

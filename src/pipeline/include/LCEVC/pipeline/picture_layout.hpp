@@ -19,9 +19,7 @@
 //
 // Everything is static inline all the way down, so 'should' generate sensible code.
 //
-#include <LCEVC/pipeline/detail/picture_layout.h>
 #include <LCEVC/pipeline/picture_layout.h>
-#include <LCEVC/pipeline/picture.h>
 
 #include <string>
 

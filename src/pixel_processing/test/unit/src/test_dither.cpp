@@ -70,41 +70,9 @@ TEST_F(DitherFixture, CheckValuesAreWithinStrength)
 
         for (size_t j = 0; j < kDitherBufferCheckLength; j++) {
             int32_t result = 0;
-            ldppDitherApply(&result, &entropy, 0, strength);
+            ldppDitherApplyScalar(&result, &entropy, 0, strength);
             EXPECT_GE(result, minimumValue);
             EXPECT_LE(result, maximumValue);
-        }
-    }
-}
-
-TEST_F(DitherFixture, CheckSIMDAccuracy)
-{
-    static constexpr size_t kEntropyRange = 0x10000;
-    std::array<uint16_t, 16> entropyValues{};
-    std::array<int16_t, 16> simdResults{};
-
-    for (uint8_t strength = 1; strength <= kValidDitherStrength; ++strength) {
-        for (size_t simdIndex = 0; simdIndex < kEntropyRange; simdIndex += 16) {
-            std::iota(entropyValues.begin(), entropyValues.end(), static_cast<uint16_t>(simdIndex));
-            const uint16_t* pEntropySIMD = entropyValues.data();
-            const uint16_t* pEntropyScalar = entropyValues.data();
-            simdResults.fill(0);
-
-#if VN_SDK_FEATURE(SSE)
-            ldppDitherApplySSE((__m128i*)simdResults.data(), &pEntropySIMD, 0, strength);
-#elif VN_SDK_FEATURE(NEON)
-            // Explicit copy to/from result buffer for NEON
-            int16x8x2_t neonResult = vld2q_s16(simdResults.data());
-            ldppDitherApplyNEON(&neonResult, &pEntropySIMD, 0, strength);
-            vst2q_s16(simdResults.data(), neonResult);
-#endif
-
-            // Compare SIMD result against scalar
-            for (auto simdResult : simdResults) {
-                int32_t scalarResult = 0;
-                ldppDitherApply(&scalarResult, &pEntropyScalar, 0, strength);
-                EXPECT_EQ(simdResult, scalarResult);
-            }
         }
     }
 }

@@ -316,7 +316,7 @@ bool ldcTaskCollectInputs(const LdcTask* task, size_t numInputs, void** inputs);
 
 /*! Clear a task's output and return it's previous value.
  *
- * This is typically used to allow one task to defer output generation to another newly add task.
+ * This is typically used to allow one task to defer output generation to another newly added task.
  *
  *  @param[in]      task        Pointer to the task whose output will be cleared
  *

@@ -18,6 +18,7 @@ list(
     "src/test_apply_cmdbuffer.cpp"
     "src/test_dither.cpp"
     "src/test_convert.cpp"
+    "src/test_sharpen.cpp"
     "src/test_upscale.cpp")
 
 set(HEADERS)

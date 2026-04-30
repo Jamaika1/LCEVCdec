@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2024-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2024-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -12,11 +12,11 @@
  * ANY ONWARD DISTRIBUTION, WHETHER STAND-ALONE OR AS PART OF ANY OTHER PROJECT, REMAINS SUBJECT TO
  * THE EXCLUSION OF PATENT LICENSES PROVISION OF THE BSD-3-CLAUSE-CLEAR LICENSE. */
 
+#include "buffer_vulkan.h"
+#include "picture_vulkan.h"
+#include "pipeline_vulkan.h"
 #include "test_utility.h"
-
-#include <buffer_vulkan.h>
-#include <fmt/core.h>
-#include <gtest/gtest.h>
+//
 #include <LCEVC/common/acceleration.h>
 #include <LCEVC/common/cpp_tools.h>
 #include <LCEVC/common/diagnostics.h>
@@ -25,9 +25,10 @@
 #include <LCEVC/pipeline/types.h>
 #include <LCEVC/pipeline_vulkan/create_pipeline.h>
 #include <LCEVC/pipeline_vulkan/types_vulkan.h>
-#include <picture_vulkan.h>
-#include <pipeline_vulkan.h>
-
+//
+#include <fmt/core.h>
+#include <gtest/gtest.h>
+//
 #include <memory>
 #include <vector>
 

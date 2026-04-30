@@ -15,6 +15,7 @@
 #include "test_plane.h"
 
 #include <find_assets_dir.h>
+#include <LCEVC/common/acceleration.h>
 #include <LCEVC/common/diagnostics.h>
 #include <LCEVC/pixel_processing/upscale.h>
 extern "C"
@@ -50,15 +51,31 @@ typedef struct UpscaleTestParams
     LdeUpscaleType upscaleType;
     bool predictedAverage;
     std::string hash;
-    bool forceScalar;
+    bool disableSIMD;
     uint32_t threads;
 } UpscaleTestParams;
+
+void PrintTo(const UpscaleTestParams& params, std::ostream* os)
+{
+    *os << "{scalingMode=" << scalingModeToString(params.scalingMode)
+        << ", upscaleType=" << upscaleTypeToString(params.upscaleType)
+        << ", predictedAverage=" << (params.predictedAverage ? "true" : "false") << ", hash=\""
+        << params.hash << "\""
+        << ", disableSIMD=" << (params.disableSIMD ? "true" : "false")
+        << ", threads=" << params.threads << "}";
+}
+
+std::ostream& operator<<(std::ostream& os, const UpscaleTestParams& params)
+{
+    PrintTo(params, &os);
+    return os;
+}
 
 std::string testNames(const testing::TestParamInfo<UpscaleTestParams>& value)
 {
     const UpscaleTestParams params = value.param;
 
-    std::string simd = params.forceScalar ? "_simdOff_" : "_simdOn_";
+    std::string simd = params.disableSIMD ? "_simdOff_" : "_simdOn_";
     std::string pa = params.predictedAverage ? "_paOn" : "_paOff";
     std::stringstream ss;
     ss << upscaleTypeToString(params.upscaleType) << "_" << scalingModeToString(params.scalingMode)
@@ -86,14 +103,14 @@ const std::vector<UpscaleTestParams> kTestHashes = {
 const LdeKernel getUpscaleKernel(LdeUpscaleType type)
 {
     if (type == USNearest) {
-        return {{{16384, 0}, {0, 16384}}, 2, false};
+        return {{0, 16384, 0, 0}, 2, false};
     } else if (type == USLinear) {
-        return {{{12288, 4096}, {4096, 12288}}, 2, false};
+        return {{0, 12288, 4096, 0}, 2, false};
     } else if (type == USCubic) {
-        return {{{-1382, 14285, 3942, -461}, {-461, 3942, 14285, -1382}}, 4, false};
+        return {{-1382, 14285, 3942, -461}, 4, false};
     }
     assert(false); // Add additional kernels here, they usually come from the globalConfig
-    return {{{0}, {0}}, 0, false};
+    return {{0}, 0, false};
 }
 
 const std::vector<bool> kForceScalar = {true, false};
@@ -102,7 +119,7 @@ const std::vector<uint32_t> kThreads = {1, 4};
 const auto kUpscaleTestParams = rv::cartesian_product(kTestHashes, kForceScalar, kThreads) |
                                 rv::transform([](auto value) {
                                     UpscaleTestParams test = std::get<0>(value);
-                                    test.forceScalar = std::get<1>(value);
+                                    test.disableSIMD = std::get<1>(value);
                                     test.threads = std::get<2>(value);
                                     return test;
                                 }) |
@@ -118,31 +135,29 @@ protected:
         m_allocator = ldcMemoryAllocatorMalloc();
         ldcDiagnosticsLogLevel(LdcLogLevelInfo);
         const UpscaleTestParams params = GetParam();
+
+        ldcAccelerationInitialize(!params.disableSIMD);
+
         ldcTaskPoolInitialize(&m_taskPool, m_allocator, m_allocator, params.threads, params.threads);
 
         const auto dstWidth = kWidth * 2;
         const auto dstHeight = params.scalingMode == Scale1D ? kHeight : kHeight * 2;
 
         m_src.initialize(kWidth, kHeight, 256, LdpFPS8);
-        m_intermediate.initialize(kWidth, dstHeight, 256, LdpFPS8);
         m_dst.initialize(dstWidth, dstHeight, 512, LdpFPS8);
         ldpInternalPictureLayoutInitialize(&m_srcLayout, LdpColorFormatGRAY_8, kWidth, kHeight, 0);
-        ldpInternalPictureLayoutInitialize(&m_intermediateLayout, LdpColorFormatGRAY_8, kWidth,
-                                           dstHeight, 0);
         ldpInternalPictureLayoutInitialize(&m_dstLayout, LdpColorFormatGRAY_8, dstWidth, dstHeight, 0);
 
         readBinaryFile(m_src, m_srcFilePath);
 
         m_kernel = getUpscaleKernel(params.upscaleType);
+        m_args.kernel = &m_kernel;
         m_args.applyPA = params.predictedAverage;
         m_args.frameDither = NULL;
         m_args.srcLayout = &m_srcLayout;
-        m_args.intermediateLayout = &m_srcLayout;
         m_args.dstLayout = &m_dstLayout;
         m_args.srcPlane = m_src.planeDesc;
-        m_args.intermediatePlane = m_intermediate.planeDesc;
         m_args.dstPlane = m_dst.planeDesc;
-        m_args.forceScalar = params.forceScalar;
         m_args.mode = params.scalingMode;
     }
 
@@ -152,11 +167,9 @@ protected:
     LdcMemoryAllocator* m_allocator = nullptr;
     LdcTaskPool m_taskPool = {0};
     TestPlane m_src = {};
-    TestPlane m_intermediate = {};
     TestPlane m_dst = {};
     LdpPicturePlaneDesc m_interDesc = {0};
     LdpPictureLayout m_dstLayout = {0};
-    LdpPictureLayout m_intermediateLayout = {0};
     LdpPictureLayout m_srcLayout = {0};
     LdppUpscaleArgs m_args = {0};
     LdeKernel m_kernel = {};
@@ -170,7 +183,7 @@ TEST_P(UpscaleTest, HashPlane)
     const LdpPipelineDiagInfo diagInfo = {"UpscaleTest", 0, 0, 0};
 #endif
 
-    ldppUpscale(&m_taskPool, NULL, &m_kernel, &m_args,
+    ldppUpscale(&m_taskPool, NULL, &m_args,
 #if VN_SDK_FEATURE(TRACING)
                 &diagInfo
 #else

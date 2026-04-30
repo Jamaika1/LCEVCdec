@@ -25,7 +25,23 @@ CMakeUserPresets.json
 conan_imports_manifest.txt
 imgui.ini
 
+.gitbranch
+.gitdate
+.githash
+.gitlonghash
+.gitshortversion
+.gitversion
+
 .DS_Store
+
+# Android studio
+.classpath
+.cache
+.project
+.settings
+
+/nsight_conf.json
+/androidman_config.ini
 
 /build/
 /build_*/

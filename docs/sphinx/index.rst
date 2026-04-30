@@ -12,6 +12,8 @@ Release |release|
    api
    example_code
    enhancement
+   extract
+   pixel_processing
 
 Indices and tables
 ==================

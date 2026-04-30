@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2023-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2023-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -109,10 +109,11 @@ int32_t LCEVC_extractEnhancementFromNALIfKeyframe(const uint8_t* nalData, uint32
  * @param[in]       nalSize             Size in bytes of the input NAL data
  * @param[in]       nalFormat           How the NAL units are formatted
  * @param[in]       codecType           What coding standard to use for parsing NAL units
- * @param[out]      strippedSize        Pointer to where to write the size of the NAL units buffer after the enhancement data is removed
  * @param[out]      enhancementData     Where to put extracted data
  * @param[in]       enhancementCapacity Capacity of the data buffer
  * @param[out]      enhancementSize     Pointer to where to write the extracted size; 0 if none found.
+ * @param[out]      strippedOffset      Pointer to where to write the offset of the NAL units buffer after the enhancement data is removed
+ * @param[out]      strippedSize        Pointer to where to write the size of the NAL units buffer after the enhancement data is removed
  * @return                              1 = Keyframe and LCEVC found, 0 = no keyframe or LCEVC found, -1 = an error occurred
  */
 int32_t LCEVC_extractAndRemoveEnhancementFromNALIfKeyframe(

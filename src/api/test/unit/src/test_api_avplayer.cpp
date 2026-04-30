@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2023-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2023-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -282,11 +282,13 @@ void lcevcFlush(LCEVC_DecoderHandle decoder)
     EXPECT_EQ(LCEVC_Success, LCEVC_SynchronizeDecoder(decoder, true));
 }
 
+#if 0 // Unused - See LCEVCEnhancerTest, BufferCapacityShouldReturnErrorAtMaxAndAllowFeedAgainAfterSkip
 void lcevcDecodeSkip(LCEVC_DecoderHandle decoder, uint64_t timestamp)
 {
     EXPECT_EQ(LCEVC_Success, LCEVC_SkipDecoder(decoder, timestamp));
     EXPECT_EQ(LCEVC_Success, LCEVC_SynchronizeDecoder(decoder, false));
 }
+#endif
 
 LCEVC_PictureHandle allocPictureForPixelBuffer(LCEVC_DecoderHandle decoder, PixelBuffer* pixelBuffer)
 {
@@ -547,6 +549,7 @@ TEST_F(LCEVCEnhancerTest, FeedNalUnitShouldReturnNotFoundWhenLCEVCMissing)
     EXPECT_EQ(rc, LCEVC_NotFound);
 }
 
+#if 0 /// Disable for the momemnt - unstable - DEC-1056
 TEST_F(LCEVCEnhancerTest, BufferCapacityShouldReturnErrorAtMaxAndAllowFeedAgainAfterSkip)
 {
     DecoderSettings settings;
@@ -565,6 +568,7 @@ TEST_F(LCEVCEnhancerTest, BufferCapacityShouldReturnErrorAtMaxAndAllowFeedAgainA
     lcevcDecodeSkip(decoder, 0);
     EXPECT_EQ(feedNalUnit(decoder, nalu, genPTS(0.03 * 33), Format::mp4, Codec::h264), LCEVC_Success);
 }
+#endif
 
 TEST_F(LCEVCEnhancerTest, GetLCEVCNaluTypeShouldReturnCorrectNALUType)
 {

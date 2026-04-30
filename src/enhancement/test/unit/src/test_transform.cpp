@@ -13,6 +13,7 @@
  * THE EXCLUSION OF PATENT LICENSES PROVISION OF THE BSD-3-CLAUSE-CLEAR LICENSE. */
 
 #include <gtest/gtest.h>
+#include <LCEVC/common/acceleration.h>
 #include <range/v3/view.hpp>
 #include <rng.h>
 
@@ -228,8 +229,11 @@ TEST_P(TransformTest, CompareSIMD)
 {
     const auto& params = GetParam();
 
-    auto scalarFunction = transformGetFunction(params.transform, params.scaling, true);
-    auto simdFunction = transformGetFunction(params.transform, params.scaling, false);
+    ldcAccelerationInitialize(false);
+    auto scalarFunction = transformGetFunction(params.transform, params.scaling);
+
+    ldcAccelerationInitialize(true);
+    auto simdFunction = transformGetFunction(params.transform, params.scaling);
 
     EXPECT_NE(scalarFunction, nullptr);
     EXPECT_NE(simdFunction, nullptr);
@@ -287,8 +291,11 @@ TEST_P(DequantTransformTest, CompareSIMD)
 {
     const auto& params = GetParam();
 
-    auto scalarFunction = dequantTransformGetFunction(params.transform, params.scaling, true);
-    auto simdFunction = dequantTransformGetFunction(params.transform, params.scaling, false);
+    ldcAccelerationInitialize(false);
+    auto scalarFunction = dequantTransformGetFunction(params.transform, params.scaling);
+
+    ldcAccelerationInitialize(true);
+    auto simdFunction = dequantTransformGetFunction(params.transform, params.scaling);
 
     EXPECT_NE(scalarFunction, nullptr);
     EXPECT_NE(simdFunction, nullptr);
@@ -322,6 +329,8 @@ TEST_P(DequantTransformTest, CheckMergedFunctionMatchesSeparateFunctions)
 {
     const auto& params = GetParam();
 
+    ldcAccelerationInitialize(true);
+
     const auto layerCount = transformTypeLayerCount(params.transform);
     const auto coefficients = getCoefficientValues(params.coeffsType, params.transform);
 
@@ -330,8 +339,8 @@ TEST_P(DequantTransformTest, CheckMergedFunctionMatchesSeparateFunctions)
             << "Test error - coefficient values does not have the correct number of elements";
     }
 
-    const auto combinedFunction = dequantTransformGetFunction(params.transform, params.scaling, false);
-    const auto transformFunction = transformGetFunction(params.transform, params.scaling, false);
+    const auto combinedFunction = dequantTransformGetFunction(params.transform, params.scaling);
+    const auto transformFunction = transformGetFunction(params.transform, params.scaling);
 
     EXPECT_NE(combinedFunction, nullptr);
     EXPECT_NE(transformFunction, nullptr);

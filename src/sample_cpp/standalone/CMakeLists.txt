@@ -1,4 +1,4 @@
-# Copyright (c) V-Nova International Limited 2023-2025. All rights reserved.
+# Copyright (c) V-Nova International Limited 2023-2026. All rights reserved.
 # This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
 # No patent licenses are granted under this license. For enquiries about patent licenses,
 # please contact legal@v-nova.com.
@@ -30,7 +30,7 @@ if ("ffmpeg" IN_LIST PACKAGE_LIST)
     message(STATUS "Found libav packages from conan package 'ffmpeg'")
     target_link_libraries(ffmpeg-libs::ffmpeg-libs INTERFACE ffmpeg::ffmpeg)
 else ()
-    message(STATUS "Found libav and vulkan via pkg-config")
+    message(STATUS "Getting libav and vulkan via pkg-config")
     find_package(PkgConfig)
     foreach (_LIB ${REQUIRED_LIBAV_LIBS})
         pkg_check_modules(${_LIB} IMPORTED_TARGET ${_LIB})
@@ -42,6 +42,12 @@ else ()
 endif ()
 if (VULKAN_PIPELINE)
     find_package(Vulkan REQUIRED)
+    add_library(glfw3::glfw3 INTERFACE IMPORTED)
+    if (NOT "glfw" IN_LIST PACKAGE_LIST)
+        message(STATUS "Getting GLFW from pkg-config")
+        pkg_check_modules(GLFW REQUIRED IMPORTED_TARGET glfw3)
+        target_link_libraries(glfw3::glfw3 INTERFACE PkgConfig::GLFW)
+    endif ()
 endif ()
 
 find_package(lcevc_dec REQUIRED)
@@ -51,9 +57,6 @@ add_executable(lcevc_dec_api_sample_cpp ../src/main.cpp)
 
 target_link_libraries(
     lcevc_dec_api_sample_cpp
-    fmt::fmt
-    CLI11::CLI11
-    lcevc_dec::lcevc_dec
-    lcevc_dec_utility::lcevc_dec_utility
-    ffmpeg-libs::ffmpeg-libs
-    $<TARGET_NAME_IF_EXISTS:Vulkan::Vulkan>)
+    PUBLIC fmt::fmt CLI11::CLI11 lcevc_dec::lcevc_dec lcevc_dec_utility::lcevc_dec_utility
+    PRIVATE ffmpeg-libs::ffmpeg-libs $<TARGET_NAME_IF_EXISTS:Vulkan::Vulkan>
+            $<TARGET_NAME_IF_EXISTS:glfw3::glfw3>)

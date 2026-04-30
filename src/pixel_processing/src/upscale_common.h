@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2022-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2022-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -22,27 +22,6 @@
 typedef struct LdppDitherSlice LdppDitherSlice;
 typedef struct LdeKernel LdeKernel;
 
-typedef struct LdppHorizontalUpscaleParams
-{
-    const LdeKernel* kernel; /** The upscale kernel **/
-    bool is2D; /** True for 2D upscale, false for 1D - determines loading from S16 or UN format respectively **/
-    uint16_t shift;       /** Shift when converting from baseFP to S16 format and back **/
-    uint16_t offset;      /** Offset when converting from S16 to baseFP format **/
-    uint16_t midpoint;    /** Midpoint when converting from S16 to baseFP format **/
-    uint16_t maxValue;    /** Max value of baseFP format when saturating UN formats **/
-    uint8_t channelCount; /** 1 for single plane upscales, 2 for interleaved NV12 chroma planes **/
-    uint8_t channelMap[2]; /** An array that specifies a remapping of one channel to another and controls loads and stores **/
-    uint32_t channelSkip[2]; /** An array that specifies how many pixels each channel should skip over for each load/store **/
-} LdppHorizontalUpscaleParams;
-
-typedef void (*UpscaleHorizontalFunction)(LdppDitherSlice* dither, const uint8_t* in[2], uint8_t* out[2],
-                                          const uint8_t* base[2], uint32_t width, uint32_t xStart,
-                                          uint32_t xEnd, LdppHorizontalUpscaleParams* params);
-
-typedef void (*UpscaleVerticalFunction)(const uint8_t* in, uint32_t inStride, uint8_t* out,
-                                        uint32_t outStride, uint32_t y, uint32_t rows,
-                                        uint32_t height, const LdeKernel* kernel);
-
 typedef enum Interleaving
 {
     ILNone, /**< Surface is planar */
@@ -56,44 +35,102 @@ typedef enum Interleaving
 
 /*------------------------------------------------------------------------------*/
 
-/*! \brief This structure contains the horizontal coordinates for slicing an upscaling
- *         operation. This is necessary for SIMD processing where edge-case handling
- *         can be difficult with respects to loading of data. The slices are left
- *         edge, right edge and middle. Where the middle width is aligned to a
- *         desired alignment, and the left and right edges are scaled accordingly. */
-typedef struct UpscaleHorizontalCoords
+typedef struct LdppUpscaleParams
 {
-    uint32_t leftStart;
-    uint32_t leftEnd;
-    uint32_t rightStart;
-    uint32_t rightEnd;
-    uint32_t start;
-    uint32_t end;
-} UpscaleHorizontalCoords;
+    uint16_t kernel[4]; /** The upscale kernel **/
+    bool applyPA;       /** Runtime PA flag for scalar upscale paths **/
+    uint16_t shift;     /** Shift when converting from baseFP to S16 format and back **/
+    uint16_t offset;    /** Offset when converting from S16 to baseFP format **/
+    uint16_t midpoint;  /** Midpoint when converting from S16 to baseFP format **/
+} LdppUpscaleParams;
+
+#define VN_UPSCALE_ARGS                                                                    \
+    uint8_t *src, uint8_t *dst, uint32_t srcStride, uint32_t dstStride, uint32_t srcWidth, \
+        uint32_t srcHeight, uint32_t yStart, uint32_t yEnd, LdppUpscaleParams params,      \
+        LdppDitherSlice *dither
+
+typedef void (*UpscaleFunction)(VN_UPSCALE_ARGS);
+
+UpscaleFunction upscaleGetFunctionSSE(LdpFixedPoint srcFP, LdpFixedPoint dstFP,
+                                      Interleaving interleaving, bool is2d, bool pa, bool dithering);
+
+UpscaleFunction upscaleGetFunctionNEON(LdpFixedPoint srcFP, LdpFixedPoint dstFP,
+                                       Interleaving interleaving, bool is2d, bool pa, bool dithering);
+
+UpscaleFunction upscaleGetFunctionScalar(LdpFixedPoint srcFP, LdpFixedPoint dstFP,
+                                         Interleaving interleaving, bool is2d, bool pa, bool dithering);
 
 /*------------------------------------------------------------------------------*/
 
-/*! \brief Helper function that calculates the left, middle and right processing
- *         slices for performing horizontal upscaling in SIMD.
- *  \param width            The overall surface width being upscaled from.
- *  \param xStart           The start x-coord.
- *  \param xEnd             The end x-coord.
- *  \param kernelSize       The number of taps for the upscaling kernel.
- *  \param middleAlignment  The required width alignment for the middle slice.
- *  \param coords           The output coordinates structure to populate. */
-void upscaleHorizontalGetCoords(uint32_t width, uint32_t xStart, uint32_t xEnd, uint32_t kernelSize,
-                                uint32_t middleAlignment, UpscaleHorizontalCoords* coords);
+// Dimension definitions for NV12
+#define DIM_1D 1
+#define DIM_2D 2
 
-/*! \brief Determines if the left slice region is valid.
- *  \param coords The input coordinates to check.
- *  \return true if the left slice is valid otherwise false */
-bool upscaleHorizontalCoordsIsLeftValid(const UpscaleHorizontalCoords* coords);
+// Fixed point definitions
+#define FP_U8 1
+#define FP_NV12 2
+#define FP_U16 3
+#define FP_S16 4
 
-/*! \brief Determines if the right  slice region is valid.
- *  \param coords The input coordinates to check.
- *  \return true if the right slice is valid otherwise false */
-bool upscaleHorizontalCoordsIsRightValid(const UpscaleHorizontalCoords* coords);
+/*! \brief define VN_UPSCALE_LOOP_CONFIG macro for use in parameterising upscale functions at compile time.
+ *
+ *  \param IN_FIXED_POINT Input fixed point format
+ *  \param OUT_FIXED_POINT Output fixed point format
+ *  \param APPLY_PA Apply predicted average
+ *  \param DITHER Apply dithering
+ *
+ *  Further macros are used to pull the 4 parameters out as individual compile time macros for
+ *  comparison within upscale loops.
+ */
+#define VN_UPSCALE_LOOP_CONFIG(IN_FIXED_POINT, OUT_FIXED_POINT, APPLY_PA, DITHER) \
+    IN_FIXED_POINT, OUT_FIXED_POINT, APPLY_PA, DITHER
+#define VN_UPSCALE_LOOP_CONFIG_IN_FIXED_POINT(...) \
+    VN_UPSCALE_LOOP_CONFIG_IN_FIXED_POINT_IMPL(__VA_ARGS__)
+#define VN_UPSCALE_LOOP_CONFIG_OUT_FIXED_POINT(...) \
+    VN_UPSCALE_LOOP_CONFIG_OUT_FIXED_POINT_IMPL(__VA_ARGS__)
+#define VN_UPSCALE_LOOP_CONFIG_APPLY_PA(...) VN_UPSCALE_LOOP_CONFIG_APPLY_PA_IMPL(__VA_ARGS__)
+#define VN_UPSCALE_LOOP_CONFIG_DITHER(...) VN_UPSCALE_LOOP_CONFIG_DITHER_IMPL(__VA_ARGS__)
+#define VN_UPSCALE_LOOP_CONFIG_IN_FIXED_POINT_IMPL(IN_FIXED_POINT, OUT_FIXED_POINT, APPLY_PA, DITHER) \
+    IN_FIXED_POINT
+#define VN_UPSCALE_LOOP_CONFIG_OUT_FIXED_POINT_IMPL(IN_FIXED_POINT, OUT_FIXED_POINT, APPLY_PA, DITHER) \
+    OUT_FIXED_POINT
+#define VN_UPSCALE_LOOP_CONFIG_APPLY_PA_IMPL(IN_FIXED_POINT, OUT_FIXED_POINT, APPLY_PA, DITHER) \
+    APPLY_PA
+#define VN_UPSCALE_LOOP_CONFIG_DITHER_IMPL(IN_FIXED_POINT, OUT_FIXED_POINT, APPLY_PA, DITHER) DITHER
 
-/*------------------------------------------------------------------------------*/
+/* Scalar path has runtime PA/dither control, so only fixed-point types are encoded. */
+#define VN_UPSCALE_LOOP_CONFIG_SCALAR(IN_FIXED_POINT, OUT_FIXED_POINT) \
+    IN_FIXED_POINT, OUT_FIXED_POINT
+#define VN_UPSCALE_LOOP_CONFIG_SCALAR_IN_FIXED_POINT(...) \
+    VN_UPSCALE_LOOP_CONFIG_SCALAR_IN_FIXED_POINT_IMPL(__VA_ARGS__)
+#define VN_UPSCALE_LOOP_CONFIG_SCALAR_OUT_FIXED_POINT(...) \
+    VN_UPSCALE_LOOP_CONFIG_SCALAR_OUT_FIXED_POINT_IMPL(__VA_ARGS__)
+#define VN_UPSCALE_LOOP_CONFIG_SCALAR_IN_FIXED_POINT_IMPL(IN_FIXED_POINT, OUT_FIXED_POINT) \
+    IN_FIXED_POINT
+#define VN_UPSCALE_LOOP_CONFIG_SCALAR_OUT_FIXED_POINT_IMPL(IN_FIXED_POINT, OUT_FIXED_POINT) \
+    OUT_FIXED_POINT
+
+// Clamp value to range [lo, hi]
+static inline int32_t clampInt(int32_t v, int32_t lo, int32_t hi)
+{
+    if (v < lo) {
+        return lo;
+    }
+    if (v > hi) {
+        return hi;
+    }
+    return v;
+}
+
+// Get pointer to row y of plane (no bounds checking)
+static inline int16_t* getRowS16(uint8_t* firstSample, size_t rowStride, int32_t y)
+{
+    return (int16_t*)(firstSample + (rowStride * y));
+}
+
+static inline uint8_t* getRowU8(uint8_t* firstSample, size_t rowStride, int32_t y)
+{
+    return (uint8_t*)(firstSample + (rowStride * y));
+}
 
 #endif // VN_LCEVC_PIXEL_PROCESSING_UPSCALE_COMMON_H

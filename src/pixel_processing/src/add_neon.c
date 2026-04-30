@@ -59,8 +59,13 @@ void addU8_NEON(const LdppAddArgs* args)
         /* SIMD loop */
         for (; x < simdWidth; x += kStep, dstPixel += kStep, srcPixel1 += kStep, srcPixel2 += kStep) {
             /* Load 16-pixels from each src */
+#if defined(__aarch64__)
+            int16x8x2_t src1 = vld1q_s16_x2(srcPixel1);
+            int16x8x2_t src2 = vld1q_s16_x2(srcPixel2);
+#else
             int16x8x2_t src1 = {{vld1q_s16(srcPixel1), vld1q_s16(srcPixel1 + 8)}};
             int16x8x2_t src2 = {{vld1q_s16(srcPixel2), vld1q_s16(srcPixel2 + 8)}};
+#endif
 
             /* add sources */
             int16x8_t dst0 = vqaddq_s16(src1.val[0], src2.val[0]);
@@ -120,8 +125,13 @@ void addUN_NEON(const LdppAddArgs* args, int32_t shift, int16_t roundingOffset, 
         /* SIMD loop*/
         for (; x < simdWidth; x += kStep, dstPixel += kStep, srcPixel1 += kStep, srcPixel2 += kStep) {
             /* Load 16-pixels from each src */
+#if defined(__aarch64__)
+            int16x8x2_t src1 = vld1q_s16_x2(srcPixel1);
+            int16x8x2_t src2 = vld1q_s16_x2(srcPixel2);
+#else
             int16x8x2_t src1 = {{vld1q_s16(srcPixel1), vld1q_s16(srcPixel1 + 8)}};
             int16x8x2_t src2 = {{vld1q_s16(srcPixel2), vld1q_s16(srcPixel2 + 8)}};
+#endif
 
             /* add sources */
             int16x8_t dst0 = vqaddq_s16(src1.val[0], src2.val[0]);
@@ -144,8 +154,13 @@ void addUN_NEON(const LdppAddArgs* args, int32_t shift, int16_t roundingOffset, 
             dst1 = vmaxq_s16(vminq_s16(dst1, maxV), minV);
 
             /* Store 16-pixels */
+#if defined(__aarch64__)
+            const uint16x8x2_t combined = {{vreinterpretq_u16_s16(dst0), vreinterpretq_u16_s16(dst1)}};
+            vst1q_u16_x2(dstPixel, combined);
+#else
             vst1q_u16(dstPixel, vreinterpretq_u16_s16(dst0));
             vst1q_u16(dstPixel + 8, vreinterpretq_u16_s16(dst1));
+#endif
         }
 
         /* Remainder */

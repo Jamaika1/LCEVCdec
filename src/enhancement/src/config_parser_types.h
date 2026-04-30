@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2025-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -107,38 +107,28 @@ static const uint32_t kResolutionCustom = 63;
 /*! \brief Standard defined kernels. See section 8.7 of the standard */
 static const LdeKernel kKernels[] = {
     /* Nearest */
-    {{{16384, 0}, {0, 16384}}, 2, false},
+    {{0, 16384, 0, 0}, 2, false},
 
     /* Linear */
-    {{{12288, 4096}, {4096, 12288}}, 2, false},
+    {{0, 12288, 4096, 0}, 2, false},
 
     /* Cubic (a = -0.6) */
-    {{{-1382, 14285, 3942, -461}, {-461, 3942, 14285, -1382}}, 4, false},
+    {{-1382, 14285, 3942, -461}, 4, false},
 
     /* ModifiedCubic */
-    {{{-2360, 15855, 4165, -1276}, {-1276, 4165, 15855, -2360}}, 4, false},
+    {{-2360, 15855, 4165, -1276}, 4, false},
 
     /* AdaptiveCubic */
-    {{{0}, {0}}, 0, false},
+    {{0}, 0, false},
 
     /* US_Reserved1 */
-    {{{0}, {0}}, 0, false},
+    {{0}, 0, false},
 
     /* US_Reserved2 */
-    {{{0}, {0}}, 0, false},
+    {{0}, 0, false},
 
     /* US_Unspecified */
-    {{{0}, {0}}, 0, false},
-
-    /* Lanczos */
-    {{{493, -2183, 14627, 4440, -1114, 121}, {121, -1114, 4440, 14627, -2183, 493}}, 6, false},
-
-    /* Bicubic with prediction */
-    {{{231, -2662, 16384, 2662, -231, 0}, {0, -231, 2662, 16384, -2662, 231}}, 6, true},
-
-    /* MISHUS filter */
-    {{{-2048, 16384, 2048, 0}, {0, 2048, 16384, -2048}}, 4, true},
-};
+    {{0}, 0, false}};
 
 static const uint32_t kVUIAspectRatioIDCExtendedSAR = 255;
 static const uint64_t kMaximumConformanceWindowValue = (1 << 16) - 1;

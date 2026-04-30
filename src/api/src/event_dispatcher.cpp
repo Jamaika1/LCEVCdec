@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2023-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2023-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -23,6 +23,9 @@
 #include "handle.h"
 #include "interface.h"
 #include "pool.h"
+
+#include <LCEVC/common/diagnostics.h>
+#include <LCEVC/common/limit.h>
 //
 #include <condition_variable>
 #include <cstring>
@@ -40,8 +43,8 @@ namespace lcevc_dec::decoder {
 static constexpr uint8_t kInvalidEvent = LCEVC_EventCount + 1;
 static constexpr uint8_t kFlushEvent = LCEVC_EventCount + 2;
 
-bool Event::isValid() const { return (eventType > 0) && (eventType < LCEVC_EventCount); }
-bool Event::isFlush() const { return eventType == kFlushEvent; }
+static inline bool isValid(uint8_t eventType) { return (eventType < LCEVC_EventCount); }
+static inline bool isFlush(uint8_t eventType) { return eventType == kFlushEvent; }
 
 // - EventDispatcher ---------------------------------------------------------------------------------
 
@@ -53,7 +56,7 @@ public:
     explicit EventDispatcherImpl(DecoderContext* context);
     ~EventDispatcherImpl() { release(); }
 
-    void enableEvents(const std::vector<int32_t>& enabledEvents) override;
+    void enableEvents(const int32_t* events, uint32_t eventCount) override;
     bool isEventEnabled(uint8_t eventType) const final { return m_eventMask & (1 << eventType); }
 
     void generate(uint8_t eventTypeIn, struct LdpPicture* pictureIn, const LdpDecodeInformation* decodeInfoIn,
@@ -68,6 +71,9 @@ private:
     void eventLoop();
     bool getNextEvent(Event& event);
 
+    static bool diagnosticHandler(void* user, const LdcDiagSite* site, const LdcDiagRecord* record,
+                                  const LdcDiagValue* values);
+
     DecoderContext* m_context = nullptr;
 
     uint16_t m_eventMask = 0; // The enabled events (set once at initialize and never changed).
@@ -81,6 +87,7 @@ private:
     std::condition_variable m_eventQueueCv;
     std::thread m_eventThread;
     bool m_threadExists = false;
+    bool m_logHandlerRegistered = false;
 };
 
 EventDispatcherImpl::EventDispatcherImpl(DecoderContext* context)
@@ -92,12 +99,19 @@ EventDispatcherImpl::EventDispatcherImpl(DecoderContext* context)
            std::max(static_cast<uint8_t>(LCEVC_EventCount), std::max(kInvalidEvent, kFlushEvent)));
 }
 
-void EventDispatcherImpl::enableEvents(const std::vector<int32_t>& enabledEvents)
+void EventDispatcherImpl::enableEvents(const int32_t* events, uint32_t eventCount)
 {
+    uint16_t prevMask = m_eventMask;
+
     // No failure case, because we've already validated the events in DecoderConfig::validate. To
     // reiterate, that validation is: eventTypes are POSITIVE & SMALL. Internally, they are uint8_t
-    for (const int32_t eventType : enabledEvents) {
-        m_eventMask = m_eventMask | static_cast<uint16_t>(1 << eventType);
+    for (uint32_t i = 0; i < eventCount; ++i) {
+        m_eventMask = m_eventMask | static_cast<uint16_t>(1 << events[i]);
+    }
+
+    // If the logging event is now enabled, add a diagnostic handler that forwards log messages
+    if ((prevMask ^ m_eventMask) & (1 << pipeline::EventLog)) {
+        m_logHandlerRegistered = ldcDiagnosticsHandlerPush(diagnosticHandler, this);
     }
 }
 
@@ -106,6 +120,12 @@ void EventDispatcherImpl::release() noexcept
     // Prevent double-release
     if (!m_threadExists) {
         return;
+    }
+
+    if (m_logHandlerRegistered) {
+        void* userData = this;
+        ldcDiagnosticsHandlerPop(diagnosticHandler, &userData);
+        m_logHandlerRegistered = false;
     }
 
     // Send ourselves a flushing event, to force any prior events out of the queue and break out
@@ -123,17 +143,17 @@ void EventDispatcherImpl::generate(uint8_t eventType, struct LdpPicture* picture
                                    const LdpDecodeInformation* decodeInfo, const uint8_t* data,
                                    uint32_t dataSize)
 {
-    Event event(eventType, picture, decodeInfo, data, dataSize);
+    if (!isEventEnabled(eventType) && !isFlush(eventType)) {
+        return;
+    }
 
     const std::scoped_lock lock(m_eventQueueMutex);
 
-    if (isEventEnabled(event.eventType) || event.isFlush()) {
-        // This may throw an exception if m_eventQueue.size() > SIZE_MAX, needs to be caught when
-        // this function is used in a class destructor.
-        m_eventQueue.push(event);
+    // This may throw an exception if m_eventQueue.size() > SIZE_MAX, needs to be caught when
+    // this function is used in a class destructor.
+    m_eventQueue.emplace(eventType, picture, decodeInfo, data, dataSize);
 
-        m_eventQueueCv.notify_all();
-    }
+    m_eventQueueCv.notify_all();
 }
 
 void EventDispatcherImpl::setEventCallback(LCEVC_EventCallback callback, void* userData)
@@ -146,7 +166,7 @@ void EventDispatcherImpl::eventLoop()
 {
     Event event = kInvalidEvent;
     while (getNextEvent(event)) {
-        if (!event.isValid()) {
+        if (!isValid(event.eventType)) {
             // Break loop: if we got an invalid event off the queue, that's the signal to shut
             // down the thread.
             return;
@@ -169,8 +189,8 @@ void EventDispatcherImpl::eventLoop()
             }
 
             m_eventCallback(decoderHandle, static_cast<LCEVC_Event>(event.eventType),
-                            {pictureHandle.handle}, decodeInfo, event.data, event.dataSize,
-                            m_eventCallbackUserData);
+                            {pictureHandle.handle}, decodeInfo, event.data.data(),
+                            (uint32_t)event.data.size(), m_eventCallbackUserData);
         }
     }
 }
@@ -189,6 +209,68 @@ bool EventDispatcherImpl::getNextEvent(Event& event)
     event = m_eventQueue.front();
     m_eventQueue.pop();
 
+    return true;
+}
+
+// Single character level indicator to prefix the log data
+//
+constexpr char logLevelId(LdcLogLevel level)
+{
+    switch (level) {
+        case LdcLogLevelFatal: return '1';
+        case LdcLogLevelError: return '2';
+        case LdcLogLevelWarning: return '3';
+        case LdcLogLevelInfo: return '4';
+        case LdcLogLevelDebug: return '5';
+        case LdcLogLevelVerbose: return '6';
+        default: assert(0); return ' ';
+    }
+}
+
+// Handle log events - convert to a data buffer and push into event queue
+//
+// This could make the event callback directly - it would avoid some memory copies and
+// extra threading, but runs the risk of surprising the event hander by calling it from two
+// threads, and may get logging out of order relative to the other surrounding events.
+//
+bool EventDispatcherImpl::diagnosticHandler(void* user, const LdcDiagSite* site,
+                                            const LdcDiagRecord* record, const LdcDiagValue* values)
+{
+    // Only handle log messages
+    if (!(site->type == LdcDiagTypeLog || (site->type == LdcDiagTypeLogFormatted && values != nullptr))) {
+        return false;
+    }
+
+    auto* self = reinterpret_cast<EventDispatcherImpl*>(user);
+
+    // Temp. string with space for null terminator
+    constexpr size_t kBufferSize = 4095;
+    char buffer[kBufferSize + 1];
+    int bufferUsed = 0;
+
+    // Add "<level> <file>:<line>: " for Debug and Verbose
+    if (site->level >= LdcLogLevelDebug) {
+        bufferUsed = snprintf(buffer, kBufferSize, "%c %s:%d: ", logLevelId(site->level),
+                              site->file, site->line);
+    } else {
+        // Prefix message with just level otherwise
+        bufferUsed = snprintf(buffer, kBufferSize, "%c ", logLevelId(site->level));
+    }
+
+    if ((bufferUsed < 0) || (bufferUsed > static_cast<int>(kBufferSize))) {
+        // snprintf failure or buffer overrun
+        return false;
+    }
+
+    // Append rest of message
+    bufferUsed +=
+        ldcDiagnosticFormatLog(buffer + bufferUsed, kBufferSize - bufferUsed - 1, site, record, values);
+
+    // Final char always null terminator
+    buffer[bufferUsed] = '\0';
+    bufferUsed += 1;
+
+    self->generate(pipeline::EventLog, nullptr, nullptr, reinterpret_cast<uint8_t*>(buffer), bufferUsed);
     return true;
 }
 

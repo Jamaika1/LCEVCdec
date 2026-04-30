@@ -1,4 +1,4 @@
-# Copyright (c) V-Nova International Limited 2025. All rights reserved.
+# Copyright (c) V-Nova International Limited 2025-2026. All rights reserved.
 # This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
 # No patent licenses are granted under this license. For enquiries about patent licenses,
 # please contact legal@v-nova.com.
@@ -17,30 +17,43 @@ list(
     SOURCES
     "src/backend_vulkan.cpp"
     "src/buffer_vulkan.cpp"
+    "src/compute_vulkan.cpp"
+    "src/frame_context_vulkan.cpp"
     "src/frame_vulkan.cpp"
     "src/picture_lock_vulkan.cpp"
     "src/picture_vulkan.cpp"
     "src/pipeline_builder_vulkan.cpp"
     "src/pipeline_vulkan.cpp"
-    "src/tasks_vulkan.cpp")
+    "src/render_vulkan.cpp"
+    "src/tasks_vulkan.cpp"
+    "src/temporal_buffer_vulkan.cpp"
+    "src/timestamp_vulkan.cpp")
 
 list(
     APPEND
     HEADERS
     "src/backend_vulkan.h"
     "src/buffer_vulkan.h"
+    "src/compute_vulkan.h"
+    "src/frame_context_vulkan.h"
     "src/frame_vulkan.h"
+    "src/from_base.h"
     "src/picture_lock_vulkan.h"
     "src/picture_vulkan.h"
     "src/pipeline_builder_vulkan.h"
     "src/pipeline_config_vulkan.h"
     "src/pipeline_vulkan.h"
+    "src/render_vulkan.h"
     "src/tasks_vulkan.h"
-    "${CMAKE_BINARY_DIR}/src/pipeline_vulkan/src/hpp/apply.h"
-    "${CMAKE_BINARY_DIR}/src/pipeline_vulkan/src/hpp/blit.h"
-    "${CMAKE_BINARY_DIR}/src/pipeline_vulkan/src/hpp/conversion.h"
-    "${CMAKE_BINARY_DIR}/src/pipeline_vulkan/src/hpp/upscale_horizontal.h"
-    "${CMAKE_BINARY_DIR}/src/pipeline_vulkan/src/hpp/upscale_vertical.h")
+    "src/temporal_buffer_vulkan.h"
+    "src/timestamp_vulkan.h"
+    "${CMAKE_CURRENT_BINARY_DIR}/src/hpp/apply.h"
+    "${CMAKE_CURRENT_BINARY_DIR}/src/hpp/add.h"
+    "${CMAKE_CURRENT_BINARY_DIR}/src/hpp/conversion.h"
+    "${CMAKE_CURRENT_BINARY_DIR}/src/hpp/render_fragment.h"
+    "${CMAKE_CURRENT_BINARY_DIR}/src/hpp/render_vertex.h"
+    "${CMAKE_CURRENT_BINARY_DIR}/src/hpp/upscale_horizontal.h"
+    "${CMAKE_CURRENT_BINARY_DIR}/src/hpp/upscale_vertical.h")
 
 list(APPEND INTERFACES "include/LCEVC/pipeline_vulkan/create_pipeline.h")
 

@@ -17,6 +17,7 @@
 #include "test_plane.h"
 
 #include <gtest/gtest.h>
+#include <LCEVC/common/acceleration.h>
 #include <LCEVC/pixel_processing/convert.h>
 #include <range/v3/view.hpp>
 #include <rng.h>
@@ -28,7 +29,7 @@
 extern "C"
 {
 PlaneConvertFunction planeConvertGetFunction(LdpFixedPoint srcFP, LdpFixedPoint dstFP,
-                                             bool forceScalar, uint32_t planeIndex, bool isNV12);
+                                             uint32_t planeIndex, bool isNV12);
 }
 
 namespace rg = ranges;
@@ -39,9 +40,6 @@ namespace rv = ranges::views;
 constexpr uint32_t kWidth = 500;
 constexpr uint32_t kHeight = 400;
 constexpr uint32_t kStride = 512;
-
-constexpr bool kForceScalar = true;
-constexpr bool kSelectSIMD = false;
 
 // -----------------------------------------------------------------------------
 
@@ -59,8 +57,12 @@ protected:
     void SetUp() override
     {
         const auto& params = GetParam();
-        m_scalarFunction = planeConvertGetFunction(params.srcFP, params.dstFP, kForceScalar, 0, false);
-        m_simdFunction = planeConvertGetFunction(params.srcFP, params.dstFP, kSelectSIMD, 0, false);
+
+        ldcAccelerationInitialize(false);
+        m_scalarFunction = planeConvertGetFunction(params.srcFP, params.dstFP, 0, false);
+
+        ldcAccelerationInitialize(true);
+        m_simdFunction = planeConvertGetFunction(params.srcFP, params.dstFP, 0, false);
 
         m_src.initialize(kWidth, kHeight, kStride, params.srcFP);
         m_dstScalar.initialize(kWidth, kHeight, kStride, params.dstFP);

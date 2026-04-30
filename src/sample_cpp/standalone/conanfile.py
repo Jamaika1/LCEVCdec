@@ -1,4 +1,4 @@
-# Copyright (c) V-Nova International Limited 2023-2025. All rights reserved.
+# Copyright (c) V-Nova International Limited 2023-2026. All rights reserved.
 # This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
 # No patent licenses are granted under this license. For enquiries about patent licenses,
 # please contact legal@v-nova.com.
@@ -24,15 +24,15 @@ class LCEVCDecoderSDKSample(ConanFile):
     ]
 
     requires = [
+        "lcevc_dec/[>=4, include_prerelease=True]",
         "fmt/8.0.1",
         "cli11/2.3.2",
-        "ffmpeg/7.1",
+        "ffmpeg/8.0",
     ]
 
     def configure(self):
         self.options["fmt"].header_only = True
         self.options['ffmpeg'].shared = True
-        self.options['ffmpeg'].postproc = False
         if self.settings.os == 'Linux':
             self.options['ffmpeg'].with_libalsa = False
             self.options['ffmpeg'].with_pulse = False

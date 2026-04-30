@@ -1,0 +1,111 @@
+/* Copyright (c) V-Nova International Limited 2026. All rights reserved.
+ * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
+ * No patent licenses are granted under this license. For enquiries about patent licenses,
+ * please contact legal@v-nova.com.
+ * The LCEVCdec software is a stand-alone project and is NOT A CONTRIBUTION to any other project.
+ * If the software is incorporated into another project, THE TERMS OF THE BSD-3-CLAUSE-CLEAR LICENSE
+ * AND THE ADDITIONAL LICENSING INFORMATION CONTAINED IN THIS FILE MUST BE MAINTAINED, AND THE
+ * SOFTWARE DOES NOT AND MUST NOT ADOPT THE LICENSE OF THE INCORPORATING PROJECT. However, the
+ * software may be incorporated into a project under a compatible license provided the requirements
+ * of the BSD-3-Clause-Clear license are respected, and V-Nova Limited remains
+ * licensor of the software ONLY UNDER the BSD-3-Clause-Clear license (not the compatible license).
+ * ANY ONWARD DISTRIBUTION, WHETHER STAND-ALONE OR AS PART OF ANY OTHER PROJECT, REMAINS SUBJECT TO
+ * THE EXCLUSION OF PATENT LICENSES PROVISION OF THE BSD-3-CLAUSE-CLEAR LICENSE. */
+
+import groovy.json.JsonOutput
+
+def execOperations = project.services.get(org.gradle.process.ExecOperations)
+
+File findInParentTree(File startDir, String filename) {
+    File dir = startDir
+    while (dir != null) {
+        File testFile = new File(dir, filename)
+        if (testFile.exists()) {
+            return testFile
+        }
+        dir = dir.parentFile
+    }
+    return null
+}
+
+def readGitValue = { String key, String fileName, List<String> gitArgs, Closure<String> fileTransform = null ->
+    def gitFile = findInParentTree(projectDir, fileName)
+
+    if (gitFile != null) {
+        String fileContents = gitFile.getText('UTF-8').trim()
+        if (fileTransform != null) {
+            fileContents = fileTransform(fileContents)
+        }
+        logger.debug " -> using ${key} from file ${fileName} = ${fileContents}"
+        return fileContents
+    }
+
+    def stdout = new ByteArrayOutputStream()
+    execOperations.exec {
+        commandLine(['git'] + gitArgs)
+        ignoreExitValue = false
+        standardOutput = stdout
+    }
+    String trimmedResponse = stdout.toString().trim()
+    logger.debug " -> using ${key} from git = ${trimmedResponse}"
+    return trimmedResponse
+}
+
+String GIT_TAG = readGitValue('gitTag', '.gitshortversion', ['describe', '--match', '*.*.*', '--abbrev=0'])
+String GIT_DATE = readGitValue('gitDate', '.gitdate', ['log', '-1', '--date=format:%Y%m%d', '--pretty=format:%cd'], { it.replace("-", "") })
+String GIT_HASH = readGitValue('gitHash', '.githash', ['rev-parse', '--short=7', 'HEAD'])
+String GIT_BRANCH = readGitValue('gitBranch', '.gitbranch', ['rev-parse', '--abbrev-ref', 'HEAD'])
+
+String PUBLISH_LABEL = System.getenv('PUBLISH_LABEL') ?: ''
+String BUILD_NUMBER = System.getenv('BUILD_NUMBER') ?: ''
+
+boolean IS_LOCAL = BUILD_NUMBER == ''
+String LOCAL_VERSION = 'dev-SNAPSHOT'
+String CI_VERSION = "${GIT_TAG}-${GIT_HASH}"
+
+ext {
+    gitTag = GIT_TAG
+    gitBranch = GIT_BRANCH
+    gitDate = GIT_DATE
+    gitHash = GIT_HASH
+
+    ciBuild = !IS_LOCAL
+    buildVersion = CI_VERSION
+    publishVersion = IS_LOCAL ? LOCAL_VERSION : CI_VERSION
+    logger.debug " -> using buildVersion = ${buildVersion}"
+    logger.debug " -> using ciBuild = ${ciBuild}"
+    logger.debug " -> using publishVersion = ${publishVersion}"
+
+    buildProperties = [
+        'buildVersion'   : buildVersion,
+        'gitBranch'      : gitBranch,
+        'gitDate'        : gitDate,
+        'gitHash'        : gitHash,
+        'gitTag'         : gitTag,
+        'jenkinsBuild'   : BUILD_NUMBER,
+        'jenkinsLabel'   : PUBLISH_LABEL
+    ]
+}
+
+if (!tasks.names.contains("exportProperties")) {
+    tasks.register("exportProperties") {
+        doLast {
+            if(!buildDir.exists()) {
+                buildDir.mkdirs()
+            }
+            logger.debug " -> Exporting properties to ${buildDir}/${artifactName}_properties.json"
+            new File(buildDir, artifactName + '_properties.json').text = JsonOutput.prettyPrint(JsonOutput.toJson(buildProperties))
+        }
+    }
+}
+
+if (!tasks.names.contains("showSnapshotHint")) {
+    tasks.register("showSnapshotHint") {
+        doLast {
+            println(" -> Building LCEVC${artifactName} JNI wrapper with version ${buildVersion}")
+            if (IS_LOCAL) {
+                println(" -> Consume in V-Nova androidx/media3 fork using publish with parameter -Plcevc${artifactName}=${buildVersion}")
+            }
+        }
+    }
+}

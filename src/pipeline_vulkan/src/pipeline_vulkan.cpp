@@ -13,110 +13,53 @@
  * THE EXCLUSION OF PATENT LICENSES PROVISION OF THE BSD-3-CLAUSE-CLEAR LICENSE. */
 
 #include "pipeline_vulkan.h"
-//
+
+#include "buffer_vulkan.h"
+#include "compute_vulkan.h"
 #include "frame_vulkan.h"
+#include "from_base.h"
 #include "picture_vulkan.h"
-#include "pipeline_config_vulkan.h"
-#include "tasks_vulkan.h"
+#include "pipeline_builder_vulkan.h"
+#include "temporal_buffer_vulkan.h"
 
 #include <LCEVC/common/check.h>
-#include <LCEVC/common/constants.h>
-#include <LCEVC/common/diagnostics.h>
 #include <LCEVC/common/limit.h>
 #include <LCEVC/common/log.h>
 #include <LCEVC/common/memory.h>
+#include <LCEVC/common/platform.h>
 #include <LCEVC/common/return_code.h>
-#include <LCEVC/common/task_pool.h>
-#include <LCEVC/common/threads.h>
+#include <LCEVC/pipeline/buffer.h>
+#include <LCEVC/pipeline/types.h>
 #include <LCEVC/pipeline_vulkan/types_vulkan.h>
+#include <vulkan/vulkan_core.h>
 //
-#include <cstdint>
-#include <cstring>
-#include <ctime>
+#include <algorithm>
+#include <set>
 
 namespace lcevc_dec::pipeline_vulkan {
 
-// Utility functions for finding things in Arrays
-//
-namespace {
-    // Compare two frames in an array of frame pointers
-    inline int sortFramePtrTimestamp(const void* lhs, const void* rhs)
-    {
-        const auto* frameLhs{*static_cast<const FrameVulkan* const *>(lhs)};
-        const auto* frameRhs{*static_cast<const FrameVulkan* const *>(rhs)};
-
-        return pipeline::compareTimestamps(frameLhs->timestamp, frameRhs->timestamp);
-    }
-
-    // Check timestamp of an allocated BasePicture
-    inline int findBasePictureTimestamp(const void* element, const void* ptr)
-    {
-        const auto* alloc{static_cast<const LdcMemoryAllocation*>(element)};
-        assert(VNIsAllocated(*alloc));
-        const uint64_t ets{VNAllocationPtr(*alloc, BasePicture)->timestamp};
-        const uint64_t ts{*static_cast<const uint64_t*>(ptr)};
-
-        return pipeline::compareTimestamps(ets, ts);
-    }
-
-    inline int compareFramePtr(const void* element, const void* other)
-    {
-        const auto* frameLhs{*static_cast<const FrameVulkan* const *>(element)};
-        const auto* frameRhs{static_cast<const FrameVulkan*>(other)};
-
-        if (frameLhs < frameRhs) {
-            return -1;
-        }
-        if (frameLhs > frameRhs) {
-            return 1;
-        }
-        return 0;
-    }
-
-} // namespace
-
 PipelineVulkan::PipelineVulkan(const PipelineBuilderVulkan& builder, pipeline::EventSink* eventSink)
-    : m_configuration(builder.configuration())
-    , m_eventSink(eventSink ? eventSink : pipeline::EventSink::nullSink())
-    , m_allocator(builder.allocator())
-    , m_buffers(builder.configuration().maxLatency, builder.allocator())
-    , m_pictures(builder.configuration().maxLatency, builder.allocator())
-    , m_frames(builder.configuration().maxLatency, builder.allocator())
-    , m_reorderIndex(builder.configuration().maxLatency, builder.allocator())
-    , m_processingIndex(builder.configuration().maxLatency, builder.allocator())
-    , m_doneIndex(builder.configuration().maxLatency, builder.allocator())
-    , m_flushIndex(builder.configuration().maxLatency, builder.allocator())
-    , m_maxReorder(m_configuration.defaultMaxReorder)
+    : PipelineBase(builder, eventSink)
+    , m_configuration(builder.configuration())
+    , m_buffersPool(builder.configuration().maxLatency * 4, builder.allocator())
+    , m_picturesPool(builder.configuration().maxLatency * 4, builder.allocator())
+    , m_framesPool(builder.configuration().maxLatency * 2, builder.allocator())
     , m_temporalBuffers(builder.configuration().numTemporalBuffers * RCMaxPlanes, builder.allocator())
-    , m_basePicturePending(nextPowerOfTwoU32(builder.configuration().maxLatency + 1), builder.allocator())
-    , m_basePictureOutBuffer(nextPowerOfTwoU32(builder.configuration().maxLatency + 1), builder.allocator())
-    , m_outputPictureAvailableBuffer(nextPowerOfTwoU32(builder.configuration().maxLatency + 1),
-                                     builder.allocator())
-    , m_core(*this)
-
+    , m_backend(builder.configuration().willRender, builder.configuration().device,
+                builder.configuration().validation, builder.configuration().timestampsLimit,
+                builder.configuration().contexts)
 {
-    // Set up dithering
     ldppDitherGlobalInitialize(m_allocator, &m_dither, m_configuration.ditherSeed);
 
-    // Set up an allocator for per frame data
-    ldcRollingArenaInitialize(&m_rollingArena, m_allocator, m_configuration.initialArenaCount,
-                              m_configuration.initialArenaSize);
-
-    // Configuration pool
-    LdeBitstreamVersion bitstreamVersion = BitstreamVersionUnspecified;
-    if (m_configuration.forceBitstreamVersion >= BitstreamVersionInitial &&
-        m_configuration.forceBitstreamVersion <= BitstreamVersionCurrent) {
-        bitstreamVersion = static_cast<LdeBitstreamVersion>(m_configuration.forceBitstreamVersion);
+    if (m_configuration.useSystemAllocator == false) {
+        // Special allocator for per frame enhancement data
+        m_enhancementAllocator = ldcMemorySimpleAllocatorInitialize(&m_simpleAllocator, m_allocator);
+    } else {
+        // Use system allocator for all allocations
+        m_enhancementAllocator = m_allocator;
     }
-    ldeConfigPoolInitialize(m_allocator, m_allocator, &m_configPool, bitstreamVersion);
 
-    // Start task pool - pool threads is 1 less than configured threads
-    VNCheck(m_configuration.numThreads >= 1);
-    ldcTaskPoolInitialize(&m_taskPool, m_allocator, m_allocator, m_configuration.numThreads - 1,
-                          m_configuration.numReservedTasks);
-
-    // Fill in empty temporal buffer anchors
-    TemporalBuffer buf{};
+    TemporalBufferVulkan buf{};
     buf.allocator = m_allocator;
     buf.desc.timestamp = kInvalidTimestamp;
     buf.timestampLimit = kInvalidTimestamp;
@@ -125,677 +68,150 @@ PipelineVulkan::PipelineVulkan(const PipelineBuilderVulkan& builder, pipeline::E
         m_temporalBuffers.append(buf);
     }
 
-    m_eventSink->generate(pipeline::EventCanSendEnhancement);
-    m_eventSink->generate(pipeline::EventCanSendBase);
-    m_eventSink->generate(pipeline::EventCanSendPicture);
+    // NB:this assumes that the vulkan shaders will be serialized 'enough' to
+    // allow a single intermediate buffer to be used.
+    //
+    m_intermediateUpscalePicture[LOQ1] = allocatePicture();
+    m_intermediateUpscalePicture[LOQ0] = allocatePicture();
+    m_temporalPicture = allocatePicture();
 
-    m_intermediateUpscalePicture[LOQ1] = std::make_unique<PictureVulkan>(*this);
-    m_intermediateUpscalePicture[LOQ0] = std::make_unique<PictureVulkan>(*this);
-    m_temporalPicture = std::make_unique<PictureVulkan>(*this);
+    if (m_backend.initVulkan()) {
+        m_initialised = true;
+    }
 
-    // Initialise vulkan state
-    m_initialised = m_core.init();
+    m_completionThread = new common::Thread(frameCompletionThreadEntry, this);
 }
 
 PipelineVulkan::~PipelineVulkan()
 {
-    // Flush and wait for any remaining frames
-    this->synchronizeDecoder(kInvalidTimestamp, true);
+    synchronizeDecoder(kInvalidTimestamp, true);
 
-    // Release pictures
-    for (uint32_t i = 0; i < m_pictures.size(); ++i) {
-        PictureVulkan* picture{VNAllocationPtr(m_pictures[i], PictureVulkan)};
-        // Call destructor directly, as we are doing in-place construct/destruct
-        picture->~PictureVulkan();
-        VNFree(m_allocator, &m_pictures[i]);
+    m_completionRunning.store(false);
+    m_completionAdded.signal();
+
+    delete m_completionThread;
+    m_completionThread = nullptr;
+
+    if (m_intermediateUpscalePicture[LOQ1]) {
+        releasePicture(m_intermediateUpscalePicture[LOQ1]);
+        m_intermediateUpscalePicture[LOQ1] = nullptr;
+    }
+    if (m_intermediateUpscalePicture[LOQ0]) {
+        releasePicture(m_intermediateUpscalePicture[LOQ0]);
+        m_intermediateUpscalePicture[LOQ0] = nullptr;
     }
 
-    // Release frames
-    for (uint32_t i = 0; i < m_frames.size(); ++i) {
-        FrameVulkan* frame{VNAllocationPtr(m_frames[i], FrameVulkan)};
+    if (m_temporalPicture) {
+        releasePicture(m_temporalPicture);
+        m_temporalPicture = nullptr;
+    }
+
+    for (uint32_t i = 0; i < m_allocatedPictures.size(); ++i) {
+        m_picturesPool.destroy(fromBase(m_allocatedPictures[i]));
+    }
+
+    for (uint32_t i = 0; i < m_allocatedFrames.size(); ++i) {
+        FrameVulkan* frame{fromBase(m_allocatedFrames[i])};
         frame->release(true);
-        // Call destructor directly, as we are doing in-place construct/destruct
-        frame->~FrameVulkan();
-        VNFree(m_allocator, &m_frames[i]);
+        m_framesPool.destroy(frame);
     }
 
-    // Release any temporal buffers
     for (uint32_t i = 0; i < m_temporalBuffers.size(); ++i) {
-        TemporalBuffer* tb = m_temporalBuffers.at(i);
+        TemporalBufferVulkan* tb = m_temporalBuffers.at(i);
         if (VNIsAllocated(tb->allocation)) {
             VNFree(m_allocator, &tb->allocation);
         }
     }
-    // Release dither
+
     ldppDitherGlobalRelease(&m_dither);
 
-    // Release config
-    ldeConfigPoolRelease(&m_configPool);
+    if (m_configuration.useSystemAllocator == false) {
+        ldcMemorySimpleAllocatorDestroy(&m_simpleAllocator);
+    }
 
-    // Release frame memory arena
-    ldcRollingArenaDestroy(&m_rollingArena);
-
-    // Close down task pool
-    ldcTaskPoolDestroy(&m_taskPool);
-
-    m_eventSink->generate(pipeline::EventExit);
-
-    // Release vulkan objects
     if (m_initialised) {
-        m_core.destroy();
+        m_backend.destroy();
     }
 }
 
-// Send/receive
-LdcReturnCode PipelineVulkan::sendDecoderEnhancementData(uint64_t timestamp, const uint8_t* data,
-                                                         uint32_t byteSize)
+BufferVulkan* PipelineVulkan::allocateBuffer(uint32_t requiredSize, pipeline::BufferUsage usage)
 {
-    VNLogDebug("sendDecoderEnhancementData: ts:%" PRIx64 " %d", timestamp, byteSize);
+    common::ScopedLock lock(m_allocationBuffersMutex);
 
-    // Invalid if this timestamp is already present in decoder.
-    //
-    // NB: API clients are expected to make distinct timestamps over discontinuities using utility library
-    if (findFrame(timestamp) != nullptr) {
-        VNLogDebug("sendDecoderEnhancementData: ts:%" PRIx64 " Duplicate Frame", timestamp);
-        return LdcReturnCodeInvalidParam;
-    }
+    BufferVulkan* const buffer = m_buffersPool.make(m_backend, requiredSize, usage);
 
-    if (frameLatency() >= m_configuration.maxLatency) {
-        VNLogDebug("sendDecoderEnhancementData: ts:%" PRIx64 " AGAIN", timestamp);
-        return LdcReturnCodeAgain;
-    }
-
-    // New pending frame
-    FrameVulkan* const frame{allocateFrame(timestamp)};
-    if (!frame) {
-        return LdcReturnCodeError;
-    }
-
-    // Keep record of highest sent frame timestamp
-    if (m_sendLimit == kInvalidTimestamp || pipeline::compareTimestamps(timestamp, m_sendLimit)) {
-        m_sendLimit = timestamp;
-    }
-
-    // Attach enhancement data to frame
-    frame->setEnhancementData(data, byteSize);
-
-    // Frame ready to be reordered into presentation order for correct LCEVC decode
-    frame->setState(FrameStateReorder);
-
-    // Add frame to reorder table sorted by timestamp
-    m_reorderIndex.insert(sortFramePtrTimestamp, frame);
-
-    // Attach any pending base for matching timestamp
-    if (BasePicture* bp = m_basePicturePending.findUnordered(findBasePictureTimestamp, &frame->timestamp);
-        bp) {
-        frame->setBasePicture(bp->picture, bp->deadline, bp->userData);
-        m_basePicturePending.remove(bp);
-        m_eventSink->generate(pipeline::EventCanSendBase);
-    }
-
-    startReadyFrames();
-    return LdcReturnCodeSuccess;
-}
-
-LdcReturnCode PipelineVulkan::sendDecoderBase(uint64_t timestamp, LdpPicture* basePicture,
-                                              uint32_t timeoutUs, void* userData)
-{
-    VNLogDebug("sendDecoderBase: ts:%" PRIx64 " %p", timestamp, (void*)basePicture);
-
-    // Find the frame associated with PTS
-    FrameVulkan* frame{findFrame(timestamp)};
-    if (frame) {
-        // Enhancement exists
-        if (LdcReturnCode ret = frame->setBasePicture(
-                basePicture, threadTimeMicroseconds(static_cast<int32_t>(timeoutUs)), userData);
-            ret != LdcReturnCodeSuccess) {
-            return ret;
-        }
-
-        // Force pass-through if requested
-        if (m_configuration.passthroughMode == PassthroughMode::Force) {
-            frame->setPassthrough();
-        }
-        // Kick off any frames that are at or before the base timestamp
-        process(timestamp);
-        m_eventSink->generate(pipeline::EventCanSendBase);
-        return LdcReturnCodeSuccess;
-    }
-
-    BasePicture bp = {timestamp, basePicture,
-                      threadTimeMicroseconds(static_cast<int32_t>(timeoutUs)), userData};
-
-    if (m_basePicturePending.size() < m_configuration.enhancementDelay) {
-        // There is capacity to buffer base picture
-        m_basePicturePending.append(bp);
-        return LdcReturnCodeSuccess;
-    }
-
-    // Cannot buffer any more pending bases
-    if (m_configuration.passthroughMode == PassthroughMode::Disable) {
-        // No pass-through
-        return LdcReturnCodeAgain;
-    }
-
-    // Base frame is going to go through pipeline as some sort of pass-through ...
-    if (!m_basePicturePending.isEmpty()) {
-        m_basePicturePending.append(bp);
-        bp = m_basePicturePending[0];
-        m_basePicturePending.removeIndex(0);
-        m_eventSink->generate(pipeline::EventCanSendBase);
-    }
-
-    // New pass-through frame - no enhancement
-    FrameVulkan* const passFrame{allocateFrame(timestamp)};
-
-    if (!passFrame) {
-        return LdcReturnCodeError;
-    }
-
-    // Add frame to reorder table sorted by timestamp
-    passFrame->setBasePicture(basePicture, threadTimeMicroseconds(static_cast<int32_t>(timeoutUs)), userData);
-    passFrame->setPassthrough();
-    passFrame->setState(FrameStateReorder);
-    m_reorderIndex.insert(sortFramePtrTimestamp, passFrame);
-
-    process(timestamp);
-    return LdcReturnCodeSuccess;
-}
-
-LdcReturnCode PipelineVulkan::sendDecoderPicture(LdpPicture* outputPicture)
-{
-    VNLogDebug("sendDecoderPicture: %p", (void*)outputPicture);
-
-    // Add to available queue
-    if (m_outputPictureAvailableBuffer.size() > m_configuration.maxLatency ||
-        !m_outputPictureAvailableBuffer.tryPush(outputPicture)) {
-        VNLogDebug("sendDecoderPicture: AGAIN");
-        return LdcReturnCodeAgain;
-    }
-
-    connectOutputPictures();
-
-    startReadyFrames();
-    return LdcReturnCodeSuccess;
-}
-
-LdpPicture* PipelineVulkan::receiveDecoderPicture(LdpDecodeInformation& decodeInfoOut)
-{
-    FrameVulkan* frame{};
-
-    releaseFlushedFrames();
-
-    // Pull any done frame from start (lowest timestamp) of 'processing' frame index.
-    {
-        common::ScopedLock lock(m_interTaskMutex);
-
-        if (!m_doneIndex.isEmpty()) {
-            // Something in 'done' index
-            frame = m_doneIndex[0];
-            m_doneIndex.removeIndex(0);
-        } else if (m_processingIndex.size() > m_configuration.minLatency &&
-                   m_processingIndex[0]->canComplete() && !isFlushed(m_processingIndex[0])) {
-            const FrameVulkan* pendingFrame = m_processingIndex[0];
-
-            // Earliest frame will complete, so hang around and wait for it to move to done index
-            VNLogDebug("waiting for ts:%" PRIx64, pendingFrame->timestamp);
-
-            if (!m_interTaskFrameDone.waitDeadline(lock, pendingFrame->deadline)) {
-                VNLogWarning("wait timed out ts:%" PRIx64, pendingFrame->timestamp);
-#if VN_SDK_LOG(DEBUG)
-                ldcTaskPoolDump(&m_taskPool, nullptr);
-#endif
-            } else {
-                VNLogDebug("wait done ts:%" PRIx64, pendingFrame->timestamp);
-            }
-
-            if (!m_doneIndex.isEmpty()) {
-                frame = m_doneIndex[0];
-                m_doneIndex.removeIndex(0);
-            } else {
-                VNLogDebug("no picture ts:%" PRIx64, m_processingIndex[0]->timestamp);
-            }
-        }
-    }
-
-    if (!frame) {
-        return nullptr;
-    }
-
-    // Copy surviving data from frame
-    decodeInfoOut = frame->decodeInformation;
-    LdpPicture* pictureOut{frame->outputPicture};
-
-    VNLogDebug("receiveDecoderPicture: ts:%" PRIx64 " %p hb:%d he:%d sk:%d enh:%d",
-               decodeInfoOut.timestamp, (void*)pictureOut, decodeInfoOut.hasBase,
-               decodeInfoOut.hasEnhancement, decodeInfoOut.skipped, decodeInfoOut.enhanced);
-
-    // Once an output picture has left the building - we can drop the associated frame
-    freeFrame(frame);
-
-    return pictureOut;
-}
-
-LdpPicture* PipelineVulkan::receiveDecoderBase()
-{
-    // Is there anything in finished base FIFO?
-    LdpPicture* basePicture{};
-    if (!m_basePictureOutBuffer.tryPop(basePicture)) {
-        return nullptr;
-    }
-
-    VNLogDebug("receiveDecoderBase: %" PRIx64 " %p", (void*)basePicture);
-
-    return basePicture;
-}
-
-void PipelineVulkan::getCapacity(LdpPipelineCapacity* capacity)
-{
-    assert(capacity);
-    capacity->enhancementAvailable = m_configuration.maxLatency - frameLatency();
-    capacity->baseAvailable = m_configuration.maxLatency - frameLatency();
-    capacity->outputAvailable =
-        m_outputPictureAvailableBuffer.capacity() - m_outputPictureAvailableBuffer.size();
-
-    capacity->enhancementMaximum = m_configuration.maxLatency;
-    capacity->baseMaximum = m_configuration.maxLatency;
-    capacity->outputAvailable = m_outputPictureAvailableBuffer.capacity();
-}
-
-// Dig out info about a current timestamp
-LdcReturnCode PipelineVulkan::peekDecoder(uint64_t timestamp, uint32_t& widthOut, uint32_t& heightOut)
-{
-    // Flush everything up to given timestamp
-    process(timestamp);
-
-    // Find the frame associated with PTS
-    const FrameVulkan* frame{findFrame(timestamp)};
-    if (!frame) {
-        return LdcReturnCodeNotFound;
-    }
-    if (!frame->globalConfig) {
-        if (m_configuration.passthroughMode == PassthroughMode::Disable) {
-            return LdcReturnCodeNotFound;
-        }
-        return LdcReturnCodeAgain;
-    }
-
-    if (frame->isPassthrough()) {
-        widthOut = frame->baseWidth;
-        heightOut = frame->baseHeight;
-    } else {
-        widthOut = frame->globalConfig->width;
-        heightOut = frame->globalConfig->height;
-    }
-    return LdcReturnCodeSuccess;
-}
-
-// Move any reorder frames at or before timestamp into processing state
-void PipelineVulkan::process(uint64_t timestamp)
-{
-    assert(timestamp != kInvalidTimestamp);
-
-    // Move 'processing' point forwards
-    if (m_processingLimit != kInvalidTimestamp &&
-        pipeline::compareTimestamps(timestamp, m_processingLimit) < 0) {
-        VNLogError("Processing timestamp went backwards.");
-        return;
-    }
-    m_processingLimit = timestamp;
-
-    startReadyFrames();
-}
-
-// Mark everything before timestamp as not needing decoding
-LdcReturnCode PipelineVulkan::skip(uint64_t timestamp)
-{
-    const uint64_t fromTimestamp = m_skipLimit;
-
-    VNLogDebug("skip: ts:%" PRIx64 " %p", timestamp);
-
-    // Using kInvalidTimstamp skips all sent frames
-    if (timestamp == kInvalidTimestamp) {
-        timestamp = m_sendLimit;
-    }
-
-    // Skipping beyond highest sent timestamp does nothing
-    if (pipeline::compareTimestamps(timestamp, m_sendLimit) > 0) {
-        return LdcReturnCodeSuccess;
-    }
-
-    // Move 'skip' point forwards
-    if (m_skipLimit != kInvalidTimestamp && pipeline::compareTimestamps(timestamp, m_skipLimit) < 0) {
-        VNLogError("Skip timestamp went backwards.");
-        return LdcReturnCodeError;
-    }
-    m_skipLimit = timestamp;
-
-    // Bump 'processing' point if necessary
-    if (m_processingLimit == kInvalidTimestamp ||
-        pipeline::compareTimestamps(timestamp, m_processingLimit) > 0) {
-        m_processingLimit = timestamp;
-    }
-
-    startReadyFrames();
-    unblockSkippedFrames(fromTimestamp);
-    return LdcReturnCodeSuccess;
-}
-
-// Make pending frames get decoded
-LdcReturnCode PipelineVulkan::flush(uint64_t timestamp)
-{
-    const uint64_t fromTimestamp = m_flushLimit;
-
-    VNLogDebug("flush: ts:%" PRIx64 " %p", timestamp);
-
-    // Using kInvalidTimstamp flushed all sent frames
-    if (timestamp == kInvalidTimestamp) {
-        timestamp = m_sendLimit;
-    }
-
-    // Move 'flush' point forwards
-    if (m_flushLimit != kInvalidTimestamp && pipeline::compareTimestamps(timestamp, m_flushLimit) < 0) {
-        VNLogError("Flush timestamp went backwards.");
-        return LdcReturnCodeError;
-    }
-    m_flushLimit = timestamp;
-
-    // Bump 'processing' point if necessary
-    if (m_processingLimit == kInvalidTimestamp ||
-        pipeline::compareTimestamps(timestamp, m_processingLimit) > 0) {
-        m_processingLimit = timestamp;
-    }
-
-    // Bump 'skip' point if necessary
-    if (m_skipLimit == kInvalidTimestamp || pipeline::compareTimestamps(timestamp, m_skipLimit) > 0) {
-        m_skipLimit = timestamp;
-    }
-
-    startReadyFrames();
-    unblockFlushedFrames(fromTimestamp);
-    return LdcReturnCodeSuccess;
-}
-
-// Make sure any skipped frames are ready to run
-void PipelineVulkan::unblockSkippedFrames(uint64_t fromTimestamp)
-{
-    for (uint32_t i = 0; i < m_frames.size(); ++i) {
-        FrameVulkan* const frame{VNAllocationPtr(m_frames[i], FrameVulkan)};
-        if (!frame->isStateProcessing()) {
-            continue;
-        }
-        // Already skipped?
-        if (fromTimestamp != kInvalidTimestamp &&
-            pipeline::compareTimestamps(fromTimestamp, frame->timestamp) >= 0) {
-            continue;
-        }
-
-        if (isSkipped(frame)) {
-            frame->unblockForSkip();
-        }
-    }
-}
-
-// Make sure any flushed frames are ready to run
-void PipelineVulkan::unblockFlushedFrames(uint64_t fromTimestamp)
-{
-    for (uint32_t i = 0; i < m_frames.size(); ++i) {
-        FrameVulkan* const frame{VNAllocationPtr(m_frames[i], FrameVulkan)};
-        if (!frame->isStateProcessing()) {
-            continue;
-        }
-
-        // Already flushed?
-        if (fromTimestamp != kInvalidTimestamp &&
-            pipeline::compareTimestamps(fromTimestamp, frame->timestamp) >= 0) {
-            continue;
-        }
-
-        if (isFlushed(frame)) {
-            frame->unblockForFlush();
-        }
-    }
-}
-
-// Wait for all work to be finished - optionally stopping anything in progress
-LdcReturnCode PipelineVulkan::synchronizeDecoder(uint64_t timestamp, bool flushPending)
-{
-    VNLogDebug("synchronizeDecoder: %d", flushPending);
-
-    if (flushPending) {
-        // Mark current frames as flushed
-        flush(timestamp);
-
-        while (m_processingIndex.size() > 0) {
-            FrameVulkan* const frame = m_processingIndex[0];
-            if (!frame->canComplete()) {
-                VNLogError("Flushed frame cannot complete: ts:%" PRIx64, frame->timestamp);
-            }
-            frame->waitForTasks();
-        }
-    } else {
-        // For frames that are not blocked on input - wait in timestamp order
-        while (m_processingIndex.size() > 0 && m_processingIndex[0]->canComplete()) {
-            m_processingIndex[0]->waitForCompletableTasks();
-        }
-    }
-
-    releaseFlushedFrames();
-    return LdcReturnCodeSuccess;
-}
-
-bool PipelineVulkan::isProcessing(const FrameVulkan* frame) const
-{
-    assert(frame);
-
-    if (m_processingLimit == kInvalidTimestamp) {
-        return false;
-    }
-    return frame->timestamp <= m_processingLimit;
-}
-
-bool PipelineVulkan::isSkipped(const FrameVulkan* frame) const
-{
-    assert(frame);
-    if (m_skipLimit == kInvalidTimestamp) {
-        return false;
-    }
-    return frame->timestamp <= m_skipLimit;
-};
-
-bool PipelineVulkan::isFlushed(const FrameVulkan* frame) const
-{
-    assert(frame);
-    if (m_flushLimit == kInvalidTimestamp) {
-        return false;
-    }
-    return frame->timestamp <= m_flushLimit;
-};
-
-// Buffers
-//
-BufferVulkan* PipelineVulkan::allocateBuffer(uint32_t requiredSize)
-{
-    // Allocate buffer structure
-    LdcMemoryAllocation allocation;
-    VNAllocateZero(m_allocator, &allocation, BufferVulkan, "VulkanBuffer");
-    BufferVulkan* const buffer{VNAllocationPtr(allocation, BufferVulkan)};
     if (!buffer) {
+        VNLogFatal("Could not allocate buffer");
         return nullptr;
     }
-    // Insert into table
-    m_buffers.append(allocation);
-
-    // In place construction
-    return new (buffer) BufferVulkan(this->getCore(), requiredSize); // NOLINT(cppcoreguidelines-owning-memory)
+    return buffer;
 }
 
-void PipelineVulkan::releaseBuffer(BufferVulkan* buffer)
+void PipelineVulkan::releaseBuffer(pipeline::BufferBase* buffer)
 {
+    common::ScopedLock lock(m_allocationBuffersMutex);
     assert(buffer);
 
-    // Release buffer structure
-    LdcMemoryAllocation* const pAlloc{m_buffers.findUnordered(ldcVectorCompareAllocationPtr, buffer)};
-
-    if (!pAlloc) {
-        // Could not find picture!
-        VNLogWarning("Could not find buffer to release: %p", (void*)buffer);
-        return;
-    }
-
-    // Call destructor directly, as we are doing in-place construct/destruct
-    buffer->~BufferVulkan();
-
-    // Release memory
-    VNFree(m_allocator, pAlloc);
-
-    m_buffers.removeReorder(pAlloc);
+    m_buffersPool.destroy(fromBase(buffer));
 }
-
-// Picture-handling
-// Internal allocation
 
 PictureVulkan* PipelineVulkan::allocatePicture()
 {
-    // Allocate picture
-    LdcMemoryAllocation pictureAllocation;
-    VNAllocateZero(m_allocator, &pictureAllocation, PictureVulkan, "PictureVulkan");
-    PictureVulkan* picture{VNAllocationPtr(pictureAllocation, PictureVulkan)};
+    common::ScopedLock lock(m_allocationPicturesMutex);
+
+    PictureVulkan* picture{m_picturesPool.make(*this, m_allocator)};
     if (!picture) {
+        VNLogError("Could not allocate picture");
         return nullptr;
     }
-    // Insert into table
-    m_pictures.append(pictureAllocation);
 
-    // In place construction
-    return new (picture) PictureVulkan(*this); // NOLINT(cppcoreguidelines-owning-memory)
+    m_allocatedPictures.append(picture);
+    return picture;
 }
 
-void PipelineVulkan::releasePicture(PictureVulkan* picture)
+void PipelineVulkan::releasePicture(pipeline::PictureBase* picture)
 {
-    picture->unbindMemory(); // TODO - check this
+    common::ScopedLock lock(m_allocationPicturesMutex);
 
-    // Find slot
-    LdcMemoryAllocation* pAlloc{m_pictures.findUnordered(ldcVectorCompareAllocationPtr, picture)};
-
-    if (!pAlloc) {
-        // Could not find picture!
-        VNLogWarning("Could not find picture to release: %p", (void*)picture);
+    uint32_t idx = findAllocatedPicture(picture);
+    if (idx == UINT32_MAX) {
         return;
     }
 
-    // Call destructor directly, as we are doing in-place construct/destruct
-    picture->~PictureVulkan();
+    m_allocatedPictures.removeReorderIndex(idx);
 
-    // Release memory
-    VNFree(m_allocator, pAlloc);
-
-    m_pictures.removeReorder(pAlloc);
+    picture->unbindMemory();
+    m_picturesPool.destroy(fromBase(picture));
 }
 
-LdpPicture* PipelineVulkan::allocPicture(const LdpPictureDesc& desc)
-{
-    PictureVulkan* picture{allocatePicture()};
-    picture->setDesc(desc);
-    return picture;
-}
-
-LdpPicture* PipelineVulkan::allocPictureExternal(const LdpPictureDesc& desc,
-                                                 const LdpPicturePlaneDesc* planeDescArr,
-                                                 const LdpPictureBufferDesc* buffer)
-{
-    PictureVulkan* picture{allocatePicture()};
-    picture->setDesc(desc);
-    picture->setExternal(planeDescArr, buffer);
-    return picture;
-}
-
-void PipelineVulkan::freePicture(LdpPicture* ldpPicture)
-{
-    // Get back to derived Picture class
-    PictureVulkan* picture{static_cast<PictureVulkan*>(ldpPicture)};
-    assert(ldpPicture);
-
-    releasePicture(picture);
-}
-
-// Frames
-//
-
-// Allocate or find working data for a timestamp
-//
-// Given that there is going to be in the order of 100 or less frames, stick
-// with an array and linear searches.
-//
-// NB: There may be more allocated frames that the configured latency - 'Done' frames
-// do not count towards latency limit.
-//
-// Returns nullptr if there is no capacity for another frame.
-//
 FrameVulkan* PipelineVulkan::allocateFrame(uint64_t timestamp)
 {
     assert(findFrame(timestamp) == nullptr);
 
-    // Allocate frame with in place construction
-    LdcMemoryAllocation frameAllocation = {};
-    VNAllocateZero(m_allocator, &frameAllocation, FrameVulkan, "FrameVulkan");
-    FrameVulkan* const frame{VNAllocationPtr(frameAllocation, FrameVulkan)};
+    FrameVulkan* frame = m_framesPool.make(m_allocator, m_allocator, timestamp);
     if (!frame) {
+        VNLogError("Could not allocate frame");
         return nullptr;
     }
 
-    // Append allocation into table
-    m_frames.append(frameAllocation);
+    m_allocatedFrames.append(frame);
 
-    // In place construction
-    return new (frame) FrameVulkan(this->m_allocator, timestamp); // NOLINT(cppcoreguidelines-owning-memory)
+    return frame;
 }
 
-// Find existing Frame for a timestamp, or return nullptr if it does not exist.
-//
-FrameVulkan* PipelineVulkan::findFrame(uint64_t timestamp)
+void PipelineVulkan::freeFrame(pipeline::FrameBase* frame)
 {
-    for (uint32_t i = 0; i < m_frames.size(); ++i) {
-        FrameVulkan* const frame{VNAllocationPtr(m_frames[i], FrameVulkan)};
-        if (isSkipped(frame)) {
-            continue;
-        }
-
-        if (pipeline::compareTimestamps(frame->timestamp, timestamp) == 0) {
-            return frame;
-        }
-    }
-
-    return nullptr;
-}
-
-// Release frame back to pool
-//
-void PipelineVulkan::freeFrame(FrameVulkan* frame)
-{
-    // Release task group and allocations
-    frame->release(true);
-
-    // Find allocation containing the frame
-    LdcMemoryAllocation* frameAllocation{m_frames.findUnordered(ldcVectorCompareAllocationPtr, frame)};
-
-    if (!frameAllocation) {
-        // Could not find frame!
-        VNLogWarning("Could not find frame allocation: %p", (void*)frame);
+    uint32_t idx = findAllocatedFrame(frame);
+    if (idx == UINT32_MAX) {
         return;
     }
 
-    // Call destructor directly, as we are doing in-place construct/destruct
-    frame->~FrameVulkan();
+    m_allocatedFrames.removeReorderIndex(idx);
 
-    // Release memory
-    VNFree(m_allocator, frameAllocation);
+    frame->release(true);
+    m_framesPool.destroy(fromBase(frame));
 
-    m_frames.removeReorder(frameAllocation);
-
-    // If there are no remaining frames, reset limits so that we can accept 'earlier' timestamp
-    // into an empty decoder.
-    if (m_frames.isEmpty()) {
+    if (m_allocatedFrames.isEmpty()) {
         VNLogDebug("Reset limits");
         m_sendLimit = kInvalidTimestamp;
         m_processingLimit = kInvalidTimestamp;
@@ -804,321 +220,274 @@ void PipelineVulkan::freeFrame(FrameVulkan* frame)
     }
 }
 
-// Number of outstanding frames
-uint32_t PipelineVulkan::frameLatency() const
+pipeline::TemporalBufferBase* PipelineVulkan::getTemporalBuffer(uint32_t n)
 {
-    return m_reorderIndex.size() + m_processingIndex.size();
-}
-
-//// Frame start
-//
-// Get the next frame, if any, in timestamp order - taking into account reorder and flushing.
-//
-FrameVulkan* PipelineVulkan::getNextReordered()
-{
-    // Are there any frames at all?
-    if (m_reorderIndex.isEmpty()) {
+    if (n >= m_temporalBuffers.size()) {
         return nullptr;
     }
-
-    // If exceeded reorder limit, or flushing
-    if (m_reorderIndex.size() >= m_maxReorder || isProcessing(m_reorderIndex[0])) {
-        FrameVulkan* const frame{m_reorderIndex[0]};
-        m_reorderIndex.removeIndex(0);
-        // Tell API there is enhancement space
-        m_eventSink->generate(pipeline::EventCanSendEnhancement);
-        return frame;
-    }
-
-    return nullptr;
+    return m_temporalBuffers.at(n);
 }
 
-// Resolve ready frame configurations in timestamp order, and generate tasks for each one.
-//
-// Once we are handling frames here, the frame is in flight - async to the API, so no error returns.
-//
-void PipelineVulkan::startReadyFrames()
+// Render
+LdcReturnCode PipelineVulkan::renderSetWindow(void* window, bool secure)
 {
-    releaseFlushedFrames();
+    VNUnused(secure);
+#if VN_OS(ANDROID)
+    m_backend.getRenderer().setAndroidWindow(window);
+#else
+    VNUnused(window);
+#endif
+    m_backend.initRemaningRender();
 
-    // Pull ready frames from reorder table
-    while (FrameVulkan* frame = getNextReordered()) {
-        const uint64_t timestamp{frame->timestamp};
-        bool goodConfig = false;
+    return LdcReturnCodeSuccess;
+}
 
-        if (m_previousTimestamp != kInvalidTimestamp &&
-            pipeline::compareTimestamps(m_previousTimestamp, timestamp) > 0) {
-            // Frame has been flushed out of reorder queue too late - mark as passthrough
-            VNLogDebug("startReadyFrames: out of order: ts:%" PRIx64 " prev: %" PRIx64);
-            frame->setPassthrough();
-        }
+LdcReturnCode PipelineVulkan::renderSendPicture(uint64_t timestamp, LdpPicture* outputPicture,
+                                                const LdpRenderSendInformation* renderSendInformation,
+                                                uint64_t delayUs)
+{
+    VNUnused(timestamp);
+    VNUnused(delayUs);
 
-        // Try and parse frame configuration
-        if (!frame->isPassthrough()) {
-            goodConfig = frame->parseEnhancementData(&m_configPool);
-            if (!goodConfig) {
-                frame->setPassthrough();
+    if (!backend().renderingEnabled() || !backend().getRenderer().windowReady()) {
+        return LdcReturnCodeAgain;
+    }
+    if (delayUs > 0) {
+        VNLogWarning("renderSendPicture is not implemented yet, rendering with zero delay");
+    }
+
+#if defined(USE_GLFW)
+    glfwPollEvents();
+    auto* window = backend().getRenderer().getWindow();
+    if (window == nullptr) {
+        return LdcReturnCodeAgain;
+    }
+    if (glfwWindowShouldClose(window) || glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+        glfwSetWindowShouldClose(window, GLFW_TRUE);
+        backend().getRenderer().releaseSurfaceAndSwapChain();
+        backend().getRenderer().closeWindow();
+        return LdcReturnCodeAgain;
+    }
+#endif
+
+    backend().getRenderer().setRotation(renderSendInformation->rotation);
+
+    auto* picture = fromPipeline(outputPicture);
+
+    LdpPictureDesc desc{};
+    picture->getDesc(desc);
+
+    const auto pictureWidth = picture->getActiveWidth();
+    const auto pictureHeight = picture->getActiveHeight();
+    const auto colorFormat = ldpPictureLayoutFormat(&picture->layout);
+    const bool nv12 = colorFormat == LdpColorFormatNV12_8;
+    const bool bit8 = (colorFormat == LdpColorFormatI420_8 || colorFormat == LdpColorFormatI422_8 ||
+                       colorFormat == LdpColorFormatI444_8 || colorFormat == LdpColorFormatNV12_8 ||
+                       colorFormat == LdpColorFormatNV21_8 || colorFormat == LdpColorFormatGRAY_8);
+
+    auto* frame = findFrame(timestamp);
+    const LdppDitherFrame* frameDither = frame ? frame->dither() : nullptr;
+    backend().getRenderer().setRenderFormat(bit8, nv12);
+    backend().getRenderer().ensureTextureResources(pictureWidth, pictureHeight);
+    backend().getRenderer().updateDitherState(&m_dither, frameDither);
+
+    VkImageSubresource subresource{};
+    subresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+
+    VkSubresourceLayout layout0;
+    vkGetImageSubresourceLayout(backend().getDevice(), backend().getRenderer().textureImage[0],
+                                &subresource, &layout0);
+
+    VkSubresourceLayout layout1;
+    vkGetImageSubresourceLayout(backend().getDevice(), backend().getRenderer().textureImage[1],
+                                &subresource, &layout1);
+
+    VkSubresourceLayout layout2;
+    vkGetImageSubresourceLayout(backend().getDevice(), backend().getRenderer().textureImage[2],
+                                &subresource, &layout2);
+
+    auto* buffer = fromPipeline(picture->buffer);
+    LdpBufferMapping mapping{};
+    if (!buffer->map(&mapping, 0, buffer->size(), LdpAccessRead)) {
+        VNLogError("Mapping failed");
+    }
+
+    const auto* db = mapping.ptr;
+
+    void* data0 = nullptr;
+    void* data1 = nullptr;
+    void* data2 = nullptr;
+
+    vkMapMemory(backend().getDevice(), backend().getRenderer().textureImageMemory[0], 0,
+                layout0.size, 0, &data0);
+    vkMapMemory(backend().getDevice(), backend().getRenderer().textureImageMemory[1], 0,
+                layout1.size, 0, &data1);
+    vkMapMemory(backend().getDevice(), backend().getRenderer().textureImageMemory[2], 0,
+                layout2.size, 0, &data2);
+
+    const uint8_t* srcY = db + picture->layout.planeOffsets[0];
+    uint8_t* dstY = static_cast<uint8_t*>(data0);
+
+    for (uint32_t y = 0; y < pictureHeight; ++y) {
+        memcpy(dstY + y * layout0.rowPitch, srcY + y * picture->layout.rowStrides[0], pictureWidth);
+    }
+
+    if (nv12) {
+        const uint8_t* uvSrc = db + picture->layout.planeOffsets[1];
+        for (uint32_t y = 0; y < pictureHeight / 2; ++y) {
+            const uint8_t* rowSrc = uvSrc + y * picture->layout.rowStrides[1];
+            uint8_t* rowU = static_cast<uint8_t*>(data1) + y * layout1.rowPitch;
+            uint8_t* rowV = static_cast<uint8_t*>(data2) + y * layout2.rowPitch;
+
+            for (uint32_t x = 0; x < pictureWidth / 2; ++x) {
+                rowU[x] = rowSrc[2 * x + 0];
+                rowV[x] = rowSrc[2 * x + 1];
             }
         }
-
-        if (frame->isPassthrough()) {
-            // Set up enough frame configuration to support pass-through
-            ldeConfigPoolFramePassthrough(&m_configPool, &frame->globalConfig, &frame->config);
+    } else {
+        for (uint32_t y = 0; y < pictureHeight / 2; ++y) {
+            memcpy(static_cast<uint8_t*>(data1) + y * layout1.rowPitch,
+                   db + picture->layout.planeOffsets[1] + y * picture->layout.rowStrides[1],
+                   picture->layout.rowStrides[1]);
         }
 
-        VNLogDebug(
-            "Start Frame: ts:%" PRIx64 " goodConfig:%d temporalEnabled:%d, temporalPresent:%d "
-            "temporalRefresh:%d loqEnabled[0]:%d loqEnabled[1]:%d skip:%d flush:%d passthrough:%d",
-            timestamp, goodConfig, frame->globalConfig->temporalEnabled,
-            frame->config.temporalSignallingPresent, frame->config.temporalRefresh,
-            frame->config.loqEnabled[0], frame->config.loqEnabled[1], isSkipped(frame),
-            isFlushed(frame), frame->isPassthrough());
-
-        // Once we have per frame configuration, we can properly initialize and figure out tasks for the frame
-        if (!frame->initialize(m_configuration, &m_taskPool, &m_dither)) {
-            VNLogError("Could not allocate frame buffers: ts:%" PRIx64, frame->timestamp);
-            // Could not allocate buffers - switch to pass-through
-            frame->setPassthrough();
-        }
-
-        // Unblock frames if they are skipped or flushed
-        if (isSkipped(frame)) {
-            frame->unblockForSkip();
-        }
-
-        if (isFlushed(frame)) {
-            frame->unblockForFlush();
-        }
-
-        if (isFlushed(frame) && frame->basePicture == nullptr && frame->outputPicture == nullptr) {
-            // Frame can just be released now, otherwise let it go through normal processing
-            // to allow pictures to be returned.
-            VNLogDebug("Freeing flushed frame: ts:%" PRIx64, frame->timestamp);
-            freeFrame(frame);
-        } else {
-            // Decode the frame as normal, add it to the processing index with the previous
-            // frame's temporal buffer timestamp (if required for temporal=on)
-            {
-                common::ScopedLock lock(m_interTaskMutex);
-                frame->setState(FrameStateProcessing);
-                m_processingIndex.append(frame);
-            }
-
-            generateTasks(this, frame, m_lastGoodTimestamp);
-
-            // Remember timestamps for the next frame
-            m_previousTimestamp = timestamp;
-            if (goodConfig) {
-                m_lastGoodTimestamp = timestamp;
-            }
+        for (uint32_t y = 0; y < pictureHeight / 2; ++y) {
+            memcpy(static_cast<uint8_t*>(data2) + y * layout2.rowPitch,
+                   db + picture->layout.planeOffsets[2] + y * picture->layout.rowStrides[2],
+                   picture->layout.rowStrides[2]);
         }
     }
 
-    // Connect available output pictures to started pictures
-    connectOutputPictures();
+    vkUnmapMemory(backend().getDevice(), backend().getRenderer().textureImageMemory[2]);
+    vkUnmapMemory(backend().getDevice(), backend().getRenderer().textureImageMemory[1]);
+    vkUnmapMemory(backend().getDevice(), backend().getRenderer().textureImageMemory[0]);
+
+    buffer->unmap(&mapping);
+
+    backend().getRenderer().drawFrame();
+
+    return LdcReturnCodeSuccess;
 }
 
-// Connect any available output pictures to frames that can use them
 //
-void PipelineVulkan::connectOutputPictures()
+//
+void PipelineVulkan::addCompletionContext(VulkanFrameContext* context)
 {
-    // While there are available output pictures and pending frames,
-    // go through frames in timestamp order, assigning next output picture
+    common::ScopedLock lock(m_completionMutex);
+    m_completionContexts.push_back(context);
+    m_completionAdded.signal();
+}
+
+void PipelineVulkan::waitCompletionContextIdle()
+{
     while (true) {
-        FrameVulkan* frame{};
-
-        if (m_outputPictureAvailableBuffer.isEmpty()) {
-            // No output pictures left
-            break;
+        common::ScopedLock lock(m_completionMutex);
+        // No completion - done
+        if (m_completionContexts.empty()) {
+            return;
         }
+        // Wait for something to be removed
+        m_completionRemoved.wait(lock);
 
-        // Find next in process frame with base data, and without an assigned output picture
+        // Check again
+        if (m_completionContexts.empty()) {
+            return;
+        }
+    }
+}
+
+// Thread that waits on fences from submitted command buffers
+//
+intptr_t PipelineVulkan::frameCompletionThreadEntry(void* arg)
+{
+    static_cast<PipelineVulkan*>(arg)->frameCompletionThread();
+    return 0;
+}
+
+void PipelineVulkan::frameCompletionThread()
+{
+    while (m_completionRunning) {
+        // Local snapshot of fences and context to wait for
+        std::vector<VkFence> fences;
+        std::vector<VulkanFrameContext*> contexts;
+
         {
-            common::ScopedLock lock(m_interTaskMutex);
+            // Wait for there to be submitted contexts, then lock and
+            // make a copy of fences and pointers
+            common::ScopedLock lock(m_completionMutex);
+            if (m_completionContexts.empty()) {
+                const uint64_t deadline = threadTimeMicroseconds(50 * 1000);
+                bool signalled = m_completionAdded.waitDeadline(lock, deadline);
+                if (!signalled && !m_completionContexts.empty()) {
+                    // This should 'never' happen
+                    VNLogWarning("timeout when contexts available");
+                }
+            }
 
-            for (uint32_t idx = 0; idx < m_processingIndex.size(); ++idx) {
-                if (!m_processingIndex[idx]->outputPicture && m_processingIndex[idx]->baseDataValid()) {
-                    frame = m_processingIndex[idx];
-                    break;
+            if (!m_completionContexts.empty()) {
+                for (auto* c : m_completionContexts) {
+                    fences.push_back(c->getFence());
+                    contexts.push_back(c);
                 }
             }
         }
 
-        if (!frame) {
-            // No frames without output pictures left
-            break;
-        }
+        if (!fences.empty()) {
+            // If there are active submissions - wait
+            //
+            // Use a 100ms timeout in case of shaders taking too long, or blocking
+            //
+            constexpr uint64_t TIMEOUT_NANOSECS = (uint64_t)100 * 1000 * 1000;
 
-        //  Get the picture
-        LdpPicture* ldpPicture{};
-        m_outputPictureAvailableBuffer.pop(ldpPicture);
-        assert(ldpPicture);
+            VkResult r = vkWaitForFences(m_backend.getDevice(), static_cast<uint32_t>(fences.size()),
+                                         fences.data(), false, TIMEOUT_NANOSECS);
+            if (r == VK_SUCCESS) {
+                // At least one of the fences is signalled - update pending vector
+                //
+                // Also, keep a record of the completed contexts for completion outside lock
+                //
+                common::ScopedLock lock(m_completionMutex);
 
-        // Set the output layout
-        const LdpPictureDesc desc{frame->getOutputPictureDesc(m_configuration.passthroughMode)};
-        ldpPictureSetDesc(ldpPicture, &desc);
-        if (frame->globalConfig->cropEnabled) {
-            ldpPicture->margins.left = frame->globalConfig->crop.left;
-            ldpPicture->margins.right = frame->globalConfig->crop.right;
-            ldpPicture->margins.top = frame->globalConfig->crop.top;
-            ldpPicture->margins.bottom = frame->globalConfig->crop.bottom;
-        }
+                for (size_t i = 0; i < fences.size(); ++i) {
+                    VkResult fr = vkGetFenceStatus(m_backend.getDevice(), fences[i]);
+                    if (fr == VK_SUCCESS) {
+                        // Remove context from pending  set
+                        m_completionContexts.erase(find(m_completionContexts.begin(),
+                                                        m_completionContexts.end(), contexts[i]));
 
-        VNLogDebug("connectOutputPicture: ts:%" PRIx64 " %p %ux%u (r:%d p:%d o:%d)", frame->timestamp,
-                   (void*)ldpPicture, desc.width, desc.height, m_reorderIndex.size(),
-                   m_processingIndex.size(), m_outputPictureAvailableBuffer.size());
+                        // Release
+                        finishCompletionContext(contexts[i]);
 
-        // Poke it into the frame's task group
-        frame->setOutputPicture(ldpPicture);
-
-        // Tell API there is output picture space
-        m_eventSink->generate(pipeline::EventCanSendPicture);
-    }
-}
-
-// Clear 'flush' index
-//
-// This is done on main pipeline thread (and not as part of taskDone) allowing task groups tasks
-// to finish cleanly.
-//
-void PipelineVulkan::releaseFlushedFrames()
-{
-    while (!m_flushIndex.isEmpty()) {
-        FrameVulkan* frame{nullptr};
-        {
-            common::ScopedLock lock(m_interTaskMutex);
-            frame = m_flushIndex[0];
-            assert(frame);
-            m_flushIndex.removeIndex(0);
-        }
-        VNLogDebug("Released flushed frame: ts:%" PRIx64, frame->timestamp);
-        freeFrame(frame);
-    }
-}
-
-//// Temporal
-//
-// Look through all temporal buffers, looking for one that matches the given frame and plane's requirements
-//
-// The frame<->temporal buffer search loops are where individual frame tasks can interact with
-// each other, so are protected by protected by m_interTaskMutex.
-//
-TemporalBuffer* PipelineVulkan::findTemporalBuffer(FrameVulkan* frame, uint32_t plane)
-{
-    TemporalBuffer* foundTemporalBuffer{};
-
-    {
-        common::ScopedLock lock(m_interTaskMutex);
-
-        for (uint32_t i = 0; i < m_temporalBuffers.size(); ++i) {
-            TemporalBuffer* tb{m_temporalBuffers.at(i)};
-            if (tb->frame) {
-                // In use
-                continue;
-            }
-
-            if (frame->tryAttachTemporalBuffer(plane, tb)) {
-                foundTemporalBuffer = tb;
-                break;
+                        m_completionRemoved.broadcast();
+                    }
+                }
+            } else if (r == VK_TIMEOUT) {
+                VNLogWarning("Completion wait timeout");
+            } else {
+                VNLogError("vkWaitForFences failed: %d", (int32_t)r);
             }
         }
     }
+}
 
-    if (!foundTemporalBuffer) {
-        // Not found - will get resolved later by being transferred from a previous frame
-        return nullptr;
-    }
-
-    VNLogDebug("  findTemporalBuffer found: plane:%" PRIu32 " ts:%" PRIx64 " found_ts:%" PRIx64,
-               plane, frame->timestamp, foundTemporalBuffer->desc.timestamp);
-
+void PipelineVulkan::finishCompletionContext(VulkanFrameContext* context)
+{
+    // Frame finishing
     //
-    frame->updateTemporalBuffer(plane);
-
-    return foundTemporalBuffer;
-}
-
-// Mark the frame as having finished with it's temporal buffer, and try to transfer buffer on to another frame
-//
-void PipelineVulkan::transferTemporalBuffer(FrameVulkan* frame, uint32_t plane)
-{
-    VNLogDebug("releaseTemporalBuffer: ts:%" PRIx64 " plane: %" PRIu32, frame->timestamp, plane);
-
-    FrameVulkan* foundNextFrame{nullptr};
-    TemporalBuffer* tb{nullptr};
-
-    {
-        common::ScopedLock lock(m_interTaskMutex);
-
-        tb = frame->detachTemporalBuffer(plane);
-        if (tb == nullptr) {
-            // No temporal buffer to be released
-            return;
-        }
-
-        // Do any of the pending frames want this buffer?
-        for (uint32_t idx = 0; idx < m_processingIndex.size(); ++idx) {
-            FrameVulkan* nextFrame{m_processingIndex[idx]};
-            if (nextFrame->tryAttachTemporalBuffer(plane, tb)) {
-                foundNextFrame = nextFrame;
-                break;
-            }
-        }
+    if (FrameVulkan* frame = context->getFrame()) {
+        frame->computeTaskFinish(this);
     }
 
-    if (!foundNextFrame) {
-        return;
-    }
+    // Debugging shader timing
+    context->getTimestamps().report();
 
-    VNLogDebug("  Vulkan::releaseTemporalBuffer found: plane:%" PRIu32 " next_ts:%" PRIx64
-               " ts:%" PRIx64,
-               plane, foundNextFrame->timestamp, frame->timestamp);
-    foundNextFrame->updateTemporalBuffer(plane);
+    m_backend.compute().releaseFrameContext(context);
 }
 
-// End of frame processing
-//
-void PipelineVulkan::baseDone(LdpPicture* picture)
+void PipelineVulkan::prepareApplyCommonArgs(VulkanApplyCommonArgs& args, PictureVulkan* picture,
+                                            LdpEnhancementTile* enhancementTile,
+                                            VulkanFrameContext* context, bool applyDirect)
 {
-    // Generate event
-    m_eventSink->generate(pipeline::EventBasePictureDone, picture);
-
-    // Send base picture back to API
-    m_basePictureOutBuffer.push(picture);
-}
-
-void PipelineVulkan::outputDone(FrameVulkan* frame)
-{
-    common::ScopedLock lock(m_interTaskMutex);
-
-    // Remove from processing index
-    const int idx = m_processingIndex.findUnorderedIndex(compareFramePtr, frame);
-    assert(idx != -1);
-    m_processingIndex.removeIndex(idx);
-
-    if (!frame->outputPicture) {
-        // Hand off to 'flush' index
-        frame->setState(FrameStateFlush);
-        m_flushIndex.insert(sortFramePtrTimestamp, frame);
-    } else {
-        // Hand off to 'done' index - even if frame was skipped, so that output
-        // picture can be returned to integration (marked as skipped)
-        frame->setState(FrameStateDone);
-        m_doneIndex.insert(sortFramePtrTimestamp, frame);
-        m_interTaskFrameDone.signal();
-
-        m_eventSink->generate(pipeline::EventOutputPictureDone, frame->outputPicture,
-                              &frame->decodeInformation);
-    }
-    m_eventSink->generate(pipeline::EventCanReceive);
-}
-
-void PipelineVulkan::prepareApplyArgs(VulkanApplyArgs& args, PictureVulkan* picture,
-                                      LdpEnhancementTile* enhancementTile, FrameVulkan* frame,
-                                      bool applyDirect)
-{
-    LdpPictureDesc desc{};
-    picture->getDesc(desc);
     args.picture = applyDirect ? picture : nullptr;
 
     int widthShift{};
@@ -1127,17 +496,40 @@ void PipelineVulkan::prepareApplyArgs(VulkanApplyArgs& args, PictureVulkan* pict
         getSubsamplingShifts(m_chroma, widthShift, heightShift);
     }
     args.chroma = m_chroma;
-    args.planeWidth = desc.width >> widthShift;
-    args.planeHeight = desc.height >> heightShift;
+    args.planeWidth = picture->getActiveWidth() >> widthShift;
+    args.planeHeight = picture->getActiveHeight() >> heightShift;
+    args.plane = enhancementTile->plane;
+    args.loq = enhancementTile->loq;
+    args.dds = context->getFrame()->globalConfig->numLayers == 16;
+    args.tuRasterOrder = !context->getFrame()->globalConfig->temporalEnabled &&
+                         context->getFrame()->globalConfig->tileDimensions == TDTNone;
+    args.context = context;
+}
+
+void PipelineVulkan::prepareApplyTileArgs(VulkanApplyTileArgs& args, PictureVulkan* picture,
+                                          LdpEnhancementTile* enhancementTile,
+                                          VulkanFrameContext* context, bool applyDirect)
+{
+    args.picture = applyDirect ? picture : nullptr;
+
+    int widthShift{};
+    int heightShift{};
+    if (enhancementTile->plane != 0) {
+        getSubsamplingShifts(m_chroma, widthShift, heightShift);
+    }
+    args.planeWidth = picture->getActiveWidth() >> widthShift;
+    args.planeHeight = picture->getActiveHeight() >> heightShift;
     args.plane = enhancementTile->plane;
     args.bufferGpu = enhancementTile->bufferGpu;
     args.tileX = enhancementTile->tileX;
     args.tileY = enhancementTile->tileY;
     args.tileWidth = enhancementTile->tileWidth;
-    args.temporalRefresh = applyDirect ? false : frame->config.temporalRefresh;
+    args.loq = enhancementTile->loq;
     args.highlightResiduals = m_configuration.highlightResiduals;
-    args.tuRasterOrder =
-        !frame->globalConfig->temporalEnabled && frame->globalConfig->tileDimensions == TDTNone;
+    args.dds = context->getFrame()->globalConfig->numLayers == 16;
+    args.tuRasterOrder = !context->getFrame()->globalConfig->temporalEnabled &&
+                         context->getFrame()->globalConfig->tileDimensions == TDTNone;
+    args.context = context;
 }
 
 void PipelineVulkan::getSubsamplingShifts(LdeChroma chroma, int& widthShift, int& heightShift)
@@ -1161,48 +553,5 @@ LdpColorFormat PipelineVulkan::chromaToColorFormat(LdeChroma chroma)
         default: return LdpColorFormatUnknown;
     }
 }
-
-#if VN_SDK_LOG(DEBUG)
-// Dump frame and index state
-//
-void PipelineVulkan::logFrames()
-{
-    char buffer[512];
-
-    VNLogDebug("Frames: %d", m_frames.size());
-    for (uint32_t i = 0; i < m_frames.size(); ++i) {
-        FrameVulkan* const frame{VNAllocationPtr(m_frames[i], FrameVulkan)};
-        frame->longDescription(buffer, sizeof(buffer));
-        VNLogDebugF("  %4d: %s", i, buffer);
-        frame->dumpTasks(&m_taskPool);
-    }
-
-    logFrameIndex("Reorder", m_reorderIndex);
-    logFrameIndex("Processing", m_processingIndex);
-    logFrameIndex("Done", m_doneIndex);
-    logFrameIndex("Flush", m_flushIndex);
-
-    VNLogDebug("Bases In: %d (%d)", m_basePicturePending.size(), m_basePicturePending.reserved());
-    VNLogDebug("Bases Out: %d (%d)", m_basePictureOutBuffer.size(), m_basePictureOutBuffer.capacity());
-    VNLogDebug("Output: %d (%d)", m_outputPictureAvailableBuffer.size(),
-               m_outputPictureAvailableBuffer.capacity());
-    VNLogDebug("Limits Flush:%" PRIx64 " Skip:%" PRIx64 " Processing:%" PRIx64 " Send:%" PRIx64,
-               m_flushLimit.load(), m_skipLimit.load(), m_processingLimit.load(), m_sendLimit.load());
-}
-
-void PipelineVulkan::logFrameIndex(const char* indexName,
-                                   const lcevc_dec::common::Vector<FrameVulkan*>& index) const
-{
-    VNLogDebug("Index %s: %d", indexName, index.size());
-    for (uint32_t i = 0; i < index.size(); ++i) {
-        const FrameVulkan* const frame{index[i]};
-        const LdcMemoryAllocation* const ptr =
-            m_frames.findUnordered(ldcVectorCompareAllocationPtr, frame);
-        const int32_t idx = static_cast<int32_t>(ptr ? (ptr - &m_frames[0]) : -1);
-        VNLogDebugF("  %2d: %4d ts:%" PRIx64, i, idx, frame->timestamp);
-    }
-}
-
-#endif
 
 } // namespace lcevc_dec::pipeline_vulkan

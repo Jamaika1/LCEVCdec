@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2024-2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2024-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -37,6 +37,9 @@ public:
 
         ldeConfigPoolInitialize(allocator, allocator, &configPool, BitstreamVersionUnspecified);
         m_binReader = createBinReader((kTestAssets / "parse_gops.bin").string());
+        if (!m_binReader) {
+            FAIL() << "Failed to open BIN file";
+        }
     }
 
     void TearDown() override { ldeConfigPoolRelease(&configPool); }
@@ -71,7 +74,7 @@ TEST_F(ConfigPoolTest, singleFrame)
     EXPECT_EQ(frameConfig.frameConfigSet, true);
     EXPECT_EQ(frameConfig.chunkAllocation.size, 256);
 
-    EXPECT_TRUE(ldeConfigPoolFrameRelease(&configPool, &frameConfig, globalConfigPtr));
+    EXPECT_TRUE(ldeConfigPoolFrameRelease(&configPool, globalConfigPtr));
 }
 
 TEST_F(ConfigPoolTest, individualFrames)
@@ -91,7 +94,7 @@ TEST_F(ConfigPoolTest, individualFrames)
         EXPECT_EQ(frameConfig.quantMatrix.values[LOQ1][0], 0);
         EXPECT_EQ(frameConfig.quantMatrix.values[LOQ1][1], 0);
         EXPECT_EQ(frameConfig.quantMatrix.values[LOQ1][2], 0);
-        EXPECT_TRUE(ldeConfigPoolFrameRelease(&configPool, &frameConfig, globalConfigPtr));
+        EXPECT_TRUE(ldeConfigPoolFrameRelease(&configPool, globalConfigPtr));
     }
 
     {
@@ -103,7 +106,7 @@ TEST_F(ConfigPoolTest, individualFrames)
                                              &globalConfigPtr, &frameConfig));
         EXPECT_EQ(frameConfig.globalConfigSet, false);
         EXPECT_EQ(ldcVectorSize(&configPool.globalConfigs), 1);
-        EXPECT_TRUE(ldeConfigPoolFrameRelease(&configPool, &frameConfig, globalConfigPtr));
+        EXPECT_TRUE(ldeConfigPoolFrameRelease(&configPool, globalConfigPtr));
     }
 
     {
@@ -115,7 +118,7 @@ TEST_F(ConfigPoolTest, individualFrames)
                                              &globalConfigPtr, &frameConfig));
         EXPECT_EQ(frameConfig.globalConfigSet, true);
         EXPECT_LE(ldcVectorSize(&configPool.globalConfigs), 2);
-        EXPECT_TRUE(ldeConfigPoolFrameRelease(&configPool, &frameConfig, globalConfigPtr));
+        EXPECT_TRUE(ldeConfigPoolFrameRelease(&configPool, globalConfigPtr));
     }
 }
 
@@ -131,7 +134,7 @@ TEST_F(ConfigPoolTest, eachFrameRelease)
                                              &globalConfigPtr, &frameConfig));
 
         EXPECT_LE(ldcVectorSize(&configPool.globalConfigs), 2);
-        EXPECT_TRUE(ldeConfigPoolFrameRelease(&configPool, &frameConfig, globalConfigPtr));
+        EXPECT_TRUE(ldeConfigPoolFrameRelease(&configPool, globalConfigPtr));
         timestamp++;
         frame = getFrame();
     }
@@ -163,7 +166,7 @@ TEST_F(ConfigPoolTest, allFramesRelease)
     EXPECT_LE(ldcVectorSize(&configPool.globalConfigs), 3);
 
     for (auto& [k, v] : configFrames) {
-        EXPECT_TRUE(ldeConfigPoolFrameRelease(&configPool, &v.frame, v.globalPtr));
+        EXPECT_TRUE(ldeConfigPoolFrameRelease(&configPool, v.globalPtr));
     }
 
     EXPECT_LE(ldcVectorSize(&configPool.globalConfigs), 1);

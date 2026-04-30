@@ -13,722 +13,15 @@
  * THE EXCLUSION OF PATENT LICENSES PROVISION OF THE BSD-3-CLAUSE-CLEAR LICENSE. */
 
 #include "tasks_cpu.h"
-
+//
 #include "frame_cpu.h"
-#include "pipeline_config_cpu.h"
 #include "pipeline_cpu.h"
 
-#include <LCEVC/common/constants.h>
-#include <LCEVC/common/diagnostics.h>
-#include <LCEVC/common/memory.h>
-#include <LCEVC/enhancement/bitstream_types.h>
-#include <LCEVC/enhancement/decode.h>
-#include <LCEVC/pipeline/types.h>
-#include <LCEVC/pixel_processing/add.h>
-#include <LCEVC/pixel_processing/apply_cmdbuffer.h>
-#include <LCEVC/pixel_processing/convert.h>
-#include <LCEVC/pixel_processing/upscale.h>
+#include <LCEVC/pipeline/tasks_base.h>
 
 namespace lcevc_dec::pipeline_cpu {
 
-// All tasks fns. are static - only exported function is generateTasks()
-//
 namespace {
-
-    //// ConvertToInternal
-    //
-    // Copy incoming picture plane to internal fixed point surface format
-    //
-    // NB: There is likely a good templated C++ class that wraps these tasks up neatly,
-    // Worth figuring out once this has stabilised.
-    //
-    struct TaskConvertToInternalData
-    {
-        PipelineCPU* pipeline;
-        FrameCPU* frame;
-        uint32_t planeIndex;
-        uint32_t baseDepth;
-        uint32_t enhancementDepth;
-    };
-
-    void* taskConvertToInternal(LdcTask* task, const LdcTaskPart* /*part*/)
-    {
-        assert(task->dataSize == sizeof(TaskConvertToInternalData));
-
-        const TaskConvertToInternalData& data{VNTaskData(task, TaskConvertToInternalData)};
-        PipelineCPU* const pipeline{data.pipeline};
-        const FrameCPU* const frame{data.frame};
-
-        VNTraceScopedArgs("timestamp", frame->timestamp, "plane", data.planeIndex, "baseDepth",
-                          data.baseDepth, "enhancementDepth", data.enhancementDepth);
-
-        if (pipeline->isSkipped(frame)) {
-            return nullptr;
-        }
-
-        bool isNV12 = frame->basePicture->layout.layoutInfo->format == LdpColorFormatNV12_8;
-        uint32_t srcPlaneIndex = (isNV12 && data.planeIndex == 2) ? 1 : data.planeIndex;
-        LdpPicturePlaneDesc srcPlane;
-        frame->getBasePlaneDesc(srcPlaneIndex, srcPlane);
-
-        // Intermediate buffers are set up so that unused ones point to higher LoQs - so requesting
-        // LOQ2 will pick up the correct 'input' buffer
-        LdpPicturePlaneDesc dstPlane;
-        frame->getIntermediatePlaneDesc(data.planeIndex, LOQ2, dstPlane);
-
-        VNLogDebug("taskConvertToInternal ts:%" PRIx64 " plane:%d enhanced:%d",
-                   data.frame->timestamp, data.planeIndex);
-
-        VNDiagInfo(diagInfo, task->name, frame->timestamp, LOQ2, data.planeIndex);
-        if (!ldppPlaneConvert(pipeline->taskPool(), task, pipeline->configuration().forceScalar, data.planeIndex,
-                              &frame->basePicture->layout, frame->getIntermediateLayout(LOQ2),
-                              &srcPlane, &dstPlane, VNDiagInfoPtr(diagInfo))) {
-            VNLogError("ldppPlaneBlit In failed");
-        }
-        return nullptr;
-    }
-
-    LdcTaskDependency addTaskConvertToInternal(PipelineCPU* pipeline, FrameCPU* frame,
-                                               uint32_t planeIndex, uint32_t baseDepth,
-                                               uint32_t enhancementDepth, LdcTaskDependency inputDep)
-    {
-        const TaskConvertToInternalData data{pipeline, frame, planeIndex, baseDepth, enhancementDepth};
-        const LdcTaskDependency inputs[] = {inputDep};
-        return frame->taskAdd(inputs, VNArraySize(inputs), taskConvertToInternal, &data,
-                              sizeof(data), "ConvertToInternal");
-    }
-
-    //// ConvertFromInternal
-    //
-    // Convert a picture plane from internal fixed point to output picture pixel format.
-    //
-    struct TaskConvertFromInternalData
-    {
-        PipelineCPU* pipeline;
-        FrameCPU* frame;
-        uint32_t planeIndex;
-    };
-
-    void* taskConvertFromInternal(LdcTask* task, const LdcTaskPart* /*part*/)
-    {
-        assert(task->dataSize == sizeof(TaskConvertFromInternalData));
-
-        const TaskConvertFromInternalData& data{VNTaskData(task, TaskConvertFromInternalData)};
-        PipelineCPU* const pipeline{data.pipeline};
-        const FrameCPU* const frame{data.frame};
-
-        VNTraceScopedArgs("timestamp", frame->timestamp, "plane", data.planeIndex);
-
-        if (pipeline->isSkipped(frame)) {
-            return nullptr;
-        }
-
-        LdpPicturePlaneDesc srcPlane;
-        frame->getIntermediatePlaneDesc(data.planeIndex, LOQ0, srcPlane);
-
-        bool isNV12 = frame->outputPicture->layout.layoutInfo->format == LdpColorFormatNV12_8;
-        uint32_t dstPlaneIndex = (isNV12 && data.planeIndex == 2) ? 1 : data.planeIndex;
-        LdpPicturePlaneDesc dstPlane;
-        frame->getOutputPlaneDesc(dstPlaneIndex, dstPlane);
-
-        VNLogDebug("taskConvertFromInternal ts:%" PRIx64 " plane:%d", data.frame->timestamp, data.planeIndex);
-
-        VNDiagInfo(diagInfo, task->name, frame->timestamp, LOQ0, data.planeIndex);
-        if (!ldppPlaneConvert(pipeline->taskPool(), task, pipeline->configuration().forceScalar, data.planeIndex,
-                              frame->getIntermediateLayout(LOQ0), &frame->outputPicture->layout,
-                              &srcPlane, &dstPlane, VNDiagInfoPtr(diagInfo))) {
-            VNLogError("ldppPlaneBlit out failed");
-        }
-
-        return nullptr;
-    }
-
-    LdcTaskDependency addTaskConvertFromInternal(PipelineCPU* pipeline, FrameCPU* frame, uint32_t planeIndex,
-                                                 LdcTaskDependency dst, LdcTaskDependency src)
-    {
-        const TaskConvertFromInternalData data{pipeline, frame, planeIndex};
-        const LdcTaskDependency inputs[] = {dst, src};
-        return frame->taskAdd(inputs, VNArraySize(inputs), taskConvertFromInternal, &data,
-                              sizeof(data), "ConvertFromInternal");
-    }
-
-    //// Upscale
-    //
-    // Upscale (1D or 2D) between 16-bit intermediate buffers.
-    //
-    // Inputs and outputs may be fixed point or 'external' format if no residuals are being applied.
-    //
-    struct TaskUpscaleData
-    {
-        PipelineCPU* pipeline;
-        FrameCPU* frame;
-        LdeLOQIndex fromLoq;
-        LdeScalingMode scalingMode;
-        uint32_t plane;
-    };
-
-    void* taskUpscale(LdcTask* task, const LdcTaskPart* /*part*/)
-    {
-        assert(task->dataSize == sizeof(TaskUpscaleData));
-
-        const TaskUpscaleData& data{VNTaskData(task, TaskUpscaleData)};
-        PipelineCPU* const pipeline{data.pipeline};
-        const FrameCPU* const frame{data.frame};
-
-        VNTraceScopedArgs("timestamp", frame->timestamp, "plane", data.plane, "loq",
-                          static_cast<uint32_t>(data.fromLoq));
-
-        if (pipeline->isSkipped(frame)) {
-            return nullptr;
-        }
-
-        LdppUpscaleArgs upscaleArgs{};
-
-        const LdeLOQIndex fromLoq = data.fromLoq;
-        const LdeLOQIndex toLoq = static_cast<LdeLOQIndex>(fromLoq - 1);
-        upscaleArgs.srcLayout = frame->getIntermediateLayout(fromLoq);
-        frame->getIntermediatePlaneDesc(data.plane, fromLoq, upscaleArgs.srcPlane);
-        upscaleArgs.intermediateLayout = frame->getUpscaleLayout(toLoq);
-        frame->getUpscalePlaneDesc(data.plane, toLoq, upscaleArgs.intermediatePlane);
-        upscaleArgs.dstLayout = frame->getIntermediateLayout(toLoq);
-        frame->getIntermediatePlaneDesc(data.plane, toLoq, upscaleArgs.dstPlane);
-
-        upscaleArgs.planeIndex = data.plane;
-        upscaleArgs.applyPA = frame->globalConfig->predictedAverageEnabled;
-        upscaleArgs.frameDither = frame->dither();
-        upscaleArgs.mode = data.scalingMode;
-        upscaleArgs.forceScalar = pipeline->configuration().forceScalar;
-
-        VNLogDebug("taskUpscale timestamp:%" PRIx64 " loq:%d plane:%d", frame->timestamp,
-                   (uint32_t)data.fromLoq, data.plane);
-
-        VNDiagInfo(diagInfo, task->name, frame->timestamp, data.fromLoq, data.plane);
-        if (!ldppUpscale(pipeline->taskPool(), task, &frame->globalConfig->kernel, &upscaleArgs,
-                         VNDiagInfoPtr(diagInfo))) {
-            VNLogError("Upscale failed");
-        }
-
-        return nullptr;
-    }
-
-    LdcTaskDependency addTaskUpscale(PipelineCPU* pipeline, FrameCPU* frame, LdeLOQIndex fromLoq,
-                                     uint32_t plane, LdcTaskDependency basePicture)
-    {
-        assert(fromLoq > LOQ0);
-        const LdeScalingMode scalingMode = frame->globalConfig->scalingModes[fromLoq - 1];
-        assert(scalingMode != Scale0D);
-
-        const TaskUpscaleData data{pipeline, frame, fromLoq, scalingMode, plane};
-        const LdcTaskDependency inputs[] = {basePicture};
-        return frame->taskAdd(inputs, VNArraySize(inputs), taskUpscale, &data, sizeof(data), "Upscale");
-    }
-
-    //// Upscale Direct
-    //
-    // Upscale (1D or 2D) between directly from source picture to output in native format. Only for
-    // un-enhanced planes without residuals when there's a single upscale.
-    void* taskUpscaleDirect(LdcTask* task, const LdcTaskPart* /*part*/)
-    {
-        assert(task->dataSize == sizeof(TaskUpscaleData));
-
-        const TaskUpscaleData& data{VNTaskData(task, TaskUpscaleData)};
-        PipelineCPU* const pipeline{data.pipeline};
-        const FrameCPU* const frame{data.frame};
-
-        VNTraceScopedArgs("timestamp", frame->timestamp, "plane", data.plane, "loq",
-                          static_cast<uint32_t>(data.fromLoq));
-
-        // Exit early if the frame is skipped or for NV12 plane 2 (NV12 chroma completed as one op)
-        if (pipeline->isSkipped(frame) ||
-            data.plane >= ldpPictureLayoutPlanes(&frame->basePicture->layout)) {
-            return nullptr;
-        }
-
-        LdppUpscaleArgs upscaleArgs{};
-
-        const LdeLOQIndex toLoq = static_cast<LdeLOQIndex>(data.fromLoq - 1);
-        upscaleArgs.srcLayout = &frame->basePicture->layout;
-        frame->getBasePlaneDesc(data.plane, upscaleArgs.srcPlane);
-        if (data.scalingMode == Scale2D) {
-            upscaleArgs.intermediateLayout = frame->getUpscaleLayout(toLoq);
-            frame->getUpscalePlaneDesc(data.plane, toLoq, upscaleArgs.intermediatePlane);
-        }
-        upscaleArgs.dstLayout = &frame->outputPicture->layout;
-        frame->getOutputPlaneDesc(data.plane, upscaleArgs.dstPlane);
-
-        upscaleArgs.planeIndex = data.plane;
-        upscaleArgs.applyPA = frame->globalConfig->predictedAverageEnabled;
-        upscaleArgs.frameDither = frame->dither();
-        upscaleArgs.mode = data.scalingMode;
-        upscaleArgs.forceScalar = pipeline->configuration().forceScalar;
-
-        VNLogDebug("taskUpscaleDirect timestamp:%" PRIx64 " loq:%d plane:%d", frame->timestamp,
-                   (uint32_t)data.fromLoq, data.plane);
-
-        VNDiagInfo(diagInfo, task->name, frame->timestamp, data.fromLoq, data.plane);
-        if (!ldppUpscale(pipeline->taskPool(), task, &frame->globalConfig->kernel, &upscaleArgs,
-                         VNDiagInfoPtr(diagInfo))) {
-            VNLogError("UpscaleDirect failed");
-        }
-
-        return nullptr;
-    }
-
-    LdcTaskDependency addTaskUpscaleDirect(PipelineCPU* pipeline, FrameCPU* frame, LdeLOQIndex fromLoq,
-                                           uint32_t plane, LdcTaskDependency basePicture,
-                                           LdcTaskDependency outputPicture)
-    {
-        assert(fromLoq > LOQ0);
-        const LdeScalingMode scalingMode = frame->globalConfig->scalingModes[fromLoq - 1];
-        assert(scalingMode != Scale0D);
-
-        const TaskUpscaleData data{pipeline, frame, fromLoq, scalingMode, plane};
-        const LdcTaskDependency inputs[] = {basePicture, outputPicture};
-
-        return frame->taskAdd(inputs, VNArraySize(inputs), taskUpscaleDirect, &data, sizeof(data),
-                              "UpscaleDirect");
-    }
-
-    //// GenerateCmdBuffer
-    //
-    // Convert un-encapsulated chunks into a single command buffer.
-    //
-    struct TaskGenerateCmdBufferData
-    {
-        PipelineCPU* pipeline;
-        FrameCPU* frame;
-        LdpEnhancementTile* enhancementTile;
-    };
-
-    void* taskGenerateCmdBuffer(LdcTask* task, const LdcTaskPart* /*part*/)
-    {
-        assert(task->dataSize == sizeof(TaskGenerateCmdBufferData));
-
-        const TaskGenerateCmdBufferData& data{VNTaskData(task, TaskGenerateCmdBufferData)};
-        const PipelineCPU* const pipeline{data.pipeline};
-        const FrameCPU* const frame{data.frame};
-
-        VNTraceScopedArgs("timestamp", frame->timestamp, "tile", data.enhancementTile->tile, "loq",
-                          (uint32_t)data.enhancementTile->loq, "plane", data.enhancementTile->plane,
-                          "lcevc_size", frame->config.unencapsulatedAllocation.size);
-
-        VNLogDebug("taskGenerateCmdBuffer ts:%" PRIx64 " tile:%d loq:%d plane:%d",
-                   data.frame->timestamp, data.enhancementTile->tile,
-                   (uint32_t)data.enhancementTile->loq, data.enhancementTile->plane);
-
-        if (pipeline->isFlushed(frame)) {
-            return nullptr;
-        }
-
-        if (!ldeDecodeEnhancement(frame->globalConfig, &frame->config, data.enhancementTile->loq,
-                                  data.enhancementTile->plane, data.enhancementTile->tile,
-                                  &data.enhancementTile->buffer, nullptr, nullptr)) {
-            VNLogError("ldeDecodeEnhancement failed");
-        }
-
-        return nullptr;
-    }
-
-    LdcTaskDependency addTaskGenerateCmdBuffer(PipelineCPU* pipeline, FrameCPU* frame,
-                                               LdpEnhancementTile* enhancementTile)
-    {
-        const TaskGenerateCmdBufferData data{pipeline, frame, enhancementTile};
-        return frame->taskAdd(nullptr, 0, taskGenerateCmdBuffer, &data, sizeof(data), "GenerateCmdBuffer");
-    }
-
-    //// ApplyCmdBufferDirect
-    //
-    // Apply a generated CPU command buffer to directly to output plane. (No Temporal)
-    //
-    // NB: The output plane will be in 'internal' fixed point format
-    //
-    struct TaskApplyCmdBufferDirectData
-    {
-        PipelineCPU* pipeline;
-        FrameCPU* frame;
-        LdpEnhancementTile* enhancementTile;
-    };
-
-    void* taskApplyCmdBufferDirect(LdcTask* task, const LdcTaskPart* /*part*/)
-    {
-        assert(task->dataSize == sizeof(TaskApplyCmdBufferDirectData));
-
-        const TaskApplyCmdBufferDirectData& data{VNTaskData(task, TaskApplyCmdBufferDirectData)};
-        PipelineCPU* const pipeline{data.pipeline};
-        const FrameCPU* const frame{data.frame};
-
-        VNTraceScopedArgs("timestamp", frame->timestamp, "tile", data.enhancementTile->tile, "loq",
-                          (uint32_t)data.enhancementTile->loq, "plane", data.enhancementTile->plane);
-
-        if (pipeline->isSkipped(frame)) {
-            return nullptr;
-        }
-
-        VNLogDebug("taskApplyCmdBufferDirect ts:%" PRIx64 " loq:%d plane:%d", data.frame->timestamp,
-                   (uint32_t)data.enhancementTile->loq, data.enhancementTile->plane);
-
-        LdpPicturePlaneDesc ppDesc{};
-
-        frame->getIntermediatePlaneDesc(data.enhancementTile->plane, data.enhancementTile->loq, ppDesc);
-
-        const bool tuRasterOrder =
-            !frame->globalConfig->temporalEnabled && frame->globalConfig->tileDimensions == TDTNone;
-
-        VNDiagInfo(diagInfo, task->name, frame->timestamp, data.enhancementTile->loq,
-                   data.enhancementTile->plane);
-
-        if (!ldppApplyCmdBuffer(pipeline->taskPool(), NULL, data.enhancementTile, LdpFPS14, &ppDesc,
-                                tuRasterOrder, pipeline->configuration().forceScalar,
-                                pipeline->configuration().highlightResiduals, VNDiagInfoPtr(diagInfo))) {
-            VNLogError("taskApplyCmdBufferDirect failed");
-        }
-
-        return nullptr;
-    }
-
-    LdcTaskDependency addTaskApplyCmdBufferDirect(PipelineCPU* pipeline, FrameCPU* frame,
-                                                  LdpEnhancementTile* enhancementTile,
-                                                  LdcTaskDependency imageBuffer, LdcTaskDependency cmdBuffer)
-    {
-        const TaskApplyCmdBufferDirectData data{pipeline, frame, enhancementTile};
-
-        const LdcTaskDependency inputs[] = {imageBuffer, cmdBuffer};
-        return frame->taskAdd(inputs, VNArraySize(inputs), taskApplyCmdBufferDirect, &data,
-                              sizeof(data), "ApplyCmdBufferDirect");
-    }
-
-    //// ApplyCmdBufferTemporal
-    //
-    // Apply a generated CPU command buffer to a temporal buffer.
-    //
-    struct TaskApplyCmdBufferTemporalData
-    {
-        PipelineCPU* pipeline;
-        FrameCPU* frame;
-        LdpEnhancementTile* enhancementTile;
-    };
-
-    void* taskApplyCmdBufferTemporal(LdcTask* task, const LdcTaskPart* /*part*/)
-    {
-        assert(task->dataSize == sizeof(TaskApplyCmdBufferTemporalData));
-
-        const TaskApplyCmdBufferTemporalData& data{VNTaskData(task, TaskApplyCmdBufferTemporalData)};
-        PipelineCPU* const pipeline{data.pipeline};
-        const FrameCPU* const frame{data.frame};
-
-        VNTraceScopedArgs("timestamp", frame->timestamp, "tile", data.enhancementTile->tile, "loq",
-                          (uint32_t)data.enhancementTile->loq, "plane", data.enhancementTile->plane,
-                          "cmdbuffer_count", data.enhancementTile->buffer.count);
-
-        VNLogDebug("taskApplyCmdBufferTemporal ts:%" PRIx64 " tile:%d loq:%d plane:%d",
-                   data.frame->timestamp, data.enhancementTile->tile,
-                   (uint32_t)data.enhancementTile->loq, data.enhancementTile->plane);
-
-        if (pipeline->isFlushed(frame)) {
-            return nullptr;
-        }
-
-        LdpPicturePlaneDesc ppDesc{};
-        frame->getTemporalBufferPlaneDesc(data.enhancementTile->plane, ppDesc);
-
-        VNDiagInfo(diagInfo, task->name, frame->timestamp, data.enhancementTile->loq,
-                   data.enhancementTile->plane);
-
-        if (!ldppApplyCmdBuffer(pipeline->taskPool(), NULL, data.enhancementTile, LdpFPS14, &ppDesc,
-                                false, pipeline->configuration().forceScalar,
-                                pipeline->configuration().highlightResiduals, VNDiagInfoPtr(diagInfo))) {
-            VNLogError("ldppApplyCmdBufferTemporal failed");
-        }
-        return nullptr;
-    }
-
-    LdcTaskDependency addTaskApplyCmdBufferTemporal(PipelineCPU* pipeline, FrameCPU* frame,
-                                                    LdpEnhancementTile* enhancementTile,
-                                                    LdcTaskDependency temporalBuffer,
-                                                    LdcTaskDependency cmdBuffer)
-    {
-        const TaskApplyCmdBufferTemporalData data{pipeline, frame, enhancementTile};
-        const LdcTaskDependency inputs[] = {temporalBuffer, cmdBuffer};
-        return frame->taskAdd(inputs, VNArraySize(inputs), taskApplyCmdBufferTemporal, &data,
-                              sizeof(data), "ApplyCmdBufferTemporal");
-    }
-
-    //// ApplyAddTemporal
-    //
-    // Add a temporal buffer to a picture plane.
-    //
-    struct TaskApplyAddTemporalData
-    {
-        PipelineCPU* pipeline;
-        FrameCPU* frame;
-        uint32_t planeIndex;
-    };
-
-    void* taskApplyAddTemporal(LdcTask* task, const LdcTaskPart* /*part*/)
-    {
-        assert(task->dataSize == sizeof(TaskApplyAddTemporalData));
-
-        const TaskApplyAddTemporalData& data{VNTaskData(task, TaskApplyAddTemporalData)};
-        PipelineCPU* const pipeline{data.pipeline};
-        FrameCPU* const frame{data.frame};
-
-        VNTraceScopedArgs("timestamp", frame->timestamp, "plane", data.planeIndex);
-
-        if (pipeline->isSkipped(frame) || frame->isPassthrough()) {
-            // Just move temporal buffer along pipline
-            pipeline->transferTemporalBuffer(frame, data.planeIndex);
-            return nullptr;
-        }
-
-        VNLogDebug("taskApplyAddTemporal ts:%" PRIx64 " plane:%d", data.frame->timestamp, data.planeIndex);
-
-        LdpPicturePlaneDesc srcPlane{};
-        frame->getIntermediatePlaneDesc(data.planeIndex, LOQ0, srcPlane);
-
-        LdpPicturePlaneDesc tbDesc{};
-        frame->getTemporalBufferPlaneDesc(data.planeIndex, tbDesc);
-
-        LdpPicturePlaneDesc dstPlane{};
-        frame->getOutputPlaneDesc(data.planeIndex, dstPlane);
-
-        VNDiagInfo(diagInfo, task->name, frame->timestamp, LOQ0, data.planeIndex);
-
-        if (!ldppPlaneAdd(pipeline->taskPool(), task, data.planeIndex,
-                          frame->getIntermediateLayout(LOQ0), &frame->outputPicture->layout,
-                          &tbDesc, &srcPlane, &dstPlane, VNDiagInfoPtr(diagInfo))) {
-            VNLogError("ldppPlaneAdd out failed");
-        }
-
-        return nullptr;
-    }
-
-    LdcTaskDependency addTaskApplyAddTemporal(PipelineCPU* pipeline, FrameCPU* frame,
-                                              uint32_t planeIndex, LdcTaskDependency temporalDep,
-                                              LdcTaskDependency sourceDep, LdcTaskDependency outputDep)
-    {
-        const TaskApplyAddTemporalData data{pipeline, frame, planeIndex};
-        const LdcTaskDependency inputs[] = {temporalDep, sourceDep, outputDep};
-        return frame->taskAdd(inputs, VNArraySize(inputs), taskApplyAddTemporal, &data,
-                              sizeof(data), "ApplyAddTemporal");
-    }
-
-    //// Passthrough
-    //
-    // Copy incoming picture plane to output picture
-    //
-    struct TaskPassthroughData
-    {
-        PipelineCPU* pipeline;
-        FrameCPU* frame;
-        uint32_t planeIndex;
-    };
-
-    void* taskPassthrough(LdcTask* task, const LdcTaskPart* /*part*/)
-    {
-        assert(task->dataSize == sizeof(TaskPassthroughData));
-
-        const TaskPassthroughData& data{VNTaskData(task, TaskPassthroughData)};
-        PipelineCPU* const pipeline{data.pipeline};
-        const FrameCPU* const frame{data.frame};
-
-        VNTraceScopedArgs("timestamp", frame->timestamp, "plane", data.planeIndex);
-
-        if (pipeline->isSkipped(frame)) {
-            return nullptr;
-        }
-
-        // Check if this plane is valid
-        if (data.planeIndex >= ldpPictureLayoutPlanes(&frame->basePicture->layout)) {
-            return nullptr;
-        }
-
-        LdpPicturePlaneDesc srcPlane;
-        frame->getBasePlaneDesc(data.planeIndex, srcPlane);
-
-        LdpPicturePlaneDesc dstPlane;
-        frame->getOutputPlaneDesc(data.planeIndex, dstPlane);
-
-        VNLogDebug("taskPassthrough ts:%" PRIx64 " plane:%d", data.frame->timestamp, data.planeIndex);
-
-        VNDiagInfo(diagInfo, task->name, frame->timestamp, LOQ0, data.planeIndex);
-        if (!ldppPlaneConvert(pipeline->taskPool(), task, pipeline->configuration().forceScalar,
-                              data.planeIndex, &frame->basePicture->layout, &frame->outputPicture->layout,
-                              &srcPlane, &dstPlane, VNDiagInfoPtr(diagInfo))) {
-            VNLogError("ldppPlaneBlit In failed");
-        }
-
-        return nullptr;
-    }
-
-    LdcTaskDependency addTaskPassthrough(PipelineCPU* pipeline, FrameCPU* frame, uint32_t planeIndex,
-                                         LdcTaskDependency dest, LdcTaskDependency src)
-    {
-        const TaskPassthroughData data{pipeline, frame, planeIndex};
-        const LdcTaskDependency inputs[] = {dest, src};
-
-        return frame->taskAdd(inputs, VNArraySize(inputs), taskPassthrough, &data, sizeof(data),
-                              "Passthrough");
-    }
-
-    //// WaitForMany
-    //
-    // Wait for several input dependencies to be met.
-    //
-    // NB: If this appears to be a bottleneck, it could be integrated better into the task pool.
-    //
-    struct TaskWaitForManyData
-    {
-        PipelineCPU* pipeline;
-        FrameCPU* frame;
-    };
-
-    void* taskWaitForMany(LdcTask* task, const LdcTaskPart* /*part*/)
-    {
-        assert(task->dataSize == sizeof(TaskWaitForManyData));
-        const TaskWaitForManyData& data{VNTaskData(task, TaskWaitForManyData)};
-        const FrameCPU* const frame{data.frame};
-
-        VNTraceScopedArgs("timestamp", frame->timestamp);
-
-        VNLogDebug("taskWaitForMany ts:%" PRIx64 "", VNTaskData(task, TaskWaitForManyData).frame->timestamp);
-        return nullptr;
-    }
-
-    LdcTaskDependency addTaskWaitForMany(PipelineCPU* pipeline, FrameCPU* frame,
-                                         const LdcTaskDependency* inputs, uint32_t inputsCount)
-    {
-        const TaskWaitForManyData data{pipeline, frame};
-
-        return frame->taskAdd(inputs, inputsCount, taskWaitForMany, &data, sizeof(data), "WaitForMany");
-    }
-
-    //// BaseDone
-    //
-    // Wait for base picture planes to be used, then send base picture back to client
-    //
-    struct TaskBaseDoneData
-    {
-        PipelineCPU* pipeline;
-        FrameCPU* frame;
-    };
-
-    void* taskBaseDone(LdcTask* task, const LdcTaskPart* /*part*/)
-    {
-        assert(task->dataSize == sizeof(TaskBaseDoneData));
-        const TaskBaseDoneData& data{VNTaskData(task, TaskBaseDoneData)};
-        const FrameCPU* const frame{data.frame};
-
-        VNTraceScopedArgs("timestamp", frame->timestamp);
-
-        VNLogDebug("taskBaseDone ts:%" PRIx64, data.frame->timestamp);
-
-        if (frame->basePicture == nullptr) {
-            return nullptr;
-        }
-
-        assert(data.frame->basePicture);
-
-        // Generate event and return picture
-        data.pipeline->baseDone(data.frame->basePicture);
-
-        // Frame no longer has access to base picture
-        data.frame->basePicture = nullptr;
-        return nullptr;
-    }
-
-    void addTaskBaseDone(PipelineCPU* pipeline, FrameCPU* frame, const LdcTaskDependency* inputs,
-                         uint32_t inputsCount)
-    {
-        const TaskBaseDoneData data{pipeline, frame};
-
-        frame->taskAddSink(inputs, inputsCount, taskBaseDone, &data, sizeof(data), "BaseDone");
-    }
-
-    //// OutputSend
-    //
-    // Wait for a bunch of input dependencies to be met, then:
-    //
-    // - Send output picture to output queue
-    // - Release frame
-    //
-    struct TaskOutputDoneData
-    {
-        PipelineCPU* pipeline;
-        FrameCPU* frame;
-    };
-
-    void* taskOutputDone(LdcTask* task, const LdcTaskPart* /*part*/)
-    {
-        assert(task->dataSize == sizeof(TaskOutputDoneData));
-        const TaskOutputDoneData& data{VNTaskData(task, TaskOutputDoneData)};
-        PipelineCPU* const pipeline{data.pipeline};
-        FrameCPU* const frame{data.frame};
-        VNTraceScopedArgs("timestamp", frame->timestamp);
-
-        VNLogDebug("taskOutputDone ts:%" PRIx64, frame->timestamp);
-
-        // Build the decode info for the frame
-        frame->decodeInformation.timestamp = frame->timestamp;
-        frame->decodeInformation.hasBase = true;
-        frame->decodeInformation.hasEnhancement =
-            frame->config.loqEnabled[LOQ1] || frame->config.loqEnabled[LOQ0];
-        frame->decodeInformation.skipped = pipeline->isSkipped(frame);
-        frame->decodeInformation.enhanced =
-            frame->config.loqEnabled[LOQ1] || frame->config.loqEnabled[LOQ0];
-        frame->decodeInformation.baseWidth = frame->baseWidth;
-        frame->decodeInformation.baseHeight = frame->baseHeight;
-        frame->decodeInformation.baseBitdepth = frame->baseBitdepth;
-        frame->decodeInformation.userData = frame->userData;
-
-        // Mark frame as done
-        pipeline->outputDone(frame);
-
-        return nullptr;
-    }
-
-    void addTaskOutputDone(PipelineCPU* pipeline, FrameCPU* frame, const LdcTaskDependency* inputs,
-                           uint32_t inputsCount)
-    {
-        const TaskOutputDoneData data{pipeline, frame};
-
-        frame->taskAddSink(inputs, inputsCount, taskOutputDone, &data, sizeof(data), "OutputDone");
-    }
-
-    //// TemporalTransfer
-    //
-    // Wait for a bunch of input dependencies to be met, then transfer temporal buffer to next frame
-    //
-    struct TaskTemporalTransferData
-    {
-        PipelineCPU* pipeline;
-        FrameCPU* frame;
-        uint32_t planeIndex;
-    };
-
-    void* taskTemporalTransfer(LdcTask* task, const LdcTaskPart* /*part*/)
-    {
-        assert(task->dataSize == sizeof(TaskTemporalTransferData));
-        const TaskTemporalTransferData& data{VNTaskData(task, TaskTemporalTransferData)};
-        PipelineCPU* const pipeline{data.pipeline};
-        FrameCPU* const frame{data.frame};
-        VNTraceScopedArgs("timestamp", frame->timestamp, "plane", data.planeIndex);
-
-        VNLogDebug("taskTemporalTransfer ts:%" PRIx64, frame->timestamp);
-
-        pipeline->transferTemporalBuffer(frame, data.planeIndex);
-
-        return nullptr;
-    }
-
-    void addTaskTemporalTransfer(PipelineCPU* pipeline, FrameCPU* frame,
-                                 const LdcTaskDependency* deps, uint32_t planeIndex)
-    {
-        const TaskTemporalTransferData data{pipeline, frame, planeIndex};
-        const LdcTaskDependency inputs[] = {deps[planeIndex]};
-
-        frame->taskAddSink(inputs, VNArraySize(inputs), taskTemporalTransfer, &data, sizeof(data),
-                           "TemporalTransfer");
-    }
 
     // Fill out a task group given a frame configuration
     //
@@ -744,12 +37,9 @@ namespace {
             std::min(globalConfig.numPlanes, static_cast<uint8_t>(RCMaxPlanes));
         const LdeScalingMode scalingModes[LOQEnhancedCount] = {globalConfig.scalingModes[LOQ0],
                                                                globalConfig.scalingModes[LOQ1]};
+        const bool sharpeningEnabled = frame->sharpeningEnabled();
 
         uint32_t enhancementTileIdx = 0;
-
-        if (frame->config.sharpenType != STDisabled && frame->config.sharpenStrength != 0.0f) {
-            VNLogWarning("S-Filter is configured in stream, but not supported by decoder.");
-        }
 
         //// LoQ 1
         //
@@ -794,7 +84,7 @@ namespace {
                         LdpEnhancementTile* et{frame->getEnhancementTile(enhancementTileIdx++)};
                         assert(et->plane == plane && et->loq == LOQ1 && et->tile == tile);
 
-                        LdcTaskDependency commands = addTaskGenerateCmdBuffer(pipeline, frame, et);
+                        LdcTaskDependency commands = addTaskGenerateCmdBufferCPU(pipeline, frame, et);
                         tiles[tile] =
                             addTaskApplyCmdBufferDirect(pipeline, frame, et, baseUpscaled, commands);
                     }
@@ -804,7 +94,7 @@ namespace {
                     LdpEnhancementTile* et{frame->getEnhancementTile(enhancementTileIdx++)};
                     assert(et->plane == plane && et->loq == LOQ1 && et->tile == 0);
 
-                    LdcTaskDependency commands = addTaskGenerateCmdBuffer(pipeline, frame, et);
+                    LdcTaskDependency commands = addTaskGenerateCmdBufferCPU(pipeline, frame, et);
                     basePlanes[plane] =
                         addTaskApplyCmdBufferDirect(pipeline, frame, et, baseUpscaled, commands);
                 }
@@ -884,7 +174,7 @@ namespace {
                         for (uint32_t tile = 0; tile < numPlaneTiles; ++tile) {
                             LdpEnhancementTile* et{frame->getEnhancementTile(enhancementTileIdx++)};
                             assert(et->plane == plane && et->loq == LOQ0 && et->tile == tile);
-                            LdcTaskDependency commands{addTaskGenerateCmdBuffer(pipeline, frame, et)};
+                            LdcTaskDependency commands{addTaskGenerateCmdBufferCPU(pipeline, frame, et)};
 
                             tiles[tile] =
                                 addTaskApplyCmdBufferTemporal(pipeline, frame, et, temporal, commands);
@@ -895,7 +185,7 @@ namespace {
                         LdpEnhancementTile* et = frame->getEnhancementTile(enhancementTileIdx++);
                         assert(et && et->plane == plane && et->loq == LOQ0 && et->tile == 0);
 
-                        LdcTaskDependency commands{addTaskGenerateCmdBuffer(pipeline, frame, et)};
+                        LdcTaskDependency commands{addTaskGenerateCmdBufferCPU(pipeline, frame, et)};
 
                         temporal = addTaskApplyCmdBufferTemporal(pipeline, frame, et, temporal, commands);
                     }
@@ -903,9 +193,15 @@ namespace {
 
                 // Always add temporal buffer, even if no enhancement this frame
                 if (plane < numEnhancedPlanes) {
-                    outputPlanes[plane] = addTaskApplyAddTemporal(pipeline, frame, plane, temporal,
-                                                                  recon, frame->depOutputPicture());
-                    addTaskTemporalTransfer(pipeline, frame, outputPlanes, plane);
+                    LdcTaskDependency converted = addTaskApplyAddTemporal(
+                        pipeline, frame, plane, temporal, recon, frame->depOutputPicture());
+                    addTaskTemporalTransfer(pipeline, frame, converted, plane);
+                    if ((plane == 0 && sharpeningEnabled) ||
+                        (scalingModes[LOQ0] == Scale0D && scalingModes[LOQ1] == Scale0D && frame->dither())) {
+                        outputPlanes[plane] = addTaskSharpen(pipeline, frame, plane, converted);
+                    } else {
+                        outputPlanes[plane] = converted;
+                    }
                 } else {
                     outputPlanes[plane] = recon;
                 }
@@ -921,7 +217,7 @@ namespace {
                         for (uint32_t tile = 0; tile < numPlaneTiles; ++tile) {
                             LdpEnhancementTile* et{frame->getEnhancementTile(enhancementTileIdx++)};
                             assert(et->plane == plane && et->loq == LOQ0 && et->tile == tile);
-                            LdcTaskDependency commands{addTaskGenerateCmdBuffer(pipeline, frame, et)};
+                            LdcTaskDependency commands{addTaskGenerateCmdBufferCPU(pipeline, frame, et)};
                             tiles[tile] =
                                 addTaskApplyCmdBufferDirect(pipeline, frame, et, recon, commands);
                         }
@@ -931,14 +227,21 @@ namespace {
                         LdpEnhancementTile* et = frame->getEnhancementTile(enhancementTileIdx++);
                         assert(et->plane == plane && et->loq == LOQ0 && et->tile == 0);
 
-                        LdcTaskDependency commands{addTaskGenerateCmdBuffer(pipeline, frame, et)};
+                        LdcTaskDependency commands{addTaskGenerateCmdBufferCPU(pipeline, frame, et)};
 
                         recon = addTaskApplyCmdBufferDirect(pipeline, frame, et, recon, commands);
                     }
                 }
                 if (plane < numEnhancedPlanes) {
-                    outputPlanes[plane] = addTaskConvertFromInternal(pipeline, frame, plane,
-                                                                     frame->depOutputPicture(), recon);
+                    LdcTaskDependency converted = addTaskConvertFromInternal(
+                        pipeline, frame, plane, frame->depOutputPicture(), recon);
+                    if ((plane == 0 && sharpeningEnabled) ||
+                        (scalingModes[LOQ0] == Scale0D && scalingModes[LOQ1] == Scale0D &&
+                         frameConfig.ditherStrength > 0)) {
+                        outputPlanes[plane] = addTaskSharpen(pipeline, frame, plane, converted);
+                    } else {
+                        outputPlanes[plane] = converted;
+                    }
                 }
             }
         }
@@ -983,7 +286,7 @@ namespace {
 
 // Generate task graph for a frame
 //
-void generateTasks(PipelineCPU* pipeline, FrameCPU* frame, uint64_t previousTimestamp)
+void localGenerateTasks(PipelineCPU* pipeline, FrameCPU* frame, uint64_t previousTimestamp)
 {
     // Fill out tasks for this frame
     if (pipeline->configuration().showTasks) {
@@ -995,8 +298,9 @@ void generateTasks(PipelineCPU* pipeline, FrameCPU* frame, uint64_t previousTime
     //
     // If the pass through is 'Scaled', then use the enhancement graph, which
     // will just end up doing scaling as there is no enhancement data.
-    if (frame->isPassthrough() && (pipeline->configuration().passthroughMode != PassthroughMode::Scale ||
-                                   !frame->hasGoodConfig())) {
+    if (frame->isPassthrough() &&
+        (pipeline->configuration().passthroughMode != pipeline::PassthroughMode::Scale ||
+         !frame->hasGoodConfig())) {
         generateTasksPassthrough(pipeline, frame);
     } else if (pipeline->isFlushed(frame)) {
         generateTasksPassthrough(pipeline, frame);

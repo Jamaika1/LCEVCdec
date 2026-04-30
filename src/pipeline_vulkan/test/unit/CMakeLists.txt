@@ -1,4 +1,4 @@
-# Copyright (c) V-Nova International Limited 2023-2025. All rights reserved.
+# Copyright (c) V-Nova International Limited 2023-2026. All rights reserved.
 # This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
 # No patent licenses are granted under this license. For enquiries about patent licenses,
 # please contact legal@v-nova.com.
@@ -32,6 +32,7 @@ target_link_libraries(
             lcevc_dec::platform
             lcevc_dec::pipeline_vulkan_static
             lcevc_dec::utility
+            lcevc_dec::unit_test_utilities
             lcevc_dec::gtest_main
             GTest::gtest
             fmt::fmt)

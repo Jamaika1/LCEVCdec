@@ -17,6 +17,7 @@
 #include "string_format.h"
 //
 #include <LCEVC/common/diagnostics.h>
+#include <LCEVC/common/limit.h>
 #include <LCEVC/common/platform.h>
 #include <LCEVC/common/printf_macros.h>
 //
@@ -24,12 +25,37 @@
 #include <stdbool.h>
 #include <stdio.h>
 
+static const char* getLogMessage(char* buffer, size_t bufferSize, const LdcDiagSite* site,
+                                 const LdcDiagRecord* record, const LdcDiagValue* values)
+{
+    if (site->type == LdcDiagTypeLog) {
+        ldcDiagnosticFormatLog(buffer, (uint32_t)bufferSize, site, record, values);
+        return buffer;
+    }
+    if (site->type == LdcDiagTypeLogFormatted) {
+        if (values) {
+            return (const char*)values;
+        } else {
+            return "<No Value>";
+        }
+    }
+    return NULL;
+}
+
 // Convert a log record to string
 //
 int ldcDiagnosticFormatLog(char* dst, uint32_t dstSize, const LdcDiagSite* site,
                            const LdcDiagRecord* record, const LdcDiagValue* values)
 {
-    return (int)ldcFormat(dst, dstSize, site->str, site->argumentTypes, values, site->argumentCount);
+    if (site->type == LdcDiagTypeLog) {
+        return (int)ldcFormat(dst, dstSize, site->str, site->argumentTypes, values, site->argumentCount);
+    }
+    if (site->type == LdcDiagTypeLogFormatted) {
+        uint32_t copySize = minU32(record->size, dstSize);
+        memcpy(dst, values, copySize);
+        return (int)(copySize);
+    }
+    return 0;
 }
 
 bool ldcDiagHandlerStdio(void* user, const LdcDiagSite* site, const LdcDiagRecord* record,
@@ -37,35 +63,25 @@ bool ldcDiagHandlerStdio(void* user, const LdcDiagSite* site, const LdcDiagRecor
 {
     FILE* output = user;
     char buffer[4096];
-    const char* cp = 0;
-
-    if (site->type == LdcDiagTypeLog) {
-        ldcDiagnosticFormatLog(buffer, sizeof(buffer), site, record, values);
-        cp = buffer;
-    } else if (site->type == LdcDiagTypeLogFormatted) {
-        if (values) {
-            cp = (const char*)values;
-        } else {
-            cp = "<No Value>";
-        }
-    } else {
+    const char* message = getLogMessage(buffer, sizeof(buffer), site, record, values);
+    if (!message) {
         return false;
     }
 
     switch (site->level) {
         case LdcLogLevelFatal:
-            fprintf(output, "%s:%d Fatal: %s\n", site->file, site->line, cp);
+            fprintf(output, "%s:%d Fatal: %s\n", site->file, site->line, message);
             break;
         case LdcLogLevelError:
-            fprintf(output, "%s:%d Error: %s\n", site->file, site->line, cp);
+            fprintf(output, "%s:%d Error: %s\n", site->file, site->line, message);
             break;
-        case LdcLogLevelWarning: fprintf(output, "Warning: %s\n", cp); break;
-        case LdcLogLevelInfo: fprintf(output, "Info: %s\n", cp); break;
+        case LdcLogLevelWarning: fprintf(output, "Warning: %s\n", message); break;
+        case LdcLogLevelInfo: fprintf(output, "Info: %s\n", message); break;
         case LdcLogLevelDebug:
-            fprintf(output, "%s:%d Debug: %s\n", site->file, site->line, cp);
+            fprintf(output, "%s:%d Debug: %s\n", site->file, site->line, message);
             break;
         case LdcLogLevelVerbose:
-            fprintf(output, "%s:%d Verbose: %s\n", site->file, site->line, cp);
+            fprintf(output, "%s:%d Verbose: %s\n", site->file, site->line, message);
             break;
         default: assert(0); break;
     }

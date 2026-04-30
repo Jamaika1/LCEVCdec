@@ -1,4 +1,4 @@
-/* Copyright (c) V-Nova International Limited 2025. All rights reserved.
+/* Copyright (c) V-Nova International Limited 2025-2026. All rights reserved.
  * This software is licensed under the BSD-3-Clause-Clear License by V-Nova Limited.
  * No patent licenses are granted under this license. For enquiries about patent licenses,
  * please contact legal@v-nova.com.
@@ -15,9 +15,13 @@
 #ifndef VN_LCEVC_PIPELINE_VULKAN_TYPES_VULKAN_H
 #define VN_LCEVC_PIPELINE_VULKAN_TYPES_VULKAN_H
 
+#include <LCEVC/enhancement/cmdbuffer_gpu.h>
 #include <picture_vulkan.h>
 
 namespace lcevc_dec::pipeline_vulkan {
+
+class PipelineVulkan;
+class VulkanFrameContext;
 
 struct VulkanConversionArgs
 {
@@ -26,14 +30,17 @@ struct VulkanConversionArgs
     bool toInternal;  /**< Indicates whether we are converting to or from internal */
     uint8_t bitDepth; /**< Indicates bit depth of the external picture */
     LdeChroma chroma;
+    float sharpenStrength{0.0f}; /**< Sharpen strength for output conversion (plane 0 only) */
+    VulkanFrameContext* context{};
 };
 
-struct VulkanBlitArgs
+struct VulkanAddArgs
 {
     PictureVulkan* src;
     PictureVulkan* dst;
     uint8_t numEnhancedPlanes;
     LdeChroma chroma;
+    VulkanFrameContext* context{};
 };
 
 struct VulkanUpscaleArgs
@@ -49,11 +56,27 @@ struct VulkanUpscaleArgs
     uint8_t numImagePlanes;
     LdeChroma chroma;
     PictureVulkan* intermediateUpscalePicture[LOQEnhancedCount] = {};
+    PipelineVulkan* pipeline{};
+    VulkanFrameContext* context{};
 };
 
-struct VulkanApplyArgs
+struct VulkanApplyCommonArgs
 {
-    PictureVulkan* picture;
+    PictureVulkan* picture; // nullptr for temporal apply
+    uint32_t planeWidth;
+    uint32_t planeHeight;
+    uint8_t plane;
+    uint8_t loq; // LOQ index (LOQ0 or LOQ1) for selecting the correct command buffer
+    LdeChroma chroma;
+    bool dds;           // true when layerCount == 16 (DDS), false for DD
+    bool tuRasterOrder; // true when tiles are in raster order
+    PictureVulkan* temporalPicture;
+    VulkanFrameContext* context{};
+};
+
+struct VulkanApplyTileArgs
+{
+    PictureVulkan* picture; // nullptr for temporal apply
     uint32_t planeWidth;
     uint32_t planeHeight;
     LdeCmdBufferGpu bufferGpu;
@@ -61,11 +84,12 @@ struct VulkanApplyArgs
     uint16_t tileY;
     uint16_t tileWidth;
     uint8_t plane;
+    uint8_t loq; // LOQ index (LOQ0 or LOQ1) for selecting the correct command buffer
     bool highlightResiduals;
-    bool temporalRefresh;
+    bool dds; // true when layerCount == 16 (DDS), false for DD
     bool tuRasterOrder;
-    LdeChroma chroma;
     PictureVulkan* temporalPicture;
+    VulkanFrameContext* context{};
 };
 
 } // namespace lcevc_dec::pipeline_vulkan
